@@ -95,43 +95,6 @@ def make_lagrange_interpolation(
 CurveAndPoints = tuple[SD.Curve, SD.PointGeom, SD.PointGeom]
 
 
-# def make_curve_2D(
-#     control_points: Coords2D, curve_id: int, point_id_start=0
-# ) -> tuple[CurveAndPoints, int]:
-#     """Create a Nektar++ curve object from the control points. This
-#     is constructed on a 2D cartesian plane, without any curvature in
-#     the toroidal direction. Also returns the first and last point in the curve.
-
-#     """
-#     curve = SD.Curve(curve_id, LU.PointsType.PolyEvenlySpaced)
-#     points = [
-#         SD.PointGeom(2, point_id_start + i, *coord, 0.0)
-#         for i, coord in enumerate(zip(*np.broadcast_arrays(*control_points)))
-#     ]
-#     curve.points = points
-#     return (curve, points[0], points[-1]), point_id_start + len(points)
-
-
-# def make_straight_edge(start: SD.PointGeom, end: SD.PointGeom, edge_id: int):
-#     return SD.SegGeom(edge_id, start.GetCoordim(), [start, end])
-
-
-# def make_curved_edge(
-#     curve: SD.Curve, start: SD.PointGeom, end: SD.PointGeom, edge_id: int
-# ) -> SD.SegGeom:
-#     return SD.SegGeom(edge_id, start.GetCoordim(), [start, end], curve)
-
-
-# def make_element_2D(
-#     left: SD.SegGeom,
-#     right: SD.SegGeom,
-#     top: SD.SegGeom,
-#     bottom: SD.SegGeom,
-#     quad_id: int,
-# ) -> SD.QuadGeom:
-#     return SD.QuadGeom(quad_id, [left, top, right, bottom])
-
-
 def make_layer_composites(
     elements: Iterable[SD.QuadGeom],
 ) -> tuple[SD.Composite, SD.Composite, SD.Composite]:
@@ -145,44 +108,6 @@ def make_layer_composites(
 
 def element_key(element: SD.QuadGeom) -> float:
     return element.GetVertex(0).GetCoordinates()[1]
-
-
-# def make_composite_map(comp: SD.Composite, composite_id: int) -> SD.CompositeMap:
-#     comp_map = SD.CompositeMap()
-#     comp_map[composite_id] = comp
-#     return comp_map
-
-
-# def make_domain(comp: SD.Composite, composite_id: int) -> SD.CompositeMap:
-#     return make_composite_map(comp, composite_id)
-
-
-# def make_interface(comp: SD.Composite, composite_id, interface_id: int) -> SD.Interface:
-#     return SD.Interface(interface_id, make_composite_map(comp, composite_id))
-
-
-# def make_zone(comp: SD.Composite, zone_id: int, coord_dim=3) -> SD.ZoneFixed:
-#     return SD.ZoneFixed(zone_id, zone_id, make_domain(comp, zone_id), coord_dim)
-
-
-# def make_interfaces(
-#     layer: SD.Composite,
-#     left: SD.Composite,
-#     right: SD.Composite,
-#     layer_id: int,
-#     num_layers,
-#     coord_dim=3,
-# ) -> tuple[SD.Interface, SD.Interface]:
-#     make_zone(layer, layer_id, coord_dim)
-#     return make_interface(left, layer_id + num_layers, layer_id), make_interface(
-#         right, layer_id + 2 * num_layers, layer_id + num_layers
-#     )
-
-
-# def make_interface_pairs(
-#     movement: SD.Movement, left: SD.Interface, right: SD.Interface, pair_id: int
-# ) -> None:
-#     movement.AddInterface(f"Join {pair_id}", left, right)
 
 
 def field_aligned_2d(
@@ -244,6 +169,7 @@ def field_aligned_2d(
 
     builder = MeshBuilder(2, 2)
 
+    # Does Numpy have sin/cos functions that absorb multiples of pi, to reduce floating point error?
     curves_start_end = (
         builder.make_curves_and_points(*c[0].offset(phi))
         for phi, c in itertools.product(phi_mid, control_points_and_lagrange)
@@ -288,106 +214,6 @@ def field_aligned_2d(
         maxlen=0,
     )
     return builder.meshgraph
-
-    # poloidal_positions = field_line(PoloidalCoord2D(np.expand_dims(poloidal_mesh, axis=1)), control_points)
-
-    # n_mesh = len(poloidal_mesh)
-    # vertices_per_layer = 2 * n_mesh
-    # edges_per_layer = n_mesh + 2 * (n_mesh - 1)
-    # elements_per_layer = n_mesh - 1
-    # composites_per_layer = 3
-    # interfaces_per_layer = 2
-
-    # mesh = SD.MeshGraphXml(2, 2)
-    # vertices = mesh.GetAllPointGeoms()
-    # edges = mesh.GetAllSegGeoms()
-    # elements = mesh.GetAllQuadGeoms()
-    # composites = mesh.GetComposites()
-    # domains = mesh.GetDomain()
-
-    # near_interfaces = []
-    # far_interfaces = []
-
-    # # FIXME: Need to handle truncation of elements at border
-    # for i, x_tor in enumerate(toroidal_centres):
-    #     # Create vertices for each cell
-    #     start_points = [
-    #         SD.PointGeom(
-    #             2, j + i * vertices_per_layer, x_tor + control_points[0], x_pol, 0
-    #         ) for j, x_pol in enumerate(poloidal_positions[:, 0])
-    #     ]
-    #     end_points = [
-    #         SD.PointGeom(
-    #             2, j + n_mesh + i * vertices_per_layer, x_tor + control_points[-1], x_pol, 0
-    #         ) for j, x_pol in enumerate(poloidal_positions[:, -1])
-    #     ]
-
-    #     for vertex in itertools.chain(start_points, end_points):
-    #         vertices[vertex.GetGlobalID()] = vertex
-
-    #     # Create edges between nodes
-    #     near_edges = [
-    #         SD.SegGeom(j + i * edges_per_layer, 2, [v1, v2]) for
-    #         j, (v1, v2) in enumerate(itertools.pairwise(start_points))
-    #     ]
-    #     far_edges = [
-    #         SD.SegGeom(j + n_mesh - 1 + i * edges_per_layer, 2, [v1, v2]) for
-    #         j, (v1, v2) in enumerate(itertools.pairwise(end_points))
-    #     ]
-    #     # FIXME: Add curve information
-    #     cross_edges = [
-    #         SD.SegGeom(j + 2*(n_mesh - 1) + i * edges_per_layer, 2, [v1, v2], None)
-    #         for j, (v1, v2) in enumerate(zip(start_points, end_points))
-    #     ]
-
-    #     for e in itertools.chain(near_edges, far_edges, cross_edges):
-    #         edges[e.GetGlobalID()] = e
-
-    #     # Create quad elements from edges
-    #     layer_elements = [
-    #         SD.QuadGeom(j + i * elements_per_layer, list(edges))
-    #         for j, edges in enumerate(
-    #                 zip(near_edges, itertools.islice(cross_edges, 1, None), far_edges, cross_edges)
-    #         )
-    #     ]
-
-    #     for element in layer_elements:
-    #         elements[element.GetGlobalID()] = element
-
-    #     # Create composites from elements and for poloidal faces
-    #     # TODO: Add labels?
-    #     layer_composite = SD.Composite(layer_elements)
-    #     composites[i * composites_per_layer] = layer_composite
-    #     near_face_composite = SD.Composite(near_edges)
-    #     composites[i * composites_per_layer + 1] = near_face_composite
-    #     near_comp_map = SD.CompositeMap()
-    #     near_comp_map[i * composites_per_layer + 1] = near_face_composite
-    #     far_face_composite = SD.Composite(far_edges)
-    #     composites[i * composites_per_layer + 2] = far_face_composite
-    #     far_comp_map = SD.CompositeMap()
-    #     far_comp_map[i * composites_per_layer + 1] = far_face_composite
-
-    #     # Create domain from element-composite
-    #     # FIXME: Think this will need to use a constructor for the C++ type
-    #     domain = SD.CompositeMap()
-    #     domain[i * composites_per_layer] = layer_composite
-    #     domains[i] = domain
-
-    #     # Create zone from domain
-    #     zone = SD.ZoneFixed(i, i, domain, 2)
-    #     movement.AddZone(zone)
-
-    #     # Create interfaces from face-composites
-    #     near_interfaces.append(SD.Interface(i * interfaces_per_layer, near_comp_map))
-    #     far_interfaces.append(SD.Interface(i * interfaces_per_layer + 1, far_comp_map))
-
-    # # Create interface pairs for adjacent interfaces
-    # for j, (near, far) in enumerate(zip(near_interfaces[1:], far_interfaces[:-1])):
-    #     movement.AddInterface(f"Join {j}", near, far)
-
-    # # FIXME: Add boundary composites
-
-    # return mesh
 
 
 m = field_aligned_2d(
