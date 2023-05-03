@@ -1,7 +1,7 @@
 from collections import Counter
 from collections.abc import Iterable
 from enum import Enum
-from typing import NamedTuple, Optional, Tuple
+from typing import Optional, Tuple
 
 import NekPy.SpatialDomains._SpatialDomains as SD
 import NekPy.LibUtilities._LibUtilities as LU
