@@ -6,15 +6,7 @@ from collections.abc import Iterator, Sequence, Iterable
 from dataclasses import dataclass
 from enum import Enum
 import itertools
-from typing import (
-    cast,
-    Callable,
-    Optional,
-    Tuple,
-    TypeVar,
-    Type,
-    Generic,
-)
+from typing import cast, Any, Callable, Optional, TypeVar, Type, Generic, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -31,39 +23,21 @@ def asarrays(coords: CoordTriple) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray
     return tuple(map(np.asarray, coords))
 
 
-class CoordinateSystem(ABC):
-    @staticmethod
-    @abstractmethod
-    def to_cartesian(
-        x1: npt.ArrayLike, x2: npt.ArrayLike, x3: npt.ArrayLike
-    ) -> CoordTriple:
-        raise NotImplementedError("Must be overridden in subclass.")
+class CoordinateSystem(Enum):
+    Cartesian = lambda x1, x2, x3: (x1, x2, x3)
+    Cylindrical = lambda x1, x2, x3: (x1 * np.sin(x3), x1 * np.cos(x3), x2)
 
 
-class Cylindrical(CoordinateSystem):
-    @staticmethod
-    def to_cartesian(
-        x1: npt.ArrayLike, x2: npt.ArrayLike, x3: npt.ArrayLike
-    ) -> CoordTriple:
-        return x1 * np.sin(x3), x1 * np.cos(x3), x2
-
-
-class Cartesian(CoordinateSystem):
-    @staticmethod
-    def to_cartesian(
-        x1: npt.ArrayLike, x2: npt.ArrayLike, x3: npt.ArrayLike
-    ) -> CoordTriple:
-        return x1, x2, x3
-
-
-C = TypeVar("C", bound=CoordinateSystem)
+CartesianCoordinates = Literal[CoordinateSystem.Cartesian]
+CylindricalCoordinates = Literal[CoordinateSystem.Cylindrical]
+C = TypeVar("C", CartesianCoordinates, CylindricalCoordinates)
 
 
 @dataclass
 class SliceCoord(Generic[C]):
     x1: float
     x2: float
-    system: Type[C]
+    system: C
 
     def __iter__(self) -> Iterator[float]:
         yield self.x1
@@ -74,7 +48,7 @@ class SliceCoord(Generic[C]):
 class SliceCoords(Generic[C]):
     x1: npt.NDArray
     x2: npt.NDArray
-    system: Type[C]
+    system: C
 
     def iter_points(self) -> Iterator[SliceCoord]:
         for x1, x2 in cast(
@@ -95,15 +69,15 @@ class Coords(Generic[C]):
     x1: npt.NDArray
     x2: npt.NDArray
     x3: npt.NDArray
-    system: Type[C]
+    system: C
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords[C]":
         return Coords(self.x1, self.x2, self.x3 + dx3, self.system)
 
-    def to_cartesian(self) -> "Coords[Cartesian]":
+    def to_cartesian(self) -> "Coords[CartesianCoordinates]":
         return Coords(
-            *asarrays(self.system.to_cartesian(*self)),
-            Cartesian,
+            *asarrays(self.system(*self)),
+            CoordinateSystem.Cartesian,
         )
 
     def __iter__(self) -> Iterator[npt.NDArray]:
@@ -121,14 +95,68 @@ FieldTrace = Callable[
 NormalisedFieldLine = Callable[[npt.ArrayLike], Coords[C]]
 
 
+@dataclass(frozen=True)
+class Curve(Generic[C]):
+    line: NormalisedFieldLine
+    order: int
+    offset: float
+    system: Type[C]
+
+
+@dataclass(frozen=True)
+class Quad(Generic[C]):
+    north: Curve[C]
+    south: Curve[C]
+
+
+@dataclass(frozen=True)
+class Tet(Generic[C]):
+    north: Curve[C]
+    south: Curve[C]
+    east: Curve[C]
+    west: Curve[C]
+
+
+Element = Quad | Tet
+
+
+@dataclass(frozen=True)
+class SavedElement:
+    shape: Element
+    element: Any
+    near_face: Any
+    far_face: Any
+
+
+@dataclass(frozen=True)
+class SavedLayer:
+    elements: frozenset[SavedElement]
+    domain: Any
+
+
+def layer_coord(element: Element) -> float:
+    return element.north.offset
+
+
+Mesh = frozenset[Quad] | frozenset[Tet]
+SavedCurve = tuple[int, Curve]
+
+
+# Think the functional way to prevent duplicate points/curves being
+# created when writing NekMesh file would be a monad which keeps track
+# of what has been created already. Would be using a monad to
+# represent the I/O anyway. Don't think there is a way to prevent
+# duplication without having the whole list in memory.
+
+
 def normalise_field_line(
     trace: "FieldTrace[C]",
     start: SliceCoord[C],
-    xtor_min: float,
-    xtor_max: float,
+    x3_min: float,
+    x3_max: float,
     resolution=10,
 ) -> NormalisedFieldLine[C]:
-    x_extrusion = np.linspace(xtor_min, xtor_max, resolution)
+    x_extrusion = np.linspace(x3_min, x3_max, resolution)
     x_cross_section, s = trace(start, x_extrusion)
     coordinates = np.stack([*x_cross_section, x_extrusion])
     order = "cubic" if len(s) > 2 else "linear"
@@ -217,7 +245,7 @@ def classify_node_position(
 def field_aligned_2d(
     poloidal_mesh: SliceCoords[C],
     field_line: "FieldTrace[C]",
-    extrusion_limits: Tuple[float, float] = (0.0, 1.0),
+    extrusion_limits: tuple[float, float] = (0.0, 1.0),
     bounds=(0.0, 1.0),
     n: int = 10,
     order: int = 1,
@@ -288,6 +316,27 @@ def field_aligned_2d(
     # Work out max and min distances between near-boundary elements and the boundary
     # Add extra geometry elements to fill in boundaries
 
+    # FIXME: how to get coordinate system type
+    # FIXME: already evaluated at various points to get Lagrange interpolant, so maybe should just keep list of points
+    # FIXME: Lagrange interpolant should only be returning cartesian coordinates, as that reflects how interpolation will be done in Nektar++
+    mesh = frozenset(
+        Quad(
+            Curve(line1, order, x3, CoordinateSystem.Cartesian),
+            Curve(line2, order, x3, CoordinateSystem.Cartesian),
+        )
+        for x3, (line1, line2) in itertools.product(
+            x3_mid, itertools.pairwise(lagrange_interp)
+        )
+    )
+
+    layers = (layer for _, layer in itertools.groupby(mesh, layer_coord))
+
+    # mesh is now sufficient to represent the data in
+    # Python. Everything else is specific to creating Nektar++ meshes
+    # and can be placed elsewhere.
+
+    # Use functools.cache to generate unique output objects
+    
     builder = MeshBuilder(2, 2)
 
     curves_start_end = (
@@ -312,6 +361,7 @@ def field_aligned_2d(
         builder.make_edge(start, end, curve)
         for curve, (start, end) in zip(curves, termini)
     )
+    # FIXME: Pretty sure this is making connections between nodes in adjacent layers
     left = (builder.make_edge(s1, s2) for s1, s2 in itertools.pairwise(starts))
     right = (builder.make_edge(e1, e2) for e1, e2 in itertools.pairwise(ends))
 
@@ -376,7 +426,9 @@ def straight_field(angle=0.0) -> "FieldTrace[C]":
 num_nodes = 5
 
 m = field_aligned_2d(
-    SliceCoords(np.linspace(0, 1, num_nodes), np.zeros(num_nodes), Cartesian),
+    SliceCoords(
+        np.linspace(0, 1, num_nodes), np.zeros(num_nodes), CoordinateSystem.Cartesian
+    ),
     straight_field(),
     (0.0, 1.0),
     (0.0, 1.0),
