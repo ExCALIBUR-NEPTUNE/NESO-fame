@@ -1,7 +1,5 @@
 # WARNING: This script is coverd by GPL, due to dependency on hypnotoad!
 
-from abc import ABC, abstractmethod
-from collections import deque
 from collections.abc import Iterator, Sequence, Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -21,10 +19,9 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from scipy.interpolate import interp1d, RegularGridInterpolator, lagrange
+from scipy.interpolate import interp1d, lagrange
 
 import NekPy.SpatialDomains._SpatialDomains as SD
-from mesh_builder import MeshBuilder
 
 
 CoordTriple = tuple[npt.ArrayLike, npt.ArrayLike, npt.ArrayLike]
@@ -228,7 +225,9 @@ class Quad(Generic[C]):
         north_corners = self.north.control_points(1)
         south_corners = self.south.control_points(1)
         return Coords(
-            *(np.concatenate(x) for x in zip(north_corners, south_corners)),
+            np.concatenate([north_corners.x1, south_corners.x1]),
+            np.concatenate([north_corners.x2, south_corners.x2]),
+            np.concatenate([north_corners.x3, south_corners.x3]),            
             north_corners.system,
         )
 
@@ -243,10 +242,9 @@ class Quad(Generic[C]):
             north_samples = self.north.control_points(order)
             south_samples = self.south.control_points(order)
             return Coords(
-                *(
-                    np.linspace(north, south, order + 1)
-                    for north, south in zip(north_samples, south_samples)
-                ),
+                np.linspace(north_samples.x1, south_samples.x1, order + 1),
+                np.linspace(north_samples.x2, south_samples.x2, order + 1),
+                np.linspace(north_samples.x3, south_samples.x3, order + 1),
                 north_samples.system,
             )
         else:
@@ -296,7 +294,9 @@ class Tet(Generic[C]):
         south_corners = self.south.corners()
         # TODO Check that east and west corners are the same as north and south
         return Coords(
-            *(np.concatenate(x) for x in zip(north_corners, south_corners)),
+            np.concatenate([north_corners.x1, south_corners.x1]),
+            np.concatenate([north_corners.x2, south_corners.x2]),
+            np.concatenate([north_corners.x3, south_corners.x3]),            
             north_corners.system,
         )
 
@@ -331,14 +331,16 @@ Connectivity = Sequence[Sequence[int]]
 @dataclass(frozen=True)
 class MeshLayer(Generic[E]):
     reference_elements: dict[E, ElementConnections[E]]
-    order: int
     offset: Optional[float] = None
 
     def elements(self) -> Iterable[E]:
-        if self.offset is not None:
+        if isinstance(self.offset, float):
             return map(lambda e: e.offset(self.offset), self.reference_elements)
         else:
             return self.reference_elements
+
+    def __len__(self) -> int:
+        return len(self.reference_elements)
 
     @cached_property
     def element_type(self) -> Type[E]:
@@ -397,11 +399,14 @@ class Mesh(Generic[E]):
     def layers(self) -> Iterable[MeshLayer[E]]:
         return map(
             lambda off: MeshLayer(
-                self.reference_layer.reference_elements, self.reference_layer.order, off
+                self.reference_layer.reference_elements, off
             ),
             self.offsets,
         )
 
+    def __len__(self) -> int:
+        return len(self.reference_layer) * self.offsets.size
+    
     @property
     def num_unique_corners(self) -> int:
         return self.offsets.size * self.reference_layer.num_unique_corners
@@ -427,8 +432,8 @@ def normalise_field_line(
     resolution=10,
 ) -> NormalisedFieldLine[C]:
     x_extrusion = np.linspace(x3_min, x3_max, resolution)
-    x_cross_section, s = trace(start, x_extrusion)
-    coordinates = np.stack([*x_cross_section, x_extrusion])
+    x_cross_sectional_coords, s = trace(start, x_extrusion)
+    coordinates = np.stack([*x_cross_sectional_coords, x_extrusion])
     order = "cubic" if len(s) > 2 else "linear"
     interp = interp1d((s - s[0]) / (s[-1] - s[0]), coordinates, order)
     coord_system = start.system
@@ -619,13 +624,13 @@ def field_aligned_2d(
     )
     # FIXME (minor): What would be the functional way to do this, without needing to mutate quad_map?
     quad_map: dict[Quad, dict[Quad, bool]] = {}
-    for q1, q2 in adjacent_quads:
+    for (_, q1), (_, q2) in adjacent_quads:
         if q1 in quad_map:
             quad_map[q1][q2] = False
         else:
             quad_map[q1] = {q2: False}
 
-    return Mesh(MeshLayer(quad_map, order), x3_mid)
+    return Mesh(MeshLayer(quad_map), x3_mid)
 
     # mesh is now sufficient to represent the data in
     # Python. Everything else is specific to creating Nektar++ meshes
