@@ -7,6 +7,7 @@ from vtk.util.numpy_support import numpy_to_vtk
 
 from generate_mesh import Mesh, Coord, Quad
 
+
 class Points:
     def __init__(self, size: int):
         self.points_locations = np.array((size, 3))
@@ -26,7 +27,7 @@ class Points:
         points = vtk.vtkPoints()
         points.SetData(numpy_to_vtk(self.points_locations.flatten()))
         return points
-        
+
 
 def vtk_unstructured_grid(mesh: Mesh[Quad], order: int) -> vtk.vtkUnstructuredGrid:
     grid = vtk.vtkUnstructuredGrid()
@@ -40,27 +41,35 @@ def vtk_unstructured_grid(mesh: Mesh[Quad], order: int) -> vtk.vtkUnstructuredGr
     #
     # Doesn't all have to be in that form. Can build up objects one by one.
     cells = vtk.vtkCellArray()
-    cell_types = np.empty((n,), 'B')
+    cell_types = np.empty((n,), "B")
     cell_types[:] = vtk.VTK_LAGRANGE_QUADRILATERAL
     cell_locations = np.empty((n,))
     npoints = (order + 1) ** 2
     barycentric_index = [0, 0, 0, 0]
-    for i, element in enumerate(itertools.chain.from_iterable(layer.elements() for layer in mesh.layers())):
+    for i, element in enumerate(
+        itertools.chain.from_iterable(layer.elements() for layer in mesh.layers())
+    ):
         quad = vtk.vtkLagrangeQuadrilateral()
         quad.GetPointIds().SetNumberOfIds(npoints)
         quad.GetPoints.SetNumberOfPoints(npoints)
         control_points = element.control_points(order)
         quad_ids = quad.GetPointIds()
         for j in range(npoints):
-            # We compute the barycentric index of the point... 
+            # We compute the barycentric index of the point...
             quad.ToBarycentricIndex(j, barycentric_index)
-            vtk_point_id = points.get_point_index(control_points[barycentric_index[0], barycentric_index[1]])
+            vtk_point_id = points.get_point_index(
+                control_points[barycentric_index[0], barycentric_index[1]]
+            )
             quad_ids.SetId(j, vtk_point_id)
         # Fixme: is this the right value to store in cell_locations?
         cell_locations[i] = cells.InsertNextCell(quad)
 
     grid.SetPoints(points.make_vtk_points())
-    grid.SetCells(numpy_to_vtk(cell_types), numpy_to_vtk(cell_locations, deep=1, array_type=vtk.VTK_ID_TYPE), cells)
+    grid.SetCells(
+        numpy_to_vtk(cell_types),
+        numpy_to_vtk(cell_locations, deep=1, array_type=vtk.VTK_ID_TYPE),
+        cells,
+    )
     return grid
 
 

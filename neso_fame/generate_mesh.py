@@ -84,8 +84,8 @@ class Coord(Generic[C]):
     system: C
 
     def to_cartesian(self) -> "Coords[CartesianCoordinates]":
-        return Coords(
-            *asarrays(self.system(*self)),
+        return Coord(
+            *self.system(*self),
             CoordinateSystem.Cartesian,
         )
 
@@ -227,7 +227,7 @@ class Quad(Generic[C]):
         return Coords(
             np.concatenate([north_corners.x1, south_corners.x1]),
             np.concatenate([north_corners.x2, south_corners.x2]),
-            np.concatenate([north_corners.x3, south_corners.x3]),            
+            np.concatenate([north_corners.x3, south_corners.x3]),
             north_corners.system,
         )
 
@@ -296,7 +296,7 @@ class Tet(Generic[C]):
         return Coords(
             np.concatenate([north_corners.x1, south_corners.x1]),
             np.concatenate([north_corners.x2, south_corners.x2]),
-            np.concatenate([north_corners.x3, south_corners.x3]),            
+            np.concatenate([north_corners.x3, south_corners.x3]),
             north_corners.system,
         )
 
@@ -398,15 +398,13 @@ class Mesh(Generic[E]):
 
     def layers(self) -> Iterable[MeshLayer[E]]:
         return map(
-            lambda off: MeshLayer(
-                self.reference_layer.reference_elements, off
-            ),
+            lambda off: MeshLayer(self.reference_layer.reference_elements, off),
             self.offsets,
         )
 
     def __len__(self) -> int:
         return len(self.reference_layer) * self.offsets.size
-    
+
     @property
     def num_unique_corners(self) -> int:
         return self.offsets.size * self.reference_layer.num_unique_corners
@@ -519,7 +517,9 @@ def classify_node_position(
         return updated_status, updated_skin
 
 
-def all_connections(connectivity: Connectivity, node_status: Sequence[NodeStatus]) -> Iterator[tuple[int, int]]:
+def all_connections(
+    connectivity: Connectivity, node_status: Sequence[NodeStatus]
+) -> Iterator[tuple[int, int]]:
     for i, (status, connections) in enumerate(zip(node_status, connectivity)):
         if status == NodeStatus.EXTERNAL:
             continue
@@ -705,38 +705,3 @@ def field_aligned_2d(
     #     maxlen=0,
     # )
     # return builder.meshgraph
-
-
-def straight_field(angle=0.0) -> "FieldTrace[C]":
-    """Returns a field trace corresponding to straight field lines
-    slanted at `angle` above the direction of extrusion into the first
-    coordinate direction."""
-
-    def trace(
-        start: SliceCoord[C], perpendicular_coord: npt.ArrayLike
-    ) -> tuple[SliceCoords[C], npt.NDArray]:
-        """Returns a trace for a straight field line."""
-        x1 = start.x1 + perpendicular_coord * np.tan(angle)
-        x2 = np.asarray(start.x2)
-        x3 = np.asarray(perpendicular_coord)
-        return SliceCoords(x1, x2, start.system), x3
-
-    return trace
-
-
-# Have function to generate 2D mesh in Python form
-
-
-num_nodes = 5
-
-m = field_aligned_2d(
-    SliceCoords(
-        np.linspace(0, 1, num_nodes), np.zeros(num_nodes), CoordinateSystem.Cartesian
-    ),
-    straight_field(),
-    (0.0, 1.0),
-    (0.0, 1.0),
-    4,
-    2,
-)
-# m.Write("test_geometry.xml", False, SD.FieldMetaDataMap())

@@ -48,8 +48,7 @@ class MeshBuilder:
         curve_id = self._get_id(self.MeshComponentType.CURVE)
         curve = SD.Curve(curve_id, LU.PointsType.PolyEvenlySpaced)
         points = [
-            SD.PointGeom(2, -1, *coord)
-            for coord in zip(*np.broadcast_arrays(x,y, z))
+            SD.PointGeom(2, -1, *coord) for coord in zip(*np.broadcast_arrays(x, y, z))
         ]
         start_id = self._get_id(self.MeshComponentType.POINT)
         points[0].SetGlobalID(start_id)
@@ -98,7 +97,8 @@ class MeshBuilder:
 
     def make_interface(self, composites: Iterable[IDedComposite]) -> SD.Interface:
         return SD.Interface(
-            self._get_id(self.MeshComponentType.INTERFACE), self.make_composite_map(composites)
+            self._get_id(self.MeshComponentType.INTERFACE),
+            self.make_composite_map(composites),
         )
 
     def make_zone(self, domain: IDedDomain, coord_dim=3) -> SD.ZoneFixed:
