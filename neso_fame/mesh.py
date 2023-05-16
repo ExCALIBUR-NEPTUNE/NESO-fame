@@ -1,40 +1,42 @@
 # WARNING: This script is coverd by GPL, due to dependency on hypnotoad!
+from __future__ import annotations
 
 from collections.abc import Iterator, Sequence, Iterable
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property, cache
+from functools import cache, cached_property
 import itertools
 from typing import (
     cast,
-    Any,
     Callable,
-    Optional,
-    TypeVar,
-    Type,
+    ClassVar,
     Generic,
     Literal,
-    ClassVar,
+    Optional,
+    Type,
+    TypeVar,
 )
 
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d, lagrange
 
-import NekPy.SpatialDomains._SpatialDomains as SD
-
 
 CoordTriple = tuple[npt.ArrayLike, npt.ArrayLike, npt.ArrayLike]
 
 
 def asarrays(coords: CoordTriple) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
-    return tuple(map(np.asarray, coords))
+    return np.asarray(coords[0]), np.asarray(coords[1]), np.asarray(coords[2])
 
 
 class CoordinateSystem(Enum):
-    Cartesian = lambda x1, x2, x3: (x1, x2, x3)
-    Cylindrical = lambda x1, x2, x3: (x1 * np.sin(x3), x1 * np.cos(x3), x2)
+    Cartesian = 0
+    Cylindrical = 1
 
+COORDINATE_TRANSFORMS = {
+    CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
+    CoordinateSystem.Cylindrical: lambda x1, x2, x3: (x1 * np.sin(x3), x1 * np.cos(x3), x2),
+}
 
 CartesianCoordinates = Literal[CoordinateSystem.Cartesian]
 CylindricalCoordinates = Literal[CoordinateSystem.Cylindrical]
@@ -83,9 +85,9 @@ class Coord(Generic[C]):
     x3: float
     system: C
 
-    def to_cartesian(self) -> "Coords[CartesianCoordinates]":
+    def to_cartesian(self) -> "Coord[CartesianCoordinates]":
         return Coord(
-            *self.system(*self),
+            *COORDINATE_TRANSFORMS[self.system](*self),
             CoordinateSystem.Cartesian,
         )
 
@@ -114,7 +116,7 @@ class Coords(Generic[C]):
 
     def to_cartesian(self) -> "Coords[CartesianCoordinates]":
         return Coords(
-            *asarrays(self.system(*self)),
+            *asarrays(COORDINATE_TRANSFORMS[self.system](*self)),
             CoordinateSystem.Cartesian,
         )
 
@@ -133,13 +135,7 @@ class Coords(Generic[C]):
 FieldTrace = Callable[
     [SliceCoord[C], npt.ArrayLike], tuple[SliceCoords[C], npt.NDArray]
 ]
-
 NormalisedFieldLine = Callable[[npt.ArrayLike], Coords[C]]
-
-NormalisedQuad = Callable[[float, float], Coords[C]]
-NormalisedHex = Callable[[float, float], Coords[C]]
-
-# FIXME: Putting numpy arrays in dataclasses making hashing and equality comparison hard. Just using functions was easier, really. Maybe should go back to that and sample control points as needed, with order given as argument. Could work well if I want to change distribution of control poitns later.
 
 
 @dataclass(frozen=True)
@@ -181,19 +177,12 @@ class Quad(Generic[C]):
     north: Curve[C]
     south: Curve[C]
     in_plane: Optional[Curve[C]]
-    field: "FieldTrace[C]"
+    field: FieldTrace[C]
     NUM_CORNERS: ClassVar[int] = 4
 
     def __iter__(self) -> Iterable[Curve[C]]:
         yield self.north
         yield self.south
-
-    def shared_curves(
-        self, other: "Quad[C]"
-    ) -> Optional[tuple[SharedBound, SharedBound]]:
-        """Returns which boundaries from self and other are common, or
-        None if there aren't any."""
-        pass
 
     @classmethod
     @cache
@@ -202,8 +191,8 @@ class Quad(Generic[C]):
         north: Curve[C],
         south: Curve[C],
         in_plane: Optional[Curve[C]],
-        field: "FieldTrace[C]",
-    ) -> "Quad[C]":
+        field: FieldTrace[C],
+    ) -> Quad[C]:
         return cls(north, south, in_plane, field)
 
     @classmethod
@@ -212,8 +201,8 @@ class Quad(Generic[C]):
         curve1: Curve[C],
         curve2: Curve[C],
         in_plane: Optional[Curve[C]],
-        field: "FieldTrace[C]",
-    ) -> "Quad[C]":
+        field: FieldTrace[C],
+    ) -> Quad[C]:
         """Returns the same quad object, regardless of the order the
         curve1 and curve2 arguments."""
         if hash(curve1) < hash(curve2):
@@ -252,7 +241,7 @@ class Quad(Generic[C]):
                 "Can not yet handle Quads where all four edges are curved"
             )
 
-    def offset(self, offset: float) -> "Quad[C]":
+    def offset(self, offset: float) -> Quad[C]:
         return Quad(
             self.north.offset(offset),
             self.south.offset(offset),
@@ -314,7 +303,7 @@ class Tet(Generic[C]):
         yield self.south
         yield self.west
 
-    def offset(self, offset: float) -> "Tet[C]":
+    def offset(self, offset: float) -> Tet[C]:
         return Tet(
             self.north.offset(offset),
             self.south.offset(offset),
@@ -335,7 +324,8 @@ class MeshLayer(Generic[E]):
 
     def elements(self) -> Iterable[E]:
         if isinstance(self.offset, float):
-            return map(lambda e: e.offset(self.offset), self.reference_elements)
+            x = self.offset
+            return map(lambda e: e.offset(x), self.reference_elements)
         else:
             return self.reference_elements
 
@@ -413,29 +403,27 @@ class Mesh(Generic[E]):
         return self.offsets.size * self.reference_layer.num_unique_control_points(order)
 
 
-SavedCurve = tuple[int, Curve]
-
-# Think the functional way to prevent duplicate points/curves being
-# created when writing NekMesh file would be a monad which keeps track
-# of what has been created already. Would be using a monad to
-# represent the I/O anyway. Don't think there is a way to prevent
-# duplication without having the whole list in memory.
-
-
 def normalise_field_line(
-    trace: "FieldTrace[C]",
+    trace: FieldTrace[C],
     start: SliceCoord[C],
     x3_min: float,
     x3_max: float,
     resolution=10,
 ) -> NormalisedFieldLine[C]:
-    x_extrusion = np.linspace(x3_min, x3_max, resolution)
-    x_cross_sectional_coords, s = trace(start, x_extrusion)
-    coordinates = np.stack([*x_cross_sectional_coords, x_extrusion])
+    x3 = np.linspace(x3_min, x3_max, resolution)
+    x1_x2_coords: SliceCoords[C]
+    s: npt.NDArray
+    x1_x2_coords, s = trace(start, x3)
+    coordinates = np.stack([*x1_x2_coords, x3])
     order = "cubic" if len(s) > 2 else "linear"
     interp = interp1d((s - s[0]) / (s[-1] - s[0]), coordinates, order)
     coord_system = start.system
-    return lambda s: Coords(*asarrays(interp(s)), coord_system)
+
+    def normalised_interpolator(s: npt.ArrayLike) -> Coords[C]:
+        locations = interp(s)
+        return Coords(locations[0], locations[1], locations[2], coord_system)
+
+    return normalised_interpolator
 
 
 def make_lagrange_interpolation(
@@ -446,13 +434,12 @@ def make_lagrange_interpolation(
     interpolators = [lagrange(s, coord) for coord in coords]
     return Curve(
         lambda s: Coords(
-            *asarrays(tuple(interp(s) for interp in interpolators)),
+            interpolators[0](s),
+            interpolators[1](s),
+            interpolators[2](s),
             CoordinateSystem.Cartesian,
         )
     )
-
-
-CurveAndPoints = tuple[SD.Curve, SD.PointGeom, SD.PointGeom]
 
 
 def ordered_connectivity(size: int) -> Connectivity:
@@ -465,9 +452,10 @@ class NodeStatus(Enum):
     INTERNAL = 3
 
 
-def is_line_in_domain(field_line: NormalisedFieldLine, bounds) -> bool:
+def is_line_in_domain(field_line: NormalisedFieldLine, bounds: Sequence[float]) -> bool:
     # FIXME: This is just a dumb stub. It doesn't even work properly for 2-D, let alone 3-D.
-    x1, _, _ = field_line(0.0)
+    location = field_line(0.0)
+    x1 = float(location.x1)
     return x1 >= bounds[0] and x1 <= bounds[1]
 
 
@@ -505,7 +493,7 @@ def classify_node_position(
     )
     updated_skin = list(
         map(
-            lambda x: is_skin_node(*x, updated_status),
+            lambda x: is_skin_node(x[0], x[1], updated_status),
             zip(updated_status, connectivity),
         )
     )
@@ -530,8 +518,8 @@ def all_connections(
 
 
 def field_aligned_2d(
-    poloidal_mesh: SliceCoords[C],
-    field_line: "FieldTrace[C]",
+    lower_dim_mesh: SliceCoords[C],
+    field_line: FieldTrace[C],
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     bounds=(0.0, 1.0),
     n: int = 10,
@@ -549,20 +537,30 @@ def field_aligned_2d(
 
     Parameters
     ----------
-    poloidal_mesh
-        Locations of nodes in the poloidal plane from which to project
-        along field-lines. Should be ordered.
+    lower_dim_mesh
+        Locations of nodes in the x1-x2 plane, from which to project
+        along field-lines. Unless providing `connectivity`, must be
+        ordered.
     field_line
         Function returning the poloidal coordinate of a field line.
         The first argument is the starting poloidal position and the
         second is the toroidal offset.
-    limits
+    extrusion_limits
         The lower and upper limits of the domain in the toroidal
         direction.
     n
-        Number of layers to generate in the toroidal direction
+        Number of layers to generate in the x3 direction
     order
         Order of the elements created. Must be at least 1 (linear).
+    connectivity
+        Defines which points are connected to each other in the mesh.
+        Item at index `n` is a sequence of the indices for all the
+        other points connected to `n`. If not provided, assume points
+        are connected in an ordered line.
+    skin_nodes
+        Sequence indicating whether the point at each index `n` is on
+        the outer surface of the domain. If not provided, the first and
+        last nodes will be treated as being on the outer surface.
 
     Returns
     -------
@@ -571,9 +569,9 @@ def field_aligned_2d(
         grid
     """
     # Ensure poloidal mesh is actually 1-D (required to keep output 2-D)
-    flattened_mesh = SliceCoords(poloidal_mesh.x1, np.array(0.0), poloidal_mesh.system)
+    flattened_mesh = SliceCoords(lower_dim_mesh.x1, np.array(0.0), lower_dim_mesh.system)
 
-    # Calculate toroidal positions for nodes in final mesh
+    # Calculate x3 positions for nodes in final mesh
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
@@ -631,77 +629,3 @@ def field_aligned_2d(
             quad_map[q1] = {q2: False}
 
     return Mesh(MeshLayer(quad_map), x3_mid)
-
-    # mesh is now sufficient to represent the data in
-    # Python. Everything else is specific to creating Nektar++ meshes
-    # and can be placed elsewhere.
-
-    # Use functools.cache to generate unique output objects
-
-    # builder = MeshBuilder(2, 2)
-
-    # curves_start_end = (
-    #     builder.make_curves_and_points(*c.offset(phi).to_cartesian())
-    #     for phi, c in itertools.product(
-    #         x3_mid,
-    #         (
-    #             p.control_points
-    #             for p, s in zip(lagrange_curves, node_status)
-    #             if s != NodeStatus.EXTERNAL
-    #         ),
-    #     )
-    # )
-
-    # tmp1, tmp2, tmp3, tmp4 = itertools.tee(curves_start_end, 4)
-    # curves = (t[0] for t in tmp1)
-    # starts = (t[1] for t in tmp2)
-    # ends = (t[2] for t in tmp3)
-    # termini = ((t[1], t[2]) for t in tmp4)
-
-    # horizontal_edges = (
-    #     builder.make_edge(start, end, curve)
-    #     for curve, (start, end) in zip(curves, termini)
-    # )
-    # # FIXME: Pretty sure this is making connections between nodes in adjacent layers
-    # left = (builder.make_edge(s1, s2) for s1, s2 in itertools.pairwise(starts))
-    # right = (builder.make_edge(e1, e2) for e1, e2 in itertools.pairwise(ends))
-
-    # elements = itertools.starmap(
-    #     lambda left, right, top_bottom: builder.make_quad_element(
-    #         left, right, *top_bottom
-    #     ),
-    #     zip(left, right, itertools.pairwise(horizontal_edges)),
-    # )
-    # elements_left_right = (
-    #     (elem, elem.GetEdge(0), elem.GetEdge(2)) for elem in elements
-    # )
-    # layers_left_right = (
-    #     layer
-    #     for _, layer in itertools.groupby(
-    #         elements_left_right, lambda e: e[0].GetVertex(0).GetCoordinates()[1]
-    #     )
-    # )
-
-    # composites_left_right = map(
-    #     lambda l: map(builder.make_composite, map(list, zip(*l))), layers_left_right
-    # )
-    # zones_left_right_interfaces = (
-    #     (
-    #         builder.make_zone(builder.make_domain([main]), 2),
-    #         builder.make_interface([l]),
-    #         builder.make_interface([r]),
-    #     )
-    #     for main, l, r in composites_left_right
-    # )
-
-    # # Evaluate all of the (lazy) iterators
-    # deque(
-    #     (
-    #         builder.add_interface_pair(far, near, f"Join {i}")
-    #         for i, ((_, _, far), (near, _, _)) in enumerate(
-    #             itertools.pairwise(zones_left_right_interfaces)
-    #         )
-    #     ),
-    #     maxlen=0,
-    # )
-    # return builder.meshgraph

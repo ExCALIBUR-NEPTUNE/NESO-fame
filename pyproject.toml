@@ -1,0 +1,11 @@
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = ["./typings"]
+modules = ["test_mesh", "neso_fame"]
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true

@@ -1,13 +1,12 @@
-from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cache, reduce
 import itertools
 from typing import Optional
 
-import NekPy.SpatialDomains._SpatialDomains as SD
-import NekPy.LibUtilities._LibUtilities as LU
+import NekPy.SpatialDomains as SD
+import NekPy.LibUtilities as LU
 
-from .generate_mesh import Mesh, MeshLayer, Coord, Curve, Quad
+from .mesh import Mesh, MeshLayer, Coord, Curve, Quad
 
 UNSET_ID = -1
 

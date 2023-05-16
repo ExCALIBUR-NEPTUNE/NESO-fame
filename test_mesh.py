@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from neso_fame.generate_mesh import (
+from neso_fame.mesh import (
     field_aligned_2d,
     FieldTrace,
     C,
