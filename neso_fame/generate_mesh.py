@@ -581,7 +581,7 @@ def field_aligned_2d(
     curves = [
         Curve(
             normalise_field_line(
-                field_line, coord, -0.5 * dx3, 0.5 * dx3, min(10, 2 * order)
+                field_line, coord, -0.5 * dx3, 0.5 * dx3, max(11, 2 * order + 1)
             )
         )
         for coord in flattened_mesh.iter_points()

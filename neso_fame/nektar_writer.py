@@ -52,10 +52,10 @@ def nektar_point(position: Coord, layer_id: Optional[int] = None) -> SD.PointGeo
 def nektar_curve(
     curve: Curve, order: int, layer_id: Optional[int] = None
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
-    points = [nektar_point(coord, layer_id) for coord in curve.control_points(order)]
+    points = [nektar_point(coord, layer_id) for coord in curve.control_points(order).iter_points()]
     nek_curve = SD.Curve(UNSET_ID, LU.PointsType.PolyEvenlySpaced)
     nek_curve.points = points
-    return nek_curve, (points[0], points[1])
+    return nek_curve, (points[0], points[-1])
 
 
 @cache
@@ -196,12 +196,14 @@ def nektar_mesh(
     for i, point in enumerate(itertools.chain.from_iterable(elements.points)):
         point.SetGlobalID(i)
         points[i] = point
+    for i, curve in enumerate(itertools.chain.from_iterable(elements.curves)):
+        curved_edges[i] = curve
     for i, seg in enumerate(itertools.chain.from_iterable(elements.segments)):
         seg.SetGlobalID(i)
         segments[i] = seg
-    for i, curve in enumerate(itertools.chain.from_iterable(elements.curves)):
-        curve.curveID = i
-        curved_edges[i] = curve
+        curve = seg.GetCurve()
+        if curve is not None:
+            curve.curveID = i
     for i, face in enumerate(itertools.chain.from_iterable(elements.faces)):
         face.SetGlobalID(i)
         if isinstance(face, SD.TriGeom):
@@ -253,7 +255,7 @@ def nektar_mesh(
 
 
 def write_unstructured_grid(mesh: SD.MeshGraphXml, filename: str) -> None:
-    mesh.Write(filename, False, SD.FieldMetaDataMap())
+    mesh.Write(filename, True, SD.FieldMetaDataMap())
 
 
 def write_nektar(mesh: Mesh, order: int, filename: str) -> None:
