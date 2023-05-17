@@ -41,7 +41,10 @@ def curved_field(weight=0.0) -> "FieldTrace[C]":
         x3 = np.asarray(perpendicular_coord)
         x1 = start.x1 + weight * x3**2 - weight * x3
         x2 = np.asarray(start.x2)
-        return SliceCoords(x1, x2, start.system), np.sign(x3) * (np.sqrt(4*weight**2 * x3** 2 + 1)**3/(12 * weight**2) - 1/(12 * weight**2))
+        return SliceCoords(x1, x2, start.system), np.sign(x3) * (
+            np.sqrt(4 * weight**2 * x3**2 + 1) ** 3 / (12 * weight**2)
+            - 1 / (12 * weight**2)
+        )
 
     return trace
 

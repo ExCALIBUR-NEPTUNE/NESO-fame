@@ -33,9 +33,14 @@ class CoordinateSystem(Enum):
     Cartesian = 0
     Cylindrical = 1
 
+
 COORDINATE_TRANSFORMS = {
     CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
-    CoordinateSystem.Cylindrical: lambda x1, x2, x3: (x1 * np.sin(x3), x1 * np.cos(x3), x2),
+    CoordinateSystem.Cylindrical: lambda x1, x2, x3: (
+        x1 * np.sin(x3),
+        x1 * np.cos(x3),
+        x2,
+    ),
 }
 
 CartesianCoordinates = Literal[CoordinateSystem.Cartesian]
@@ -569,7 +574,9 @@ def field_aligned_2d(
         grid
     """
     # Ensure poloidal mesh is actually 1-D (required to keep output 2-D)
-    flattened_mesh = SliceCoords(lower_dim_mesh.x1, np.array(0.0), lower_dim_mesh.system)
+    flattened_mesh = SliceCoords(
+        lower_dim_mesh.x1, np.array(0.0), lower_dim_mesh.system
+    )
 
     # Calculate x3 positions for nodes in final mesh
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n

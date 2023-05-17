@@ -51,7 +51,10 @@ def nektar_point(position: Coord, layer_id: Optional[int] = None) -> SD.PointGeo
 def nektar_curve(
     curve: Curve, order: int, layer_id: Optional[int] = None
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
-    points = [nektar_point(coord, layer_id) for coord in curve.control_points(order).iter_points()]
+    points = [
+        nektar_point(coord, layer_id)
+        for coord in curve.control_points(order).iter_points()
+    ]
     nek_curve = SD.Curve(UNSET_ID, LU.PointsType.PolyEvenlySpaced)
     nek_curve.points = points
     return nek_curve, (points[0], points[-1])
