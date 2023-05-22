@@ -36,8 +36,8 @@ class CoordinateSystem(Enum):
 COORDINATE_TRANSFORMS = {
     CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
     CoordinateSystem.Cylindrical: lambda x1, x2, x3: (
-        x1 * np.sin(x3),
         x1 * np.cos(x3),
+        x1 * np.sin(x3),
         x2,
     ),
 }
@@ -66,7 +66,7 @@ class SliceCoords(Generic[C]):
 
     def iter_points(self) -> Iterator[SliceCoord[C]]:
         for x1, x2 in cast(
-            Iterator[tuple[float, float]], zip(*np.broadcast_arrays(self.x1, self.x2))
+            Iterator[tuple[float, float]], zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2)))
         ):
             yield SliceCoord(x1, x2, self.system)
 
@@ -111,16 +111,16 @@ class Coords(Generic[C]):
     def iter_points(self) -> Iterator[Coord[C]]:
         for x1, x2, x3 in cast(
             Iterator[tuple[float, float, float]],
-            zip(*np.broadcast_arrays(self.x1, self.x2, self.x3)),
+            zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))),
         ):
-            yield Coord(x1, x2, x3, self.system)
+            yield Coord(float(x1), float(x2), float(x3), self.system)
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords[C]":
         return Coords(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def to_cartesian(self) -> "Coords[CartesianCoordinates]":
         return Coords(
-            *asarrays(COORDINATE_TRANSFORMS[self.system](*self)),
+            *COORDINATE_TRANSFORMS[self.system](self.x1, self.x2, self.x3),
             CoordinateSystem.Cartesian,
         )
 
@@ -330,7 +330,7 @@ class MeshLayer(Generic[E]):
             x = self.offset
             return map(lambda e: e.offset(x), self.reference_elements)
         else:
-            return self.reference_elements
+            return iter(self.reference_elements)
 
     def __len__(self) -> int:
         return len(self.reference_elements)
@@ -363,22 +363,24 @@ class MeshLayer(Generic[E]):
         assert num_edge_connections % 2 == 0, "Ill-defined mesh connectivity"
         return (
             total_corners
-            - (num_face_connections // 2) * (element_corners // 2)
-            - (num_edge_connections // 2) * (element_corners // 4)
+            - (num_face_connections // 2) * (element_corners)
+            - (num_edge_connections // 2) * (element_corners // 2)
         )
 
-    @cache
     def num_unique_control_points(self, order: int) -> int:
         points_per_edge = order + 1
         points_per_face = (order + 1) * points_per_edge
-        points_per_element = (order + 1) * points_per_face
+        if issubclass(self.element_type, Quad):
+            points_per_element = points_per_face
+        else:
+            points_per_element = (order + 1) * points_per_face
         total_control_points = points_per_element * len(self.reference_elements)
         num_shared_points = sum(
             sum(
                 points_per_face if is_face else points_per_edge
                 for is_face in connections.values()
             )
-            for element, connections in self.reference_elements.items()
+            for connections in self.reference_elements.values()
         )
         assert num_shared_points % 2 == 0, "Ill-defined mesh connectivity"
         return total_control_points - num_shared_points // 2
