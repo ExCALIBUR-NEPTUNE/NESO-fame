@@ -67,16 +67,23 @@ register_type_strategy(
 
 
 def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.C) -> mesh.FieldTrace:
-    a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0 
+    a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0
     a2p = a2 / a3
-    def cartesian_func(start: mesh.SliceCoord[mesh.CartesianCoordinates], x3: npt.ArrayLike) -> tuple[mesh.SliceCoords, npt.NDArray]:
+
+    def cartesian_func(
+        start: mesh.SliceCoord[mesh.CartesianCoordinates], x3: npt.ArrayLike
+    ) -> tuple[mesh.SliceCoords, npt.NDArray]:
         if c == mesh.CoordinateSystem.Cartesian:
             s = np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3)
         else:
             s = np.sqrt(a1p * a1p + a2p * a2p + start.x1 * start.x1) * np.asarray(x3)
-        return (mesh.SliceCoords(
-            a1p * np.asarray(x3) + start.x1, a2p * np.asarray(x3) + start.x2, c
-        ), s)
+        return (
+            mesh.SliceCoords(
+                a1p * np.asarray(x3) + start.x1, a2p * np.asarray(x3) + start.x2, c
+            ),
+            s,
+        )
+
     return cartesian_func
 
 
@@ -84,13 +91,14 @@ def linear_field_line(
     a1: float, a2: float, a3: float, b1: float, b2: float, b3: float, c: mesh.C
 ) -> mesh.NormalisedFieldLine:
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
-        a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0 
+        a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0
         return mesh.Coords(
             a * np.asarray(x) + b1 - 0.5 * a1,
             a2 * np.asarray(x) + b2 - 0.5 * a2,
             a3 * np.asarray(x) + b3 - 0.5 * a3,
             c,
         )
+
     return linear_func
 
 
@@ -100,12 +108,10 @@ def flat_quad(
     a3: float,
     starts: tuple[tuple[float, float, float], tuple[float, float, float]],
     c: mesh.C,
-) -> Optional[mesh.Quad]:
+) -> mesh.Quad:
     trace = linear_field_trace(a1, a2, a3, c)
     north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c))
     south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c))
-    if c == mesh.CoordinateSystem.Cylindrical and (np.product(north([0.0, 1.0]).x1) <= 0 or np.product(south([0.0, 1.0]).x1) <= 0):
-        return None
     return mesh.Quad(north, south, None, trace)
 
 
@@ -134,8 +140,6 @@ def _quad_mesh_connections(
         else {quads[i + 1]: False, quads[i - 1]: False}
         for i, q in enumerate(quads)
     }
-
-
 
 
 def _get_end_point(
@@ -540,7 +544,10 @@ def test_curve_call() -> None:
     assert result is mock.return_value
 
 
-@given(one_of((non_nans(), lists(non_nans(), min_size=1, max_size=10))), from_type(mesh.Coords))
+@given(
+    one_of((non_nans(), lists(non_nans(), min_size=1, max_size=10))),
+    from_type(mesh.Coords),
+)
 def test_curve_offset_0(arg: float | list[float], result: mesh.Coords) -> None:
     mock = MagicMock(return_value=result)
     curve = mesh.Curve(mock).offset(0.0)
@@ -828,11 +835,29 @@ def test_mesh_num_unique_control_points(m: mesh.Mesh, order: int) -> None:
 
 
 scoords = shared(coordinate_systems, key=0)
-@given(builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, scoords), builds(mesh.SliceCoord, non_zero, whole_numbers, scoords), whole_numbers, non_zero, integers(2, 8), integers(3, 12))
-def test_normalise_field_line(trace: mesh.FieldTrace, start: mesh.SliceCoord, x3_start: float, dx3: float, resolution: int, n: int) -> None:
+
+
+@given(
+    builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, scoords),
+    builds(mesh.SliceCoord, non_zero, whole_numbers, scoords),
+    whole_numbers,
+    non_zero,
+    integers(2, 8),
+    integers(3, 12),
+)
+def test_normalise_field_line(
+    trace: mesh.FieldTrace,
+    start: mesh.SliceCoord,
+    x3_start: float,
+    dx3: float,
+    resolution: int,
+    n: int,
+) -> None:
     print(trace(start, x3_start), trace(start, x3_start + dx3))
-    normalised = mesh.normalise_field_line(trace, start, x3_start, x3_start + dx3, resolution)
-    checkpoints = np.linspace(0., 1., n)
+    normalised = mesh.normalise_field_line(
+        trace, start, x3_start, x3_start + dx3, resolution
+    )
+    checkpoints = np.linspace(0.0, 1.0, n)
     coords_normed = normalised(checkpoints)
     coords_trace, distances = trace(start, coords_normed.x3)
     np.testing.assert_allclose(coords_trace.x1, coords_normed.x1, atol=1e-7)
@@ -841,8 +866,12 @@ def test_normalise_field_line(trace: mesh.FieldTrace, start: mesh.SliceCoord, x3
     np.testing.assert_allclose(spacing, spacing[0], atol=1e-7)
 
 
-@given(from_type(mesh.Curve), builds(np.linspace, just(0.0), just(1.0), integers(3, 10)))
-def test_make_lagrange_interpolation_linear(curve: mesh.Curve, samples: npt.NDArray) -> None:
+@given(
+    from_type(mesh.Curve), builds(np.linspace, just(0.0), just(1.0), integers(3, 10))
+)
+def test_make_lagrange_interpolation_linear(
+    curve: mesh.Curve, samples: npt.NDArray
+) -> None:
     start = curve(0.0).to_cartesian()
     end = curve(1.0).to_cartesian()
     lagrange = mesh.make_lagrange_interpolation(curve)
@@ -852,8 +881,30 @@ def test_make_lagrange_interpolation_linear(curve: mesh.Curve, samples: npt.NDAr
     np.testing.assert_allclose(actual.x3, start.x3 + (end.x3 - start.x3) * samples)
 
 
-@given(whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, non_zero, whole_numbers, integers(3, 10).map(lambda n: np.linspace(0., 1., n)))
-def test_make_lagrange_interpolation_quadratic(a1: float, b1: float, c1: float, a2: float, b2: float, c2: float, a3: float, b3: float, c3: float, samples: npt.NDArray) -> None:
+@given(
+    whole_numbers,
+    whole_numbers,
+    whole_numbers,
+    whole_numbers,
+    whole_numbers,
+    whole_numbers,
+    whole_numbers,
+    non_zero,
+    whole_numbers,
+    integers(3, 10).map(lambda n: np.linspace(0.0, 1.0, n)),
+)
+def test_make_lagrange_interpolation_quadratic(
+    a1: float,
+    b1: float,
+    c1: float,
+    a2: float,
+    b2: float,
+    c2: float,
+    a3: float,
+    b3: float,
+    c3: float,
+    samples: npt.NDArray,
+) -> None:
     def func(s: npt.ArrayLike) -> mesh.Coords[mesh.CartesianCoordinates]:
         s = np.asarray(s)
         return mesh.Coords(
@@ -862,6 +913,7 @@ def test_make_lagrange_interpolation_quadratic(a1: float, b1: float, c1: float, 
             a3 * s**2 + b3 * s + c3,
             mesh.CoordinateSystem.Cartesian,
         )
+
     lagrange = mesh.make_lagrange_interpolation(mesh.Curve(func), 2)
     actual = lagrange(samples)
     expected = func(samples)
@@ -873,7 +925,7 @@ def test_make_lagrange_interpolation_quadratic(a1: float, b1: float, c1: float, 
 @given(from_type(mesh.Curve), integers(1, 10))
 def test_make_lagrange_interpolation_knots(curve: mesh.Curve, order: int) -> None:
     lagrange = mesh.make_lagrange_interpolation(curve, order)
-    samples = np.linspace(0., 1., order+1)
+    samples = np.linspace(0.0, 1.0, order + 1)
     actual = lagrange(samples)
     expected = curve(samples).to_cartesian()
     np.testing.assert_allclose(actual.x1, expected.x1)
