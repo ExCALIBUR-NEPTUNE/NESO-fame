@@ -3,8 +3,8 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 mypy_path = ["./typings"]
-modules = ["test_mesh"]
-packages = ["neso_fame"]
+modules = ["example_mesh"]
+packages = ["neso_fame", "tests"]
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]

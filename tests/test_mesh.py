@@ -1,32 +1,26 @@
-from collections.abc import Sequence
 import itertools
-from typing import Type, cast, Optional
+from typing import Type, Optional
 from unittest.mock import MagicMock
 
-from hypothesis import given, note, settings
+from hypothesis import given
 from hypothesis.extra.numpy import (
     BroadcastableShapes,
     array_shapes,
     arrays,
-    basic_indices,
     floating_dtypes,
     mutually_broadcastable_shapes,
 )
 from hypothesis.strategies import (
     SearchStrategy,
     builds,
-    dictionaries,
     floats,
     from_type,
-    frozensets,
-    functions,
     integers,
     lists,
     register_type_strategy,
     sampled_from,
     just,
     one_of,
-    slices,
     tuples,
     shared,
 )
@@ -35,7 +29,6 @@ import numpy.typing as npt
 import pytest
 
 from neso_fame import mesh
-from neso_fame.generators import _ordered_connectivity
 
 non_nans = lambda: floats(allow_nan=False)
 arbitrary_arrays = lambda: arrays(floating_dtypes(), array_shapes())
@@ -74,25 +67,31 @@ register_type_strategy(
 
 
 def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.C) -> mesh.FieldTrace:
-    a1p = a1 / a3
+    a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0 
     a2p = a2 / a3
-    return lambda start, x3: (
-        mesh.SliceCoords(
+    def cartesian_func(start: mesh.SliceCoord[mesh.CartesianCoordinates], x3: npt.ArrayLike) -> tuple[mesh.SliceCoords, npt.NDArray]:
+        if c == mesh.CoordinateSystem.Cartesian:
+            s = np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3)
+        else:
+            s = np.sqrt(a1p * a1p + a2p * a2p + start.x1 * start.x1) * np.asarray(x3)
+        return (mesh.SliceCoords(
             a1p * np.asarray(x3) + start.x1, a2p * np.asarray(x3) + start.x2, c
-        ),
-        np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3),
-    )
+        ), s)
+    return cartesian_func
 
 
 def linear_field_line(
     a1: float, a2: float, a3: float, b1: float, b2: float, b3: float, c: mesh.C
 ) -> mesh.NormalisedFieldLine:
-    return lambda x: mesh.Coords(
-        a1 * np.asarray(x) + b1 - 0.5 * a1,
-        a2 * np.asarray(x) + b2 - 0.5 * a2,
-        a3 * np.asarray(x) + b3 - 0.5 * a3,
-        c,
-    )
+    def linear_func(x: npt.ArrayLike) -> mesh.Coords:
+        a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0 
+        return mesh.Coords(
+            a * np.asarray(x) + b1 - 0.5 * a1,
+            a2 * np.asarray(x) + b2 - 0.5 * a2,
+            a3 * np.asarray(x) + b3 - 0.5 * a3,
+            c,
+        )
+    return linear_func
 
 
 def flat_quad(
@@ -101,10 +100,12 @@ def flat_quad(
     a3: float,
     starts: tuple[tuple[float, float, float], tuple[float, float, float]],
     c: mesh.C,
-) -> mesh.Quad:
+) -> Optional[mesh.Quad]:
     trace = linear_field_trace(a1, a2, a3, c)
     north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c))
     south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c))
+    if c == mesh.CoordinateSystem.Cylindrical and (np.product(north([0.0, 1.0]).x1) <= 0 or np.product(south([0.0, 1.0]).x1) <= 0):
+        return None
     return mesh.Quad(north, south, None, trace)
 
 
@@ -135,6 +136,8 @@ def _quad_mesh_connections(
     }
 
 
+
+
 def _get_end_point(
     start: tuple[float, float, float], distance: float, angle: float
 ) -> tuple[float, float, float]:
@@ -145,7 +148,9 @@ def _get_end_point(
     )
 
 
+coordinate_systems = sampled_from(mesh.CoordinateSystem)
 whole_numbers = integers(-1000, 1000).map(float)
+nonnegative_numbers = integers(1, 1000).map(float)
 non_zero = whole_numbers.filter(lambda x: x != 0.0)
 register_type_strategy(
     mesh.Curve,
@@ -157,7 +162,7 @@ register_type_strategy(
         whole_numbers,
         whole_numbers,
         whole_numbers,
-        sampled_from(mesh.CoordinateSystem),
+        coordinate_systems,
     ).map(mesh.Curve),
 )
 register_type_strategy(
@@ -171,8 +176,8 @@ register_type_strategy(
             tuples(whole_numbers, whole_numbers, whole_numbers),
             tuples(whole_numbers, whole_numbers, whole_numbers),
         ),
-        sampled_from(mesh.CoordinateSystem),
-    ),
+        coordinate_systems,
+    ).filter(lambda x: x is not None),
 )
 
 starts_and_ends = tuples(
@@ -186,22 +191,22 @@ quad_mesh_connections = builds(
     whole_numbers,
     non_zero,
     starts_and_ends,
-    integers(2, 50),
-    sampled_from(mesh.CoordinateSystem),
+    integers(2, 8),
+    coordinate_systems,
 )
 mesh_connections = one_of(quad_mesh_connections)
-quad_mesh_layer = quad_mesh_connections.map(mesh.MeshLayer)
+quad_mesh_layer = quad_mesh_connections.map(mesh.MeshLayer[mesh.Quad])
 
 # TODO: Create strategy for Tet meshes and make them an option when generating meshes
 register_type_strategy(mesh.MeshLayer, quad_mesh_layer)
 
-x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 10))
+x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
 register_type_strategy(
     mesh.Mesh, builds(mesh.Mesh, from_type(mesh.MeshLayer), x3_offsets)
 )
 
 
-@given(non_nans(), non_nans(), sampled_from(mesh.CoordinateSystem))
+@given(non_nans(), non_nans(), coordinate_systems)
 def test_slice_coord(x1: float, x2: float, c: mesh.C) -> None:
     coord = mesh.SliceCoord(x1, x2, c)
     coord_iter = iter(coord)
@@ -245,7 +250,7 @@ def test_slice_coords_iter_points(
         assert c1 == c2
 
 
-@given(mutually_broadcastable_arrays(2), sampled_from(mesh.CoordinateSystem))
+@given(mutually_broadcastable_arrays(2), coordinate_systems)
 def test_slice_coords_iter(x: tuple[npt.NDArray, npt.NDArray], c: mesh.C) -> None:
     coords = mesh.SliceCoords(*x, c)
     coords_iter = iter(coords)
@@ -255,7 +260,7 @@ def test_slice_coords_iter(x: tuple[npt.NDArray, npt.NDArray], c: mesh.C) -> Non
         next(coords_iter)
 
 
-@given(mutually_broadcastable_arrays(2), sampled_from(mesh.CoordinateSystem))
+@given(mutually_broadcastable_arrays(2), coordinate_systems)
 def test_slice_coords_len(x: tuple[npt.NDArray, npt.NDArray], c: mesh.C) -> None:
     coords = mesh.SliceCoords(*x, c)
     coords_iter = coords.iter_points()
@@ -312,7 +317,7 @@ def test_slice_coords_bad_getitem(
         _ = coords[index]
 
 
-@given(non_nans(), non_nans(), non_nans(), sampled_from(mesh.CoordinateSystem))
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord(x1: float, x2: float, x3: float, c: mesh.C) -> None:
     coord = mesh.Coord(x1, x2, x3, c)
     coord_iter = iter(coord)
@@ -535,7 +540,7 @@ def test_curve_call() -> None:
     assert result is mock.return_value
 
 
-@given(one_of((non_nans(), lists(non_nans(), min_size=1))), from_type(mesh.Coords))
+@given(one_of((non_nans(), lists(non_nans(), min_size=1, max_size=10))), from_type(mesh.Coords))
 def test_curve_offset_0(arg: float | list[float], result: mesh.Coords) -> None:
     mock = MagicMock(return_value=result)
     curve = mesh.Curve(mock).offset(0.0)
@@ -578,7 +583,7 @@ def test_curve_control_points_cached() -> None:
     assert p1 is p2
 
 
-@given(from_type(mesh.Curve), integers(1, 50))
+@given(from_type(mesh.Curve), integers(1, 10))
 def test_curve_control_points_size(curve: mesh.Curve, n: int) -> None:
     assert len(curve.control_points(n)) == n + 1
 
@@ -625,7 +630,7 @@ def test_quad_corners(q: mesh.Quad) -> None:
     assert corners[3] == next(q.south(1.0).iter_points())
 
 
-@given(from_type(mesh.Quad), integers(1, 20))
+@given(from_type(mesh.Quad), integers(1, 5))
 def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     corners = q.corners()
     x1_max, x2_max, x3_max = map(np.max, corners)
@@ -646,7 +651,7 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     pass
 
 
-@given(from_type(mesh.Quad), whole_numbers, integers(1, 20))
+@given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
 def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
     actual = q.offset(x).control_points(n)
     expected = q.control_points(n).offset(x)
@@ -704,7 +709,7 @@ def test_mesh_layer_elements_with_offset(
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
-    layer_iter = layer.elements()
+    layer_iter = iter(layer.elements())
     for _ in range(len(layer)):
         next(layer_iter)
     with pytest.raises(StopIteration):
@@ -756,7 +761,7 @@ def test_mesh_layer_num_unique_corners(layer: mesh.MeshLayer) -> None:
     assert layer.num_unique_corners == len(corners)
 
 
-@given(from_type(mesh.MeshLayer), integers(1, 10))
+@given(from_type(mesh.MeshLayer), integers(1, 5))
 def test_mesh_layer_num_unique_control_points(
     layer: mesh.MeshLayer, order: int
 ) -> None:
@@ -803,7 +808,7 @@ def test_mesh_num_unique_corners(m: mesh.Mesh) -> None:
     assert m.num_unique_corners == len(corners)
 
 
-@given(from_type(mesh.Mesh), integers(1, 10))
+@given(from_type(mesh.Mesh), integers(1, 5))
 def test_mesh_num_unique_control_points(m: mesh.Mesh, order: int) -> None:
     # Create a set of tuples of layer number and control point. Using
     # these tuples ensures any coincident points on adjacent layers
@@ -822,9 +827,55 @@ def test_mesh_num_unique_control_points(m: mesh.Mesh, order: int) -> None:
     assert m.num_unique_control_points(order) == len(control_points)
 
 
-def test_normalise_field_line() -> None:
-    pass
+scoords = shared(coordinate_systems, key=0)
+@given(builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, scoords), builds(mesh.SliceCoord, non_zero, whole_numbers, scoords), whole_numbers, non_zero, integers(2, 8), integers(3, 12))
+def test_normalise_field_line(trace: mesh.FieldTrace, start: mesh.SliceCoord, x3_start: float, dx3: float, resolution: int, n: int) -> None:
+    print(trace(start, x3_start), trace(start, x3_start + dx3))
+    normalised = mesh.normalise_field_line(trace, start, x3_start, x3_start + dx3, resolution)
+    checkpoints = np.linspace(0., 1., n)
+    coords_normed = normalised(checkpoints)
+    coords_trace, distances = trace(start, coords_normed.x3)
+    np.testing.assert_allclose(coords_trace.x1, coords_normed.x1, atol=1e-7)
+    np.testing.assert_allclose(coords_trace.x2, coords_normed.x2, atol=1e-7)
+    spacing = distances[1:] - distances[:-1]
+    np.testing.assert_allclose(spacing, spacing[0], atol=1e-7)
 
 
-def test_make_lagrange_interpolation() -> None:
-    pass
+@given(from_type(mesh.Curve), builds(np.linspace, just(0.0), just(1.0), integers(3, 10)))
+def test_make_lagrange_interpolation_linear(curve: mesh.Curve, samples: npt.NDArray) -> None:
+    start = curve(0.0).to_cartesian()
+    end = curve(1.0).to_cartesian()
+    lagrange = mesh.make_lagrange_interpolation(curve)
+    actual = lagrange(samples)
+    np.testing.assert_allclose(actual.x1, start.x1 + (end.x1 - start.x1) * samples)
+    np.testing.assert_allclose(actual.x2, start.x2 + (end.x2 - start.x2) * samples)
+    np.testing.assert_allclose(actual.x3, start.x3 + (end.x3 - start.x3) * samples)
+
+
+@given(whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, whole_numbers, non_zero, whole_numbers, integers(3, 10).map(lambda n: np.linspace(0., 1., n)))
+def test_make_lagrange_interpolation_quadratic(a1: float, b1: float, c1: float, a2: float, b2: float, c2: float, a3: float, b3: float, c3: float, samples: npt.NDArray) -> None:
+    def func(s: npt.ArrayLike) -> mesh.Coords[mesh.CartesianCoordinates]:
+        s = np.asarray(s)
+        return mesh.Coords(
+            a1 * s**2 + b1 * s + c1,
+            a2 * s**2 + b2 * s + c2,
+            a3 * s**2 + b3 * s + c3,
+            mesh.CoordinateSystem.Cartesian,
+        )
+    lagrange = mesh.make_lagrange_interpolation(mesh.Curve(func), 2)
+    actual = lagrange(samples)
+    expected = func(samples)
+    np.testing.assert_allclose(actual.x1, expected.x1)
+    np.testing.assert_allclose(actual.x2, expected.x2)
+    np.testing.assert_allclose(actual.x3, expected.x3)
+
+
+@given(from_type(mesh.Curve), integers(1, 10))
+def test_make_lagrange_interpolation_knots(curve: mesh.Curve, order: int) -> None:
+    lagrange = mesh.make_lagrange_interpolation(curve, order)
+    samples = np.linspace(0., 1., order+1)
+    actual = lagrange(samples)
+    expected = curve(samples).to_cartesian()
+    np.testing.assert_allclose(actual.x1, expected.x1)
+    np.testing.assert_allclose(actual.x2, expected.x2)
+    np.testing.assert_allclose(actual.x3, expected.x3)

@@ -420,7 +420,7 @@ def normalise_field_line(
     s: npt.NDArray
     x1_x2_coords, s = trace(start, x3)
     coordinates = np.stack([*x1_x2_coords, x3])
-    order = "cubic" if len(s) > 2 else "linear"
+    order = "cubic" if len(s) > 3 else "quadratic" if len(s) > 2 else "linear"
     interp = interp1d((s - s[0]) / (s[-1] - s[0]), coordinates, order)
     coord_system = start.system
 
