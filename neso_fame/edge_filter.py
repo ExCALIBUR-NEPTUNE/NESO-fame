@@ -5,6 +5,9 @@ from enum import Enum
 import itertools
 from typing import Optional
 
+import numpy as np
+from scipy.optimize import minimize_scalar
+
 from .mesh import NormalisedFieldLine
 
 
@@ -16,15 +19,28 @@ class NodeStatus(Enum):
 
 Connectivity = Sequence[Sequence[int]]
 
+TOLERANCE = 1e-8
 
-def is_line_in_domain(field_line: NormalisedFieldLine, bounds: Sequence[float]) -> bool:
+def _is_line_in_domain(field_line: NormalisedFieldLine, bounds: Sequence[float]) -> bool:
     # FIXME: This is just a dumb stub. It doesn't even work properly for 2-D, let alone 3-D.
-    location = field_line(0.0)
-    x1 = float(location.x1)
-    return x1 >= bounds[0] and x1 <= bounds[1]
+    x_start = field_line(0.).x1
+    x_end = field_line(1.).x1
+    # Check if either end of the line falls outside the domain
+    if not (bounds[0] < x_start < bounds[1]) or not (bounds[0] <  x_end < bounds[1]):
+        return False
+    upper_bound_sol = minimize_scalar(lambda s: (field_line(s).x1 - bounds[0]) ** 2, bracket=(0., 1.), method="Brent")
+    lower_bound_sol = minimize_scalar(lambda s: (field_line(s).x1 - bounds[1]) ** 2, bracket=(0., 1.), method="Brent")
+    if not upper_bound_sol.success or not lower_bound_sol.success:
+        raise RuntimeError("Failed to converge on closest point of approach to boundaries!")
+    # Check if the minimum occurs within the search area
+    if 0. < upper_bound_sol.x < 1. or 0. < lower_bound_sol.x < 1.:
+        # Check whether the minimum corresponds to intersecting the boundary
+        return upper_bound_sol.fun > TOLERANCE and lower_bound_sol.fun > TOLERANCE
+    else:
+        return True
 
 
-def is_skin_node(
+def _is_skin_node(
     node_status: NodeStatus, connections: Iterable[int], statuses: Sequence[NodeStatus]
 ) -> bool:
     return node_status != NodeStatus.EXTERNAL and any(
@@ -43,7 +59,7 @@ def classify_node_position(
         line: NormalisedFieldLine, is_skin: bool, status: NodeStatus
     ) -> tuple[NodeStatus, bool]:
         if is_skin and status == NodeStatus.UNKNOWN:
-            if is_line_in_domain(line, bounds):
+            if _is_line_in_domain(line, bounds):
                 return NodeStatus.INTERNAL, False
             else:
                 return NodeStatus.EXTERNAL, True
@@ -58,7 +74,7 @@ def classify_node_position(
     )
     updated_skin = list(
         map(
-            lambda x: is_skin_node(x[0], x[1], updated_status),
+            lambda x: _is_skin_node(x[0], x[1], updated_status),
             zip(updated_status, connectivity),
         )
     )
