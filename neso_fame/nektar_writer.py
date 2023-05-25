@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache, reduce
 import itertools
 from typing import Optional
@@ -30,16 +30,18 @@ class NektarLayer:
     far_face: SD.Composite
 
 
-@dataclass(frozen=True)
+@dataclass
 class NektarElements:
-    points: list[frozenset[SD.PointGeom]]
-    curves: list[frozenset[SD.Curve]]
-    segments: list[frozenset[SD.SegGeom]]
-    faces: list[frozenset[SD.Geometry2D]]
-    elements: list[list[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]]
-    layers: list[SD.Composite]
-    near_faces: list[SD.Composite]
-    far_faces: list[SD.Composite]
+    points: list[frozenset[SD.PointGeom]] = field(default_factory=list)
+    curves: list[frozenset[SD.Curve]] = field(default_factory=list)
+    segments: list[frozenset[SD.SegGeom]] = field(default_factory=list)
+    faces: list[frozenset[SD.Geometry2D]] = field(default_factory=list)
+    elements: list[list[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]] = field(
+        default_factory=list
+    )
+    layers: list[SD.Composite] = field(default_factory=list)
+    near_faces: list[SD.Composite] = field(default_factory=list)
+    far_faces: list[SD.Composite] = field(default_factory=list)
 
 
 @cache
@@ -115,7 +117,7 @@ def nektar_quad(
     )
 
 
-def combine_quad_items(
+def _combine_quad_items(
     quad1: NektarQuadGeomElements, quad2: NektarQuadGeomElements
 ) -> NektarQuadGeomElements:
     return (
@@ -131,7 +133,7 @@ def nektar_layer_elements(
 ) -> NektarLayer:
     # FIXME: Currently inherantly 2D
     elements, edges, curves, points = reduce(
-        combine_quad_items,
+        _combine_quad_items,
         (nektar_quad(elem, order, layer_id) for elem in layer.elements()),
     )
     layer_composite = SD.Composite(list(elements))
@@ -168,7 +170,7 @@ def nektar_elements(mesh: Mesh, order: int) -> NektarElements:
             nektar_layer_elements(layer, order, i)
             for i, layer in enumerate(mesh.layers())
         ),
-        NektarElements([], [], [], [], [], [], [], []),
+        NektarElements(),
     )
 
 
