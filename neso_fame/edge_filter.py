@@ -6,9 +6,10 @@ import itertools
 from typing import Optional
 
 import numpy as np
+from scipy.interpolate import lagrange
 from scipy.optimize import minimize_scalar
 
-from .mesh import NormalisedFieldLine
+from .mesh import NormalisedFieldLine, Curve, Coords, CoordinateSystem, CartesianCoordinates
 
 
 class NodeStatus(Enum):
@@ -21,13 +22,31 @@ Connectivity = Sequence[Sequence[int]]
 
 TOLERANCE = 1e-8
 
-def _is_line_in_domain(field_line: NormalisedFieldLine, bounds: Sequence[float]) -> bool:
-    # FIXME: This is just a dumb stub. It doesn't even work properly for 2-D, let alone 3-D.
+
+def make_lagrange_interpolation(
+    norm_line: Curve, order=1
+) -> Curve[CartesianCoordinates]:
+    s = np.linspace(0.0, 1.0, order + 1)
+    coords = norm_line.control_points(order).to_cartesian()
+    interpolators = [lagrange(s, coord) for coord in coords]
+    return Curve(
+        lambda s: Coords(
+            interpolators[0](s),
+            interpolators[1](s),
+            interpolators[2](s),
+            CoordinateSystem.Cartesian,
+        )
+    )
+
+
+def _is_line_in_domain(field_line: NormalisedFieldLine, bounds: Sequence[float], order: int) -> bool:
+    # FIXME: This onlye works for 2D
     x_start = field_line(0.).x1
     x_end = field_line(1.).x1
     # Check if either end of the line falls outside the domain
     if not (bounds[0] < x_start < bounds[1]) or not (bounds[0] <  x_end < bounds[1]):
         return False
+    # Maybe I should make the Lagrange version here? If any nodes oute of domain then return. Otherwise, check at mid-point between each node. Mid-point not guaranteed to be closest approach, though, especially in 3D.
     upper_bound_sol = minimize_scalar(lambda s: (field_line(s).x1 - bounds[0]) ** 2, bracket=(0., 1.), method="Brent")
     lower_bound_sol = minimize_scalar(lambda s: (field_line(s).x1 - bounds[1]) ** 2, bracket=(0., 1.), method="Brent")
     if not upper_bound_sol.success or not lower_bound_sol.success:
@@ -49,9 +68,10 @@ def _is_skin_node(
 
 
 def classify_node_position(
-    lines: Sequence[NormalisedFieldLine],
+    lines: Sequence[Curve],
     bounds,
     connectivity: Connectivity,
+    order: int,
     skin_nodes: Sequence[bool],
     status: Optional[Sequence[NodeStatus]] = None,
 ) -> tuple[Sequence[NodeStatus], Sequence[bool]]:
@@ -59,7 +79,7 @@ def classify_node_position(
         line: NormalisedFieldLine, is_skin: bool, status: NodeStatus
     ) -> tuple[NodeStatus, bool]:
         if is_skin and status == NodeStatus.UNKNOWN:
-            if _is_line_in_domain(line, bounds):
+            if _is_line_in_domain(line, bounds, order):
                 return NodeStatus.INTERNAL, False
             else:
                 return NodeStatus.EXTERNAL, True
