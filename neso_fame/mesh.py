@@ -66,7 +66,8 @@ class SliceCoords(Generic[C]):
 
     def iter_points(self) -> Iterator[SliceCoord[C]]:
         for x1, x2 in cast(
-            Iterator[tuple[float, float]], zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2)))
+            Iterator[tuple[float, float]],
+            zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))),
         ):
             yield SliceCoord(x1, x2, self.system)
 
