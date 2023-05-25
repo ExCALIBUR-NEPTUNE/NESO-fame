@@ -19,6 +19,7 @@ from .mesh import (
 
 Connectivity = Sequence[Sequence[int]]
 
+
 def _ordered_connectivity(size: int) -> Connectivity:
     return [[1]] + [[i - 1, i + 1] for i in range(1, size - 1)] + [[size - 2]]
 
@@ -91,28 +92,19 @@ def field_aligned_2d(
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 
-    quads_grouped_by_curve = itertools.groupby(
-        sorted(
-            (
-                (
-                    i,
-                    Quad.from_unordered_curves(curves[i], curves[j], None, field_line),
-                )
-                for i, j in itertools.chain.from_iterable(map(lambda c: (i, c), cs) for i, cs in enumerate(connectivity))
-            ),
-            key=lambda q: q[0],
-        ),
-        lambda q: q[0],
+    quads_grouped_by_curve = (
+        (
+            Quad.from_unordered_curves(curves[i], curves[j], None, field_line)
+            for j in connections
+        )
+        for i, connections in enumerate(connectivity)
     )
     adjacent_quads = itertools.chain.from_iterable(
-        map(
-            lambda g: itertools.permutations(g, 2),
-            map(lambda g: g[1], quads_grouped_by_curve),
-        )
+        itertools.permutations(g, 2) for g in quads_grouped_by_curve
     )
     # FIXME (minor): What would be the functional way to do this, without needing to mutate quad_map?
     quad_map: dict[Quad, dict[Quad, bool]] = {}
-    for (_, q1), (_, q2) in adjacent_quads:
+    for q1, q2 in adjacent_quads:
         if q1 in quad_map:
             quad_map[q1][q2] = False
         else:
