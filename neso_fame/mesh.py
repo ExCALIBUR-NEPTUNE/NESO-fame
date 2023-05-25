@@ -326,7 +326,7 @@ class MeshLayer(Generic[E]):
     reference_elements: dict[E, ElementConnections[E]]
     offset: Optional[float] = None
 
-    def elements(self) -> Iterable[E]:
+    def __iter__(self) -> Iterator[E]:
         if isinstance(self.offset, float):
             x = self.offset
             return map(lambda e: e.offset(x), self.reference_elements)
@@ -342,10 +342,10 @@ class MeshLayer(Generic[E]):
 
     def quads(self) -> Iterable[Quad[C]]:
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
-            return cast(Iterable[Quad[C]], self.elements())
+            return cast(Iterable[Quad[C]], self)
         else:
             return itertools.chain.from_iterable(
-                map(lambda t: t.quads(), cast(Iterable[Tet[C]], self.elements()))
+                map(lambda t: t.quads(), cast(Iterable[Tet[C]], self))
             )
 
     @cached_property
@@ -397,6 +397,9 @@ class Mesh(Generic[E]):
             lambda off: MeshLayer(self.reference_layer.reference_elements, off),
             self.offsets,
         )
+
+    def __iter__(self) -> Iterator[E]:
+        return itertools.chain.from_iterable(map(iter, self.layers()))
 
     def __len__(self) -> int:
         return len(self.reference_layer) * self.offsets.size

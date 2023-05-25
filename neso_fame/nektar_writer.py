@@ -134,7 +134,7 @@ def nektar_layer_elements(
     # FIXME: Currently inherantly 2D
     elements, edges, curves, points = reduce(
         _combine_quad_items,
-        (nektar_quad(elem, order, layer_id) for elem in layer.elements()),
+        (nektar_quad(elem, order, layer_id) for elem in layer),
     )
     layer_composite = SD.Composite(list(elements))
     near_face = SD.Composite([elem.GetEdge(1) for elem in elements])

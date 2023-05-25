@@ -697,7 +697,7 @@ def test_mesh_layer_elements_no_offset(
     connections: dict[mesh.E, dict[mesh.E, bool]]
 ) -> None:
     layer = mesh.MeshLayer(connections, None)
-    for actual, expected in zip(layer.elements(), connections):
+    for actual, expected in zip(layer, connections):
         assert actual is expected
 
 
@@ -706,7 +706,7 @@ def test_mesh_layer_elements_with_offset(
     connections: dict[mesh.E, dict[mesh.E, bool]], offset: float
 ) -> None:
     layer = mesh.MeshLayer(connections, offset)
-    for actual, expected in zip(layer.elements(), connections):
+    for actual, expected in zip(layer, connections):
         actual_corners = actual.corners()
         expected_corners = expected.offset(offset).corners()
         np.testing.assert_allclose(actual_corners.x1, expected_corners.x1, atol=1e-12)
@@ -716,7 +716,7 @@ def test_mesh_layer_elements_with_offset(
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
-    layer_iter = iter(layer.elements())
+    layer_iter = iter(layer)
     for _ in range(len(layer)):
         next(layer_iter)
     with pytest.raises(StopIteration):
@@ -750,7 +750,7 @@ def test_mesh_layer_element_type(connections: dict[mesh.E, dict[mesh.E, bool]]) 
 
 @given(quad_mesh_layer)
 def test_mesh_layer_quads_for_quads(layer: mesh.MeshLayer[mesh.Quad]) -> None:
-    assert all(q1 is q2 for q1, q2 in zip(layer.elements(), layer.quads()))
+    assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
 def test_mesh_layer_quads_for_tets() -> None:
@@ -761,9 +761,7 @@ def test_mesh_layer_quads_for_tets() -> None:
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_num_unique_corners(layer: mesh.MeshLayer) -> None:
     corners = frozenset(
-        itertools.chain.from_iterable(
-            elem.corners().iter_points() for elem in layer.elements()
-        )
+        itertools.chain.from_iterable(elem.corners().iter_points() for elem in layer)
     )
     assert layer.num_unique_corners == len(corners)
 
@@ -774,7 +772,7 @@ def test_mesh_layer_num_unique_control_points(
 ) -> None:
     control_points = frozenset(
         itertools.chain.from_iterable(
-            elem.control_points(order).iter_points() for elem in layer.elements()
+            elem.control_points(order).iter_points() for elem in layer
         )
     )
     assert layer.num_unique_control_points(order) == len(control_points)
@@ -789,7 +787,7 @@ def test_mesh_iter_layers(m: mesh.Mesh) -> None:
 
 @given(from_type(mesh.Mesh))
 def test_mesh_len(m: mesh.Mesh) -> None:
-    mesh_iter = itertools.chain.from_iterable(layer.elements() for layer in m.layers())
+    mesh_iter = itertools.chain.from_iterable(layer for layer in m.layers())
     for _ in range(len(m)):
         next(mesh_iter)
     with pytest.raises(StopIteration):
@@ -804,10 +802,7 @@ def test_mesh_num_unique_corners(m: mesh.Mesh) -> None:
     corners = frozenset(
         itertools.chain.from_iterable(
             itertools.chain.from_iterable(
-                (
-                    ((i, p) for p in elem.corners().iter_points())
-                    for elem in layer.elements()
-                )
+                (((i, p) for p in elem.corners().iter_points()) for elem in layer)
                 for i, layer in enumerate(m.layers())
             )
         )
@@ -825,7 +820,7 @@ def test_mesh_num_unique_control_points(m: mesh.Mesh, order: int) -> None:
             itertools.chain.from_iterable(
                 (
                     ((i, p) for p in elem.control_points(order).iter_points())
-                    for elem in layer.elements()
+                    for elem in layer
                 )
                 for i, layer in enumerate(m.layers())
             )
