@@ -6,12 +6,10 @@ from typing import Optional
 
 import numpy as np
 
-from .edge_filter import classify_node_position, Connectivity, NodeStatus
 from .mesh import (
     C,
     Curve,
     FieldTrace,
-    make_lagrange_interpolation,
     Mesh,
     MeshLayer,
     normalise_field_line,
@@ -19,32 +17,19 @@ from .mesh import (
     SliceCoords,
 )
 
+Connectivity = Sequence[Sequence[int]]
 
-def ordered_connectivity(size: int) -> Connectivity:
+def _ordered_connectivity(size: int) -> Connectivity:
     return [[1]] + [[i - 1, i + 1] for i in range(1, size - 1)] + [[size - 2]]
-
-
-def all_connections(
-    connectivity: Connectivity, node_status: Sequence[NodeStatus]
-) -> Iterator[tuple[int, int]]:
-    for i, (status, connections) in enumerate(zip(node_status, connectivity)):
-        if status == NodeStatus.EXTERNAL:
-            continue
-        for j in connections:
-            assert i != j
-            if node_status[j] != NodeStatus.EXTERNAL:
-                yield i, j
 
 
 def field_aligned_2d(
     lower_dim_mesh: SliceCoords[C],
     field_line: FieldTrace[C],
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
-    bounds=(0.0, 1.0),
     n: int = 10,
     order: int = 1,
     connectivity: Optional[Connectivity] = None,
-    skin_nodes: Optional[Sequence[bool]] = None,
 ) -> Mesh:
     """Generate a 2D mesh where element edges follow field
     lines. Start with a 1D mesh defined in the poloidal plane. Edges
@@ -76,10 +61,6 @@ def field_aligned_2d(
         Item at index `n` is a sequence of the indices for all the
         other points connected to `n`. If not provided, assume points
         are connected in an ordered line.
-    skin_nodes
-        Sequence indicating whether the point at each index `n` is on
-        the outer surface of the domain. If not provided, the first and
-        last nodes will be treated as being on the outer surface.
 
     Returns
     -------
@@ -105,22 +86,10 @@ def field_aligned_2d(
         )
         for coord in flattened_mesh.iter_points()
     ]
-    lagrange_curves = [make_lagrange_interpolation(line, order) for line in curves]
 
     num_nodes = len(flattened_mesh)
     if connectivity is None:
-        connectivity = ordered_connectivity(num_nodes)
-    if skin_nodes is None:
-        skin_nodes = [True] + list(itertools.repeat(False, num_nodes - 2)) + [True]
-
-    node_status, updated_skin_nodes = classify_node_position(
-        lagrange_curves, bounds, connectivity, skin_nodes
-    )
-
-    # Need to filter out field lines that leave domain
-    # Tag elements adjacent to boundaries
-    # Work out max and min distances between near-boundary elements and the boundary
-    # Add extra geometry elements to fill in boundaries
+        connectivity = _ordered_connectivity(num_nodes)
 
     quads_grouped_by_curve = itertools.groupby(
         sorted(
@@ -129,7 +98,7 @@ def field_aligned_2d(
                     i,
                     Quad.from_unordered_curves(curves[i], curves[j], None, field_line),
                 )
-                for i, j in all_connections(connectivity, node_status)
+                for i, j in itertools.chain.from_iterable(map(lambda c: (i, c), cs) for i, cs in enumerate(connectivity))
             ),
             key=lambda q: q[0],
         ),

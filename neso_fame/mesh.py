@@ -429,19 +429,3 @@ def normalise_field_line(
         return Coords(locations[0], locations[1], locations[2], coord_system)
 
     return normalised_interpolator
-
-
-def make_lagrange_interpolation(
-    norm_line: Curve, order=1
-) -> Curve[CartesianCoordinates]:
-    s = np.linspace(0.0, 1.0, order + 1)
-    coords = norm_line.control_points(order).to_cartesian()
-    interpolators = [lagrange(s, coord) for coord in coords]
-    return Curve(
-        lambda s: Coords(
-            interpolators[0](s),
-            interpolators[1](s),
-            interpolators[2](s),
-            CoordinateSystem.Cartesian,
-        )
-    )
