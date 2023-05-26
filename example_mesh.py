@@ -17,8 +17,7 @@ m = field_aligned_2d(
     ),
     # straight_field(np.pi/6),
     curved_field(0.2),
-    (0.0, 0.5*np.pi),
+    (0.0, 0.5 * np.pi),
     10,
-    2,
 )
 write_nektar(m, 2, "test_geometry.xml")

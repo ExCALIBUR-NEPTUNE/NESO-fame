@@ -323,6 +323,9 @@ ElementConnections = dict[E, bool]
 
 @dataclass(frozen=True)
 class MeshLayer(Generic[E]):
+    # FIXME: Do I actually need to be tracking connectivity like this?
+    # Almost certainly I don't need to be keeping the bi-directional
+    # data.
     reference_elements: dict[E, ElementConnections[E]]
     offset: Optional[float] = None
 

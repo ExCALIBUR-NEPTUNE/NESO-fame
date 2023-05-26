@@ -29,7 +29,7 @@ def field_aligned_2d(
     field_line: FieldTrace[C],
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     n: int = 10,
-    order: int = 1,
+    spatial_interp_resolution: int = 11,
     connectivity: Optional[Connectivity] = None,
 ) -> Mesh:
     """Generate a 2D mesh where element edges follow field
@@ -55,8 +55,9 @@ def field_aligned_2d(
         direction.
     n
         Number of layers to generate in the x3 direction
-    order
-        Order of the elements created. Must be at least 1 (linear).
+    spatial_interp_resolution
+        Number of points used to interpolate distances along the field
+        line.
     connectivity
         Defines which points are connected to each other in the mesh.
         Item at index `n` is a sequence of the indices for all the
@@ -82,13 +83,17 @@ def field_aligned_2d(
     curves = [
         Curve(
             normalise_field_line(
-                field_line, coord, -0.5 * dx3, 0.5 * dx3, max(11, 2 * order + 1)
+                field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution
             )
         )
         for coord in flattened_mesh.iter_points()
     ]
 
     num_nodes = len(flattened_mesh)
+    # FIXME: Pretty sure I could represent this more efficiently as
+    # pairs of node positions. Approach used here was when I expected
+    # to be filtering edges and needed to be able to look up adjoining
+    # nodes efficiently.
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 

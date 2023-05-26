@@ -20,8 +20,9 @@ def straight_field(angle=0.0) -> "FieldTrace[C]":
         """Returns a trace for a straight field line."""
         x1 = start.x1 + perpendicular_coord * np.tan(angle)
         x2 = np.asarray(start.x2)
-        x3 = np.asarray(perpendicular_coord)
-        return SliceCoords(x1, x2, start.system), x3
+        return SliceCoords(x1, x2, start.system), np.asarray(
+            perpendicular_coord
+        ) / np.cos(angle)
 
     return trace
 
