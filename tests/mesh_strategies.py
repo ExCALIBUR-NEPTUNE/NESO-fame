@@ -1,3 +1,5 @@
+import itertools
+
 from hypothesis.extra.numpy import (
     BroadcastableShapes,
     array_shapes,
@@ -28,7 +30,7 @@ arbitrary_arrays = lambda: arrays(floating_dtypes(), array_shapes())
 
 def mutually_broadcastable_arrays(
     num_arrays: int,
-) -> SearchStrategy[tuple[npt.NDArray]]:
+) -> SearchStrategy[tuple[npt.NDArray, ...]]:
     return mutually_broadcastable_from(
         mutually_broadcastable_shapes(num_shapes=num_arrays)
     )
@@ -47,6 +49,15 @@ def mutually_broadcastable_from(
 
     return strategy.flatmap(shape_to_array)
 
+
+register_type_strategy(
+    mesh.SliceCoords,
+    builds(
+        lambda xs, c: mesh.SliceCoords(xs[0], xs[1], c),
+        mutually_broadcastable_arrays(2),
+        sampled_from(mesh.CoordinateSystem),
+    ),
+)
 
 register_type_strategy(
     mesh.Coords,
@@ -71,7 +82,9 @@ def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.C) -> mesh.Field
             s = np.sqrt(a1p * a1p + a2p * a2p + start.x1 * start.x1) * np.asarray(x3)
         return (
             mesh.SliceCoords(
-                a1p * np.asarray(x3) + start.x1, a2p * np.asarray(x3) + start.x2, c
+                a1p * np.asarray(x3) + start.x1,
+                a2p * np.asarray(x3) + start.x2,
+                start.system,
             ),
             s,
         )
@@ -85,7 +98,7 @@ def linear_field_line(
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
         a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0
         return mesh.Coords(
-            a * np.asarray(x) + b1 - 0.5 * a1,
+            a * np.asarray(x) + b1 - 0.5 * a,
             a2 * np.asarray(x) + b2 - 0.5 * a2,
             a3 * np.asarray(x) + b3 - 0.5 * a3,
             c,
@@ -171,7 +184,7 @@ register_type_strategy(
         tuples(
             tuples(whole_numbers, whole_numbers, whole_numbers),
             tuples(whole_numbers, whole_numbers, whole_numbers),
-        ),
+        ).filter(lambda x: x[0][0:2] != x[1][0:2]),
         coordinate_systems,
     ).filter(lambda x: x is not None),
 )

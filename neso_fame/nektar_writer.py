@@ -45,13 +45,13 @@ class NektarElements:
 
 
 @cache
-def nektar_point(position: Coord, layer_id: Optional[int] = None) -> SD.PointGeom:
+def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
     return SD.PointGeom(2, UNSET_ID, *position.to_cartesian())
 
 
 @cache
 def nektar_curve(
-    curve: Curve, order: int, layer_id: Optional[int] = None
+    curve: Curve, order: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     points = [
         nektar_point(coord, layer_id)
@@ -64,7 +64,7 @@ def nektar_curve(
 
 @cache
 def nektar_edge(
-    curve: Curve, order: int, layer_id: Optional[int] = None
+    curve: Curve, order: int, layer_id: int
 ) -> tuple[SD.SegGeom, Optional[SD.Curve], tuple[SD.PointGeom, SD.PointGeom]]:
     if order > 1:
         nek_curve, termini = nektar_curve(curve, order, layer_id)
@@ -83,16 +83,12 @@ def nektar_edge(
 
 
 @cache
-def connect_points(
-    start: SD.PointGeom, end: SD.PointGeom, layer_id: Optional[int] = None
-) -> SD.SegGeom:
+def connect_points(start: SD.PointGeom, end: SD.PointGeom, layer_id: int) -> SD.SegGeom:
     return SD.SegGeom(UNSET_ID, start.GetCoordim(), [start, end], None)
 
 
 @cache
-def nektar_quad(
-    quad: Quad, order: int, layer_id: Optional[int] = None
-) -> NektarQuadGeomElements:
+def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements:
     if quad.in_plane is not None:
         raise NotImplementedError("Not yet dealing with Quads as faces.")
     north, north_curve, north_termini = nektar_edge(quad.north, order, layer_id)
@@ -128,9 +124,7 @@ def _combine_quad_items(
     )
 
 
-def nektar_layer_elements(
-    layer: MeshLayer, order: int, layer_id: Optional[int] = None
-) -> NektarLayer:
+def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
     # FIXME: Currently inherantly 2D
     elements, edges, curves, points = reduce(
         _combine_quad_items,
@@ -151,7 +145,9 @@ def nektar_layer_elements(
     )
 
 
-def combine_nektar_elements(left: NektarElements, right: NektarLayer) -> NektarElements:
+def _combine_nektar_elements(
+    left: NektarElements, right: NektarLayer
+) -> NektarElements:
     left.points.append(right.points)
     left.curves.append(right.curves)
     left.segments.append(right.segments)
@@ -165,7 +161,7 @@ def combine_nektar_elements(left: NektarElements, right: NektarLayer) -> NektarE
 
 def nektar_elements(mesh: Mesh, order: int) -> NektarElements:
     return reduce(
-        combine_nektar_elements,
+        _combine_nektar_elements,
         (
             nektar_layer_elements(layer, order, i)
             for i, layer in enumerate(mesh.layers())

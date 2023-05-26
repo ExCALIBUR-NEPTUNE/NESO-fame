@@ -136,6 +136,9 @@ class Coords(Generic[C]):
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
 
+    def to_coord(self) -> Coord[C]:
+        return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
+
 
 FieldTrace = Callable[
     [SliceCoord[C], npt.ArrayLike], tuple[SliceCoords[C], npt.NDArray]
