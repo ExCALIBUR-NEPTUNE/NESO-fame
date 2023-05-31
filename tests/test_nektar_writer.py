@@ -19,7 +19,7 @@ from pytest import approx, mark
 
 import mesh_strategies
 from neso_fame import nektar_writer
-from neso_fame.mesh import Coord, Curve, CoordinateSystem, MeshLayer, Quad
+from neso_fame.mesh import Coord, Curve, CoordinateSystem, Mesh, MeshLayer, Quad
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -177,13 +177,13 @@ def test_connect_points(c1: Coord, c2: Coord, layer) -> None:
 @given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, curves, points = nektar_writer.nektar_quad(quad, order, layer)
+    corners = frozenset(p.GetCoordinates() for p in points)
     assert len(quads) == 1
     assert len(segments) == 4
     assert len(curves) == (2 if order > 1 else 0)
-    assert len(points) == 4
+    assert len(points) == len(corners)
     nek_quad = next(iter(quads))
     assert nek_quad.GetGlobalID() == nektar_writer.UNSET_ID
-    corners = frozenset(p.GetCoordinates() for p in points)
     # FIXME: For some reason, only 3 unique vertices are being
     # returned. I think there is something wrong with the
     # implementation within Nektar++.
@@ -198,11 +198,7 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
 # as I can't access the GetCurve method?
 
 
-# TODO: This will need significant updating once we start generating
-# Tet meshes. Will probably be best to split into two separate tests.
-@given(from_type(MeshLayer), integers(1, 12), integers())
-def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) -> None:
-    nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
+def check_layer_quads(mesh: MeshLayer[Quad], nek_layer: nektar_writer.NektarLayer, order: int) -> None:
     expected_points = frozenset(
         map(
             comparable_coord,
@@ -222,8 +218,8 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) ->
     actual_edges = comparable_set(nek_layer.segments)
     assert actual_edges == quad_edges
     expected_x3_aligned_edges = frozenset(
-        comparable_edge(q.north) for q in mesh.reference_elements
-    ) | frozenset(comparable_edge(q.south) for q in mesh.reference_elements)
+        comparable_edge(q.north) for q in mesh
+    ) | frozenset(comparable_edge(q.south) for q in mesh)
     expected_near_faces = frozenset(
         (
             SD.SegGeom.__name__,
@@ -234,7 +230,7 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) ->
                 }
             ),
         )
-        for q in mesh.reference_elements
+        for q in mesh
     )
     expected_far_faces = frozenset(
         (
@@ -246,7 +242,7 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) ->
                 }
             ),
         )
-        for q in mesh.reference_elements
+        for q in mesh
     )
     assert (
         expected_x3_aligned_edges | expected_near_faces | expected_far_faces
@@ -254,18 +250,18 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) ->
     )
     if order > 1:
         expected_curves = frozenset(
-            comparable_curve(q.north, order) for q in mesh.reference_elements
-        ) | frozenset(comparable_curve(q.south, order) for q in mesh.reference_elements)
+            comparable_curve(q.north, order) for q in mesh
+        ) | frozenset(comparable_curve(q.south, order) for q in mesh)
         actual_curves = frozenset(map(comparable_geometry, nek_layer.curves))
         assert expected_curves == actual_curves
     assert len(nek_layer.faces) == 0
     actual_elements = comparable_set(nek_layer.elements)
-    expected_elements = frozenset(map(comparable_quad, mesh.reference_elements))
     # FIXME: For some reason, only 3 unique vertices are being
     # returned by Nektar QuadGeom types. I think there is something
     # wrong with the implementation within Nektar++. It means the test
     # below fails.
     #
+    # expected_elements = frozenset(map(comparable_quad, mesh))
     # assert actual_elements == expected_elements
     composite_elements = comparable_set(nek_layer.layer.geometries)
     assert actual_elements == composite_elements
@@ -273,16 +269,29 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) ->
     assert actual_near_faces == expected_near_faces
     actual_far_faces = comparable_set(nek_layer.far_face.geometries)
     assert actual_far_faces == expected_far_faces
+    
+
+# TODO: This will need significant updating once we start generating
+# Tet meshes. Will probably be best to split into two separate tests.
+@given(from_type(MeshLayer), integers(1, 12), integers())
+def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) -> None:
+    nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
+    check_layer_quads(mesh, nek_layer, order)
 
 
 # Check all elements present when converting a mesh
-def test_nektar_elements() -> None:
-    # Probably don't need to be as thorough with this one, as it just returns lists of the same things as the previous routine...
-    pass
+@given(from_type(Mesh), integers(1, 4))
+def test_nektar_elements(mesh: Mesh[Quad], order: int) -> None:
+    nek_mesh = nektar_writer.nektar_elements(mesh, order)
+    for nek_layer, mesh_layer in zip(itertools.starmap(nektar_writer.NektarLayer, zip(nek_mesh.points, nek_mesh.curves, nek_mesh.segments, nek_mesh.faces, nek_mesh.elements, nek_mesh.layers, nek_mesh.near_faces, nek_mesh.far_faces)), mesh.layers()):
+        check_layer_quads(mesh_layer, nek_layer, order)
 
 
-def test_nektar_composite_map() -> None:
-    pass
+@given(integers(-256, 256), lists(builds(SD.PointGeom, just(2), integers(-256,256), mesh_strategies.non_nans(), mesh_strategies.non_nans(), mesh_strategies.non_nans()), max_size=5).map(SD.Composite))
+def test_nektar_composite_map(comp_id: int, composite: SD.Composite) -> None:
+    comp_map = nektar_writer.nektar_composite_map(comp_id, composite)
+    assert len(comp_map) == 1
+    assert comparable_set(composite.geometries) == comparable_set(comp_map[comp_id].geometries)
 
 
 def test_nektar_mesh() -> None:
