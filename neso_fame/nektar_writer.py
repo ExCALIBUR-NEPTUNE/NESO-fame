@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from functools import cache, reduce
 import itertools
+from operator import methodcaller
 from typing import Optional
 
 import NekPy.SpatialDomains as SD
@@ -13,7 +14,6 @@ UNSET_ID = -1
 NektarQuadGeomElements = tuple[
     frozenset[SD.QuadGeom],
     frozenset[SD.SegGeom],
-    frozenset[SD.Curve],
     frozenset[SD.PointGeom],
 ]
 
@@ -21,10 +21,9 @@ NektarQuadGeomElements = tuple[
 @dataclass(frozen=True)
 class NektarLayer:
     points: frozenset[SD.PointGeom]
-    curves: frozenset[SD.Curve]
     segments: frozenset[SD.SegGeom]
     faces: frozenset[SD.Geometry2D]
-    elements: list[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]
+    elements: frozenset[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]
     layer: SD.Composite
     near_face: SD.Composite
     far_face: SD.Composite
@@ -33,10 +32,9 @@ class NektarLayer:
 @dataclass
 class NektarElements:
     points: list[frozenset[SD.PointGeom]] = field(default_factory=list)
-    curves: list[frozenset[SD.Curve]] = field(default_factory=list)
     segments: list[frozenset[SD.SegGeom]] = field(default_factory=list)
     faces: list[frozenset[SD.Geometry2D]] = field(default_factory=list)
-    elements: list[list[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]] = field(
+    elements: list[frozenset[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]] = field(
         default_factory=list
     )
     layers: list[SD.Composite] = field(default_factory=list)
@@ -65,7 +63,7 @@ def nektar_curve(
 @cache
 def nektar_edge(
     curve: Curve, order: int, layer_id: int
-) -> tuple[SD.SegGeom, Optional[SD.Curve], tuple[SD.PointGeom, SD.PointGeom]]:
+) -> tuple[SD.SegGeom, tuple[SD.PointGeom, SD.PointGeom]]:
     if order > 1:
         nek_curve, termini = nektar_curve(curve, order, layer_id)
     else:
@@ -77,7 +75,6 @@ def nektar_edge(
         )
     return (
         SD.SegGeom(UNSET_ID, termini[0].GetCoordim(), list(termini), nek_curve),
-        nek_curve,
         termini,
     )
 
@@ -91,14 +88,8 @@ def connect_points(start: SD.PointGeom, end: SD.PointGeom, layer_id: int) -> SD.
 def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements:
     if quad.in_plane is not None:
         raise NotImplementedError("Not yet dealing with Quads as faces.")
-    north, north_curve, north_termini = nektar_edge(quad.north, order, layer_id)
-    south, south_curve, south_termini = nektar_edge(quad.south, order, layer_id)
-    if order > 1:
-        assert north_curve is not None
-        assert south_curve is not None
-        curves = frozenset({north_curve, south_curve})
-    else:
-        curves = frozenset()
+    north, north_termini = nektar_edge(quad.north, order, layer_id)
+    south, south_termini = nektar_edge(quad.south, order, layer_id)
     edges = [
         north,
         connect_points(north_termini[0], south_termini[0], layer_id),
@@ -108,7 +99,6 @@ def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements
     return (
         frozenset({SD.QuadGeom(UNSET_ID, edges)}),
         frozenset(edges),
-        curves,
         frozenset(north_termini + south_termini),
     )
 
@@ -120,13 +110,12 @@ def _combine_quad_items(
         quad1[0] | quad2[0],
         quad1[1] | quad2[1],
         quad1[2] | quad2[2],
-        quad1[3] | quad2[3],
     )
 
 
 def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
     # FIXME: Currently inherantly 2D
-    elements, edges, curves, points = reduce(
+    elements, edges, points = reduce(
         _combine_quad_items,
         (nektar_quad(elem, order, layer_id) for elem in layer),
     )
@@ -135,10 +124,9 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     far_face = SD.Composite([elem.GetEdge(3) for elem in elements])
     return NektarLayer(
         points,
-        curves,
         edges,
         frozenset(),
-        list(elements),
+        elements,
         layer_composite,
         near_face,
         far_face,
@@ -149,7 +137,6 @@ def _combine_nektar_elements(
     left: NektarElements, right: NektarLayer
 ) -> NektarElements:
     left.points.append(right.points)
-    left.curves.append(right.curves)
     left.segments.append(right.segments)
     left.faces.append(right.faces)
     left.elements.append(right.elements)
@@ -185,6 +172,7 @@ def nektar_mesh(
     curved_edges = meshgraph.GetCurvedEdges()
     tris = meshgraph.GetAllTriGeoms()
     quads = meshgraph.GetAllQuadGeoms()
+    curved_faces = meshgraph.GetCurvedFaces()
     tets = meshgraph.GetAllTetGeoms()
     prisms = meshgraph.GetAllPrismGeoms()
     pyrs = meshgraph.GetAllPyrGeoms()
@@ -196,14 +184,20 @@ def nektar_mesh(
     for i, point in enumerate(itertools.chain.from_iterable(elements.points)):
         point.SetGlobalID(i)
         points[i] = point
-    for i, curve in enumerate(itertools.chain.from_iterable(elements.curves)):
-        curved_edges[i] = curve
     for i, seg in enumerate(itertools.chain.from_iterable(elements.segments)):
         seg.SetGlobalID(i)
         segments[i] = seg
-        curve = seg.GetCurve()
-        if curve is not None:
-            curve.curveID = i
+    for i, curve in enumerate(
+        filter(
+            lambda x: x is not None,
+            map(
+                methodcaller("GetCurve"),
+                itertools.chain.from_iterable(elements.segments),
+            ),
+        )
+    ):
+        curve.curveID = i
+        curved_edges[i] = curve
     for i, face in enumerate(itertools.chain.from_iterable(elements.faces)):
         face.SetGlobalID(i)
         if isinstance(face, SD.TriGeom):
@@ -212,6 +206,17 @@ def nektar_mesh(
             quads[i] = face
         else:
             raise RuntimeError(f"Unexpected face geometry type {type(face)}.")
+    for i, curve in enumerate(
+        filter(
+            lambda x: x is not None,
+            map(
+                methodcaller("GetCurve"), itertools.chain.from_iterable(elements.faces)
+            ),
+        ),
+        len(curved_edges),
+    ):
+        curve.SetGlobalID(i)
+        curved_faces[i] = curve
     for i, element in enumerate(itertools.chain.from_iterable(elements.elements)):
         element.SetGlobalID(i)
         if isinstance(element, SD.SegGeom):
