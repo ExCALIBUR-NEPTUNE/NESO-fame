@@ -1,34 +1,33 @@
-from collections.abc import Iterable
-from ctypes import Union
+from collections.abc import Iterable, Sequence
 from functools import reduce
 import itertools
 import operator
+import pathlib
 from typing import Callable, cast, Type, TypeVar, Union
+import xml.etree.ElementTree as ET
 
 from hypothesis import given
-from hypothesis.extra.numpy import mutually_broadcastable_shapes
 from hypothesis.strategies import (
     builds,
-    floats,
     from_type,
     integers,
     just,
     lists,
-    one_of,
     shared,
 )
-from NekPy import SpatialDomains as SD
 from NekPy import LibUtilities as LU
+from NekPy import SpatialDomains as SD
+from neso_fame.fields import straight_field
 import numpy as np
 from pytest import approx, mark
 
-import mesh_strategies
+from . import mesh_strategies
 from neso_fame import nektar_writer
-from neso_fame.mesh import Coord, Curve, CoordinateSystem, Mesh, MeshLayer, Quad
+from neso_fame.mesh import Coord, Coords, Curve, CoordinateSystem, Mesh, MeshLayer, Quad
 
 
 def both_nan(a: float, b: float) -> bool:
-    return np.isnan(a) and np.isnan(b)
+    return cast(bool, np.isnan(a) and np.isnan(b))
 
 
 def assert_nek_points_eq(actual: SD.PointGeom, expected: SD.PointGeom) -> None:
@@ -332,7 +331,7 @@ def test_nektar_elements(mesh: Mesh[Quad], order: int) -> None:
             mesh_strategies.non_nans(),
         ),
         max_size=5,
-    ).map(SD.Composite),
+    ).map(lambda points: SD.Composite(cast(list[SD.Geometry], points))),
 )
 def test_nektar_composite_map(comp_id: int, composite: SD.Composite) -> None:
     comp_map = nektar_writer.nektar_composite_map(comp_id, composite)
@@ -347,17 +346,28 @@ NekType = Union[SD.Curve, SD.Geometry]
 N = TypeVar("N", SD.Curve, SD.Geometry)
 
 
+# TODO: Could I test this with some a NektarElements object produced
+# directly using the constructor and without the constraints of those
+# generated using the nektar_elements() method?
 @given(builds(nektar_writer.nektar_elements, from_type(Mesh), order), order)
 def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None:
     def extract_and_merge(
-        nek_type: Type[N], *items: list[frozenset[NekType]]
+        nek_type: Type[N], *items: Sequence[frozenset[NekType]]
     ) -> list[frozenset[N]]:
+        # MyPy seemed to struggle with the typing here, so put in lots
+        # of cast expressiosn to help it along
         return list(
             map(
-                frozenset,
-                map(
-                    lambda x: filter(lambda y: isinstance(y, nek_type), x),
-                    map(lambda z: reduce(operator.or_, z), zip(*items)),
+                cast(Callable[[Iterable[N]], frozenset[N]], frozenset),
+                cast(
+                    Iterable[Iterable[N]],
+                    map(
+                        lambda x: filter(lambda y: isinstance(y, nek_type), x),
+                        cast(
+                            Iterable[frozenset[NekType]],
+                            map(lambda z: reduce(operator.or_, z), zip(*items)),
+                        ),
+                    ),
                 ),
             )
         )
@@ -372,7 +382,7 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
-    actual_geometries = [
+    actual_geometries: list[SD.NekMap] = [
         meshgraph.GetAllPointGeoms(),
         actual_segments,
         actual_triangles,
@@ -382,7 +392,7 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None
         meshgraph.GetAllPrismGeoms(),
         meshgraph.GetAllHexGeoms(),
     ]
-    expected_geometries = [
+    expected_geometries: list[Sequence[frozenset[SD.Geometry]]] = [
         elements.points,
         elements.segments,
         extract_and_merge(SD.TriGeom, elements.faces, elements.elements),
@@ -498,6 +508,150 @@ def test_read_write_nektar_mesh() -> None:
     pass
 
 
-def test_write_nektar() -> None:
-    # Test XML generation for a very, very simple mesh?
-    pass
+# Integration test for very simple 1-element mesh
+def test_write_nektar(tmp_path: pathlib.Path) -> None:
+    simple_mesh = Mesh(
+        MeshLayer(
+            {
+                Quad(
+                    Curve(
+                        lambda x: Coords(
+                            np.array(1.0),
+                            np.array(0.0),
+                            np.asarray(x),
+                            CoordinateSystem.Cartesian,
+                        )
+                    ),
+                    Curve(
+                        lambda x: Coords(
+                            np.array(0.0),
+                            np.array(0.0),
+                            np.asarray(x),
+                            CoordinateSystem.Cartesian,
+                        )
+                    ),
+                    None,
+                    straight_field(),
+                ): {}
+            }
+        ),
+        np.array([0.0]),
+    )
+    xml_file = tmp_path / "simple_mesh.xml"
+    nektar_writer.write_nektar(simple_mesh, 1, str(xml_file))
+
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    assert isinstance(root, ET.Element)
+    assert root.tag == "NEKTAR"
+    assert root.attrib == {}
+
+    def find_element(parent: ET.Element, tag: str) -> ET.Element:
+        elem = parent.find(tag)
+        assert isinstance(elem, ET.Element)
+        return elem
+
+    geom = find_element(root, "GEOMETRY")
+    assert geom.tag == "GEOMETRY"
+    assert int(cast(str, geom.get("DIM"))) == 2
+
+    vertices = find_element(geom, "VERTEX")
+    assert len(vertices) == 4
+    north_east = north_west = south_east = south_west = -1
+    for i, vertex in enumerate(vertices):
+        assert vertex.tag == "V" or vertex.tag == "VERTEX"
+        assert int(cast(str, vertex.get("ID"))) == i
+        coord = tuple(map(float, cast(str, vertex.text).split()))
+        if coord == (0.0, 0.0, 0.0):
+            south_west = i
+        elif coord == (0.0, 0.0, 1.0):
+            south_east = i
+        elif coord == (1.0, 0.0, 0.0):
+            north_west = i
+        elif coord == (1.0, 0.0, 1.0):
+            north_east = i
+        else:
+            raise RuntimeError(f"Unexpected vertex location {coord}")
+    assert north_east >= 0
+    assert north_west >= 0
+    assert south_east >= 0
+    assert south_west >= 0
+
+    edges = find_element(geom, "EDGE")
+    assert len(edges) == 4
+    edge_vals: set[tuple[int, int]] = set()
+    east = -1
+    west = -1
+    expected_east = tuple(sorted((north_east, south_east)))
+    expected_west = tuple(sorted((north_west, south_west)))
+    expected_north = tuple(sorted((north_east, north_west)))
+    expected_south = tuple(sorted((south_east, south_west)))
+    for i, edge in enumerate(edges):
+        assert edge.tag == "E" or edge.tag == "EDGE"
+        assert int(cast(str, edge.get("ID"))) == i
+        termini = cast(
+            tuple[int, int], tuple(sorted(map(int, cast(str, edge.text).split())))
+        )
+        if termini == expected_east:
+            east = i
+        elif termini == expected_west:
+            west = i
+        edge_vals.add(termini)
+    assert edge_vals == {expected_east, expected_west, expected_north, expected_south}
+
+    elements = find_element(geom, "ELEMENT")
+    assert len(elements) == 1
+    elem = elements[0]
+    assert elem.tag == "Q" or elem.tag == "QUAD"
+    assert elem.get("ID") == "0"
+    assert tuple(sorted(map(int, cast(str, elem.text).split()))) == (0, 1, 2, 3)
+
+    curves = find_element(geom, "CURVED")
+    assert len(curves) == 0
+
+    composites = find_element(geom, "COMPOSITE")
+    assert len(composites) == 3
+    domain_comp = -1
+    east_comp = -1
+    west_comp = -1
+    for i, comp in enumerate(composites):
+        assert comp.tag == "C"
+        assert int(cast(str, comp.get("ID"))) == i
+        content = cast(str, comp.text).strip()
+        if content == "Q[0]":
+            domain_comp = i
+        elif content == f"E[{east}]":
+            east_comp = i
+        elif content == f"E[{west}]":
+            west_comp = i
+        else:
+            raise RuntimeError(f"Unexpected composite {content}")
+    assert domain_comp >= 0
+    assert east_comp >= 0
+    assert west_comp >= 0
+
+    domains = find_element(geom, "DOMAIN")
+    assert len(domains) == 1
+    domain = domains[0]
+    assert domain.tag == "D"
+    assert domain.get("ID") == "0"
+    assert cast(str, domain.text).strip() == f"C[{domain_comp}]"
+
+    move = find_element(root, "MOVEMENT")
+    zones = find_element(move, "ZONES")
+    assert len(zones) == 1
+    zone = zones[0]
+    assert zone.tag == "F" or zone.tag == "FIXED"
+    assert zone.get("ID") == "0"
+    assert zone.get("DOMAIN") == "D[0]"
+
+    interfaces = find_element(move, "INTERFACES")
+    assert len(interfaces) == 1
+    interface = interfaces[0]
+    assert interface.tag == "INTERFACE"
+    assert len(interface) == 2
+    left = find_element(interface, "L")
+    right = find_element(interface, "R")
+    assert {int(cast(str, left.get("ID"))), int(cast(str, right.get("ID")))} == {0, 1}
+    assert cast(str, left.get("BOUNDARY")).strip() == f"C[{west_comp}]"
+    assert cast(str, right.get("BOUNDARY")).strip() == f"C[{east_comp}]"

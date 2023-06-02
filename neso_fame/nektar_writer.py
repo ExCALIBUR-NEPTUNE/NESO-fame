@@ -29,6 +29,7 @@ class NektarLayer:
     far_face: SD.Composite
 
 
+# FIXME: Do I really need this or could I just have a list of NektarLayer objects?
 @dataclass
 class NektarElements:
     points: list[frozenset[SD.PointGeom]] = field(default_factory=list)
@@ -259,11 +260,7 @@ def nektar_mesh(
     return meshgraph
 
 
-def write_unstructured_grid(mesh: SD.MeshGraphXml, filename: str) -> None:
-    mesh.Write(filename, True, SD.FieldMetaDataMap())
-
-
 def write_nektar(mesh: Mesh, order: int, filename: str) -> None:
     nek_elements = nektar_elements(mesh, order)
     nek_mesh = nektar_mesh(nek_elements, 2, 3)
-    write_unstructured_grid(nek_mesh, filename)
+    nek_mesh.Write(filename, True, SD.FieldMetaDataMap())

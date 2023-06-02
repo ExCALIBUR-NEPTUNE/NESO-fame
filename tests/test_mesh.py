@@ -17,7 +17,7 @@ import pytest
 
 from neso_fame import mesh
 
-from mesh_strategies import (
+from .mesh_strategies import (
     non_nans,
     coordinate_systems,
     linear_field_trace,
