@@ -111,12 +111,20 @@ def flat_quad(
     a1: float,
     a2: float,
     a3: float,
-    starts: tuple[tuple[float, float, float], tuple[float, float, float]],
+    limits: tuple[tuple[float, float, float], tuple[float, float, float]],
     c: mesh.C,
 ) -> mesh.Quad:
+    start = list(limits[0])
+    end = list(limits[1])
+    # Avoid being on the R=0 axis for cylindrical coordinates
+    if c == mesh.CoordinateSystem.Cylindrical:
+        if start[0] == 0.0:
+            start[0] += 1.0
+        if end[0] == 0.0:
+            end[0] += 1.0
     trace = linear_field_trace(a1, a2, a3, c)
-    north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c))
-    south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c))
+    north = mesh.Curve(linear_field_line(a1, a2, a3, start[0], start[1], start[2], c))
+    south = mesh.Curve(linear_field_line(a1, a2, a3, end[0], end[1], end[2], c))
     return mesh.Quad(north, south, None, trace)
 
 
@@ -129,7 +137,16 @@ def _quad_mesh_connections(
     c: mesh.C,
 ) -> dict[mesh.Quad, dict[mesh.Quad, bool]]:
     trace = linear_field_trace(a1, a2, a3, c)
-    starts = np.linspace(limits[0], limits[1], num_quads + 1)
+    start = list(limits[0])
+    end = list(limits[1])
+    # Avoid being on the R=0 axis for cylindrical coordinates
+    if c == mesh.CoordinateSystem.Cylindrical:
+        if start[0] == 0.0:
+            start[0] += 1.0
+        if end[0] == 0.0:
+            end[0] += 1.0
+    starts = np.linspace(start, end, num_quads + 1)
+    print(starts)
     quads = [
         mesh.Quad(c1, c2, None, trace)
         for c1, c2 in itertools.pairwise(
