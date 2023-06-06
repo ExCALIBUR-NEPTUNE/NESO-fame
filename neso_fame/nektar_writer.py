@@ -10,7 +10,6 @@ import NekPy.LibUtilities as LU
 from .mesh import Mesh, MeshLayer, Coord, Curve, Quad
 
 UNSET_ID = -1
-POINT_DECIMALS = 8
 
 NektarQuadGeomElements = tuple[
     frozenset[SD.QuadGeom],
@@ -25,9 +24,9 @@ class NektarLayer:
     segments: frozenset[SD.SegGeom]
     faces: frozenset[SD.Geometry2D]
     elements: frozenset[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D]
-    layer: Optional[SD.Composite]
-    near_face: Optional[SD.Composite]
-    far_face: Optional[SD.Composite]
+    layer: SD.Composite
+    near_face: SD.Composite
+    far_face: SD.Composite
 
 
 # FIXME: Do I really need this or could I just have a list of NektarLayer objects?
@@ -45,14 +44,8 @@ class NektarElements:
 
 
 @cache
-def _nektar_point(x1: float, x2: float, x3: float, layer_id: int) -> SD.PointGeom:
-    return SD.PointGeom(2, UNSET_ID, x1, x2, x3)
-
-
 def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
-    return _nektar_point(
-        *map(lambda x: round(x, POINT_DECIMALS), position.to_cartesian()), layer_id
-    )
+    return SD.PointGeom(2, UNSET_ID, *position.to_cartesian())
 
 
 @cache
@@ -121,24 +114,15 @@ def _combine_quad_items(
     )
 
 
-def nektar_layer_elements(
-    layer: MeshLayer, order: int, layer_id: int, attempt_conforming: bool
-) -> NektarLayer:
-    if attempt_conforming:
-        layer_id = 0
+def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
     # FIXME: Currently inherantly 2D
     elements, edges, points = reduce(
         _combine_quad_items,
         (nektar_quad(elem, order, layer_id) for elem in layer),
     )
-    if attempt_conforming:
-        layer_composite = None
-        near_face = None
-        far_face = None
-    else:
-        layer_composite = SD.Composite(list(elements))
-        near_face = SD.Composite([elem.GetEdge(1) for elem in elements])
-        far_face = SD.Composite([elem.GetEdge(3) for elem in elements])
+    layer_composite = SD.Composite(list(elements))
+    near_face = SD.Composite([elem.GetEdge(1) for elem in elements])
+    far_face = SD.Composite([elem.GetEdge(3) for elem in elements])
     return NektarLayer(
         points,
         edges,
@@ -157,29 +141,21 @@ def _combine_nektar_elements(
     left.segments.append(right.segments)
     left.faces.append(right.faces)
     left.elements.append(right.elements)
-    if right.layer is not None:
-        left.layers.append(right.layer)
-    if right.near_face is not None:
-        left.near_faces.append(right.near_face)
-    if right.far_face is not None:
-        left.far_faces.append(right.far_face)
+    left.layers.append(right.layer)
+    left.near_faces.append(right.near_face)
+    left.far_faces.append(right.far_face)
     return left
 
 
-def nektar_elements(mesh: Mesh, order: int, attempt_conforming=False) -> NektarElements:
-    elements = reduce(
+def nektar_elements(mesh: Mesh, order: int) -> NektarElements:
+    return reduce(
         _combine_nektar_elements,
         (
-            nektar_layer_elements(layer, order, i, attempt_conforming)
+            nektar_layer_elements(layer, order, i)
             for i, layer in enumerate(mesh.layers())
         ),
         NektarElements(),
     )
-    if attempt_conforming:
-        elements.layers.append(
-            SD.Composite(list(itertools.chain.from_iterable(elements.elements)))
-        )
-    return elements
 
 
 def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:

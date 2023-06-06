@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 
 from hypothesis import given
 from hypothesis.strategies import (
-    booleans,
     builds,
     from_type,
     integers,
@@ -36,13 +35,9 @@ def assert_nek_points_eq(actual: SD.PointGeom, expected: SD.PointGeom) -> None:
         assert a == approx(e) or both_nan(a, e)
 
 
-def round_coord(x: float) -> float:
-    return round(x, nektar_writer.POINT_DECIMALS)
-
-
 def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
     for a, e in zip(actual.GetCoordinates(), expected.to_cartesian()):
-        assert a == approx(round_coord(e)) or both_nan(a, e)
+        assert a == approx(e) or both_nan(a, e)
 
 
 ComparablePoint = tuple[float, float, float]
@@ -52,7 +47,7 @@ ComparableGeometry = ComparablePoint | ComparableDimensionalGeometry
 
 def comparable_coord(c: Coord) -> ComparablePoint:
     c = c.to_cartesian()
-    return round_coord(c.x1), round_coord(c.x2), round_coord(c.x3)
+    return c.x1, c.x2, c.x3
 
 
 def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
@@ -107,7 +102,6 @@ def comparable_composites(
 
 
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
-@mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 @given(from_type(Coord), integers())
 def test_nektar_point(coord: Coord, i: int) -> None:
     nek_coord = nektar_writer.nektar_point(coord, i)
@@ -117,18 +111,7 @@ def test_nektar_point(coord: Coord, i: int) -> None:
 
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(
-    lists(
-        builds(
-            Coord,
-            mesh_strategies.whole_numbers,
-            mesh_strategies.whole_numbers,
-            mesh_strategies.whole_numbers,
-            just(CoordinateSystem.Cartesian),
-        ),
-        min_size=2,
-        max_size=2,
-        unique=True,
-    ),
+    lists(from_type(Coord), min_size=2, max_size=2, unique=True),
     lists(integers(), min_size=2, max_size=2, unique=True),
 )
 def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
@@ -231,10 +214,7 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
 
 
 def check_layer_quads(
-    mesh: MeshLayer[Quad],
-    nek_layer: nektar_writer.NektarLayer,
-    order: int,
-    attempt_conforming: bool,
+    mesh: MeshLayer[Quad], nek_layer: nektar_writer.NektarLayer, order: int
 ) -> None:
     expected_points = frozenset(
         map(
@@ -294,32 +274,20 @@ def check_layer_quads(
     #
     # expected_elements = frozenset(map(comparable_quad, mesh))
     # assert actual_elements == expected_elements
-    if attempt_conforming:
-        assert nek_layer.layer is None
-        assert nek_layer.near_face is None
-        assert nek_layer.far_face is None
-    else:
-        assert nek_layer.layer is not None
-        assert nek_layer.near_face is not None
-        assert nek_layer.far_face is not None
-        composite_elements = comparable_set(nek_layer.layer.geometries)
-        assert actual_elements == composite_elements
-        actual_near_faces = comparable_set(nek_layer.near_face.geometries)
-        assert actual_near_faces == expected_near_faces
-        actual_far_faces = comparable_set(nek_layer.far_face.geometries)
-        assert actual_far_faces == expected_far_faces
+    composite_elements = comparable_set(nek_layer.layer.geometries)
+    assert actual_elements == composite_elements
+    actual_near_faces = comparable_set(nek_layer.near_face.geometries)
+    assert actual_near_faces == expected_near_faces
+    actual_far_faces = comparable_set(nek_layer.far_face.geometries)
+    assert actual_far_faces == expected_far_faces
 
 
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
-@given(from_type(MeshLayer), integers(1, 12), integers(), booleans())
-def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad], order: int, layer: int, attempt_conforming: bool
-) -> None:
-    nek_layer = nektar_writer.nektar_layer_elements(
-        mesh, order, layer, attempt_conforming
-    )
-    check_layer_quads(mesh, nek_layer, order, attempt_conforming)
+@given(from_type(MeshLayer), integers(1, 12), integers())
+def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) -> None:
+    nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
+    check_layer_quads(mesh, nek_layer, order)
 
 
 # Check all elements present when converting a mesh
@@ -348,55 +316,7 @@ def test_nektar_elements(mesh: Mesh[Quad], order: int) -> None:
         ),
         mesh.layers(),
     ):
-        check_layer_quads(mesh_layer, nek_layer, order, False)
-
-
-def test_nektar_elements_conforming() -> None:
-    simple_mesh = Mesh(
-        MeshLayer(
-            {
-                Quad(
-                    Curve(
-                        lambda x: Coords(
-                            np.array(1.0),
-                            np.array(0.0),
-                            np.asarray(x),
-                            CoordinateSystem.Cartesian,
-                        )
-                    ),
-                    Curve(
-                        lambda x: Coords(
-                            np.array(0.0),
-                            np.array(0.0),
-                            np.asarray(x),
-                            CoordinateSystem.Cartesian,
-                        )
-                    ),
-                    None,
-                    straight_field(),
-                ): {}
-            }
-        ),
-        np.array(
-            [
-                0.0,
-                1.0,
-                2 + 4e-16,
-            ]
-        ),
-    )
-    mesh_elements = nektar_writer.nektar_elements(simple_mesh, 1, True)
-    points = frozenset(itertools.chain.from_iterable(mesh_elements.points))
-    assert len(points) == 8
-    segments = frozenset(itertools.chain.from_iterable(mesh_elements.segments))
-    assert len(segments) == 10
-    faces = frozenset(itertools.chain.from_iterable(mesh_elements.faces))
-    assert len(faces) == 0
-    elements = frozenset(itertools.chain.from_iterable(mesh_elements.elements))
-    assert len(elements) == 3
-    assert len(mesh_elements.layers) == 1
-    assert len(mesh_elements.near_faces) == 0
-    assert len(mesh_elements.far_faces) == 0
+        check_layer_quads(mesh_layer, nek_layer, order)
 
 
 @given(
@@ -577,6 +497,15 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None
     assert len(actual_far_composites) == n_layers
     assert actual_near_composites == expected_near_composites
     assert actual_far_composites == expected_far_composites
+
+
+def test_read_write_nektar_mesh() -> None:
+    # Probably best way to do this is to read an example grid and
+    # check it is the same when written out again. Just need to be
+    # wary of any date information.
+
+    # Will probably need to parse XML, deleting the metadata, and then save to a new file.
+    pass
 
 
 # Integration test for very simple 1-element mesh
