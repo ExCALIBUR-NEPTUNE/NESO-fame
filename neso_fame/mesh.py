@@ -167,15 +167,19 @@ class Curve(Generic[C]):
     def offset(self, offset: float) -> "Curve[C]":
         return Curve(lambda s: self.function(s).offset(offset))
 
+    def subdivide(self, num_divisions: int) -> Iterator[Curve[C]]:
+        if num_divisions <= 1:
+            yield self
+        else:
+            for i in range(num_divisions):
+                yield Curve(
+                    lambda s: self.function((i + np.asarray(s)) / num_divisions)
+                )
+
     @cache
     def control_points(self, order) -> Coords[C]:
         s = np.linspace(0.0, 1.0, order + 1)
         return self.function(s)
-
-
-class SharedBound(Enum):
-    North = 1
-    South = 2
 
 
 # FIXME: Eventually we might want to distinguish between order of quads
@@ -184,7 +188,9 @@ class SharedBound(Enum):
 class Quad(Generic[C]):
     north: Curve[C]
     south: Curve[C]
-    in_plane: Optional[Curve[C]]
+    in_plane: Optional[
+        Curve[C]
+    ]  # FIXME: Not sure this is adequate to describe curved quads
     field: FieldTrace[C]
     NUM_CORNERS: ClassVar[int] = 4
 
@@ -257,6 +263,22 @@ class Quad(Generic[C]):
             self.field,
         )
 
+    def subdivide(self, num_divisions: int) -> Iterator[Quad[C]]:
+        if num_divisions <= 1:
+            yield self
+        else:
+            for n, s in zip(
+                self.north.subdivide(num_divisions), self.south.subdivide(num_divisions)
+            ):
+                yield Quad(
+                    n,
+                    s,
+                    self.in_plane.offset(cast(float, 0.5 * (n(0.0).x3 + s(0.0).x3)))
+                    if self.in_plane is not None
+                    else None,
+                    self.field,
+                )
+
     # def _normalised_map(self) -> RegularGridInterpolator:
     #     resolution = max(self.north.resolution, self.south.resolution)
     #     normed_coords = np.linspace(0., 1., resolution)
@@ -319,6 +341,18 @@ class Tet(Generic[C]):
             self.west.offset(offset),
         )
 
+    def subdivide(self, num_divisions: int) -> Iterator[Tet[C]]:
+        if num_divisions == 0:
+            yield self
+        else:
+            for n, s, e, w in zip(
+                self.north.subdivide(num_divisions),
+                self.south.subdivide(num_divisions),
+                self.east.subdivide(num_divisions),
+                self.west.subdivide(num_divisions),
+            ):
+                yield Tet(n, s, e, w)
+
 
 E = TypeVar("E", Quad, Tet)
 ElementConnections = dict[E, bool]
@@ -331,16 +365,24 @@ class MeshLayer(Generic[E]):
     # data.
     reference_elements: dict[E, ElementConnections[E]]
     offset: Optional[float] = None
+    subdivisions: int = 1
 
     def __iter__(self) -> Iterator[E]:
         if isinstance(self.offset, float):
             x = self.offset
-            return map(lambda e: e.offset(x), self.reference_elements)
+            return itertools.chain.from_iterable(
+                map(
+                    lambda e: e.offset(x).subdivide(self.subdivisions),
+                    self.reference_elements,
+                )
+            )
         else:
-            return iter(self.reference_elements)
+            return itertools.chain.from_iterable(
+                map(lambda e: e.subdivide(self.subdivisions), self.reference_elements)
+            )
 
     def __len__(self) -> int:
-        return len(self.reference_elements)
+        return len(self.reference_elements) * self.subdivisions
 
     @cached_property
     def element_type(self) -> Type[E]:
@@ -356,7 +398,7 @@ class MeshLayer(Generic[E]):
 
     @cached_property
     def num_unique_corners(self) -> int:
-        element_corners = self.element_type.NUM_CORNERS
+        element_corners = self.element_type.NUM_CORNERS * (self.subdivisions + 1) // 2
         total_corners = element_corners * len(self.reference_elements)
         num_face_connections = sum(
             list(connections.values()).count(True)
@@ -375,7 +417,7 @@ class MeshLayer(Generic[E]):
         )
 
     def num_unique_control_points(self, order: int) -> int:
-        points_per_edge = order + 1
+        points_per_edge = order * self.subdivisions + 1
         points_per_face = (order + 1) * points_per_edge
         if issubclass(self.element_type, Quad):
             points_per_element = points_per_face
@@ -400,7 +442,11 @@ class Mesh(Generic[E]):
 
     def layers(self) -> Iterable[MeshLayer[E]]:
         return map(
-            lambda off: MeshLayer(self.reference_layer.reference_elements, off),
+            lambda off: MeshLayer(
+                self.reference_layer.reference_elements,
+                off,
+                self.reference_layer.subdivisions,
+            ),
             self.offsets,
         )
 

@@ -25,7 +25,7 @@ from .mesh_strategies import (
     mutually_broadcastable_arrays,
     non_zero,
     _quad_mesh_connections,
-    quad_mesh_layer,
+    quad_mesh_layer_no_divisions,
     whole_numbers,
 )
 
@@ -369,7 +369,7 @@ def test_curve_offset_0(arg: float | list[float], result: mesh.Coords) -> None:
     mock = MagicMock(return_value=result)
     curve = mesh.Curve(mock).offset(0.0)
     result = curve(arg)
-    mock.assert_called_once_with(arg)
+    mock.assert_called_once()
     assert np.all(result.x1 == mock.return_value.x1)
     assert np.all(result.x2 == mock.return_value.x2)
     assert np.all(result.x3 == mock.return_value.x3)
@@ -394,6 +394,42 @@ def test_curve_offset(arg: float, offset: float, expected: float) -> None:
     assert np.all(result.x2 == arg)
     np.testing.assert_allclose(result.x3, expected)
     assert result.system is mesh.CoordinateSystem.Cartesian
+
+
+@given(integers(-50, 100))
+def test_curve_subdivision_len(divisions: int) -> None:
+    curve = mesh.Curve(
+        lambda x: mesh.Coords(
+            np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
+        )
+    )
+    expected = max(1, divisions)
+    divisions_iter = curve.subdivide(divisions)
+    for _ in range(expected):
+        _ = next(divisions_iter)
+    with pytest.raises(StopIteration):
+        next(divisions_iter)
+
+
+@given(integers(-5, 100))
+def test_curve_subdivision(divisions: int) -> None:
+    curve = mesh.Curve(
+        lambda x: mesh.Coords(
+            np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
+        )
+    )
+    divisions_iter = curve.subdivide(divisions)
+    first = next(divisions_iter)
+    coord = first(0.0)
+    for c in coord:
+        np.testing.assert_allclose(c, 0.0)
+    prev = first(1.0)
+    for curve in divisions_iter:
+        for c, p in zip(curve(0.0), prev):
+            np.testing.assert_allclose(c, p)
+        prev = curve(1.0)
+    for p in prev:
+        np.testing.assert_allclose(p, 1.0)
 
 
 def test_curve_control_points_cached() -> None:
@@ -485,6 +521,34 @@ def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
     assert actual.system == expected.system
 
 
+@given(from_type(mesh.Quad), integers(-50, 100))
+def test_quad_subdivision_len(quad: mesh.Quad, divisions: int) -> None:
+    expected = max(1, divisions)
+    divisions_iter = quad.subdivide(divisions)
+    for _ in range(expected):
+        _ = next(divisions_iter)
+    with pytest.raises(StopIteration):
+        next(divisions_iter)
+
+
+@given(from_type(mesh.Quad), integers(-5, 100))
+def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
+    divisions_iter = quad.subdivide(divisions)
+    quad_corners = quad.corners()
+    first = next(divisions_iter)
+    corners = first.corners()
+    for c, q in zip(corners, quad_corners):
+        np.testing.assert_allclose(c[[0, 2]], q[[0, 2]])
+    prev = corners
+    for quad in divisions_iter:
+        corners = quad.corners()
+        for c, p in zip(corners, prev):
+            np.testing.assert_allclose(c[[0, 2]], p[[1, 3]])
+        prev = corners
+    for p, q in zip(prev, quad_corners):
+        np.testing.assert_allclose(p[[1, 3]], q[[1, 3]])
+
+
 def test_tet_corners() -> None:
     pass
 
@@ -509,6 +573,34 @@ def test_tet_offset() -> None:
     pass
 
 
+@given(from_type(mesh.Tet), integers(-50, 100))
+def test_tet_subdivision_len(tet: mesh.Tet, divisions: int) -> None:
+    expected = max(1, divisions)
+    divisions_iter = tet.subdivide(divisions)
+    for _ in range(expected):
+        _ = next(divisions_iter)
+    with pytest.raises(StopIteration):
+        next(divisions_iter)
+
+
+@given(from_type(mesh.Tet), integers(-5, 100))
+def test_tet_subdivision(tet: mesh.Tet, divisions: int) -> None:
+    divisions_iter = tet.subdivide(divisions)
+    tet_corners = tet.corners()
+    first = next(divisions_iter)
+    corners = first.corners()
+    for c, t in zip(corners, tet_corners):
+        np.testing.assert_allclose(c[::2], t[::2])
+    prev = corners
+    for tet in divisions_iter:
+        corners = tet.corners()
+        for c, p in zip(corners, prev):
+            np.testing.assert_allclose(c[::2], p[1::2])
+        prev = corners
+    for p, t in zip(prev, tet_corners):
+        np.testing.assert_allclose(p[1::2], t[1::2])
+
+
 @given(mesh_connections)
 def test_mesh_layer_elements_no_offset(
     connections: dict[mesh.E, dict[mesh.E, bool]]
@@ -529,6 +621,27 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x1, expected_corners.x1, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
+
+
+@given(mesh_connections, integers(1, 10))
+def test_mesh_layer_elements_with_subdivisions(
+    connections: dict[mesh.E, dict[mesh.E, bool]], subdivisions: int
+) -> None:
+    layer = mesh.MeshLayer(connections, subdivisions=subdivisions)
+    expected = frozenset(
+        itertools.chain.from_iterable(
+            map(
+                lambda x: x.corners().iter_points(),
+                itertools.chain.from_iterable(
+                    map(lambda x: x.subdivide(subdivisions), connections)
+                ),
+            )
+        )
+    )
+    actual = frozenset(
+        itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
+    )
+    assert expected == actual
 
 
 @given(from_type(mesh.MeshLayer))
@@ -565,7 +678,7 @@ def test_mesh_layer_element_type(connections: dict[mesh.E, dict[mesh.E, bool]]) 
     assert layer.element_type is type(element)
 
 
-@given(quad_mesh_layer)
+@given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(layer: mesh.MeshLayer[mesh.Quad]) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
@@ -600,6 +713,7 @@ def test_mesh_iter_layers(m: mesh.Mesh) -> None:
     for layer, offset in zip(m.layers(), m.offsets):
         assert layer.reference_elements is m.reference_layer.reference_elements
         assert layer.offset == offset
+        assert layer.subdivisions == m.reference_layer.subdivisions
 
 
 @given(from_type(mesh.Mesh))

@@ -13,6 +13,7 @@ from hypothesis.strategies import (
     floats,
     from_type,
     integers,
+    none,
     register_type_strategy,
     sampled_from,
     just,
@@ -204,7 +205,13 @@ quad_mesh_connections = builds(
     coordinate_systems,
 )
 mesh_connections = one_of(quad_mesh_connections)
-quad_mesh_layer = quad_mesh_connections.map(mesh.MeshLayer[mesh.Quad])
+quad_mesh_layer_no_divisions = quad_mesh_connections.map(mesh.MeshLayer[mesh.Quad])
+quad_mesh_layer = builds(
+    mesh.MeshLayer,
+    quad_mesh_connections,
+    one_of(none(), whole_numbers),
+    integers(1, 10),
+)
 
 # TODO: Create strategy for Tet meshes and make them an option when generating meshes
 register_type_strategy(mesh.MeshLayer, quad_mesh_layer)
