@@ -666,7 +666,6 @@ def test_write_nektar_curves(mesh: Mesh, order:int, write_movement: bool) -> Non
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
         nektar_writer.write_nektar(mesh, order, str(xml_file), write_movement)
-        nektar_writer.write_nektar(mesh, order, "last_mesh.xml", write_movement)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()
