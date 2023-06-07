@@ -188,17 +188,10 @@ def nektar_mesh(
     for i, seg in enumerate(itertools.chain.from_iterable(elements.segments)):
         seg.SetGlobalID(i)
         segments[i] = seg
-    for i, curve in enumerate(
-        filter(
-            lambda x: x is not None,
-            map(
-                methodcaller("GetCurve"),
-                itertools.chain.from_iterable(elements.segments),
-            ),
-        )
-    ):
-        curve.curveID = i
-        curved_edges[i] = curve
+        curve = seg.GetCurve()
+        if curve is not None:
+            curve.curveID = i
+            curved_edges[i] = curve
     for i, face in enumerate(itertools.chain.from_iterable(elements.faces)):
         face.SetGlobalID(i)
         if isinstance(face, SD.TriGeom):
@@ -207,17 +200,10 @@ def nektar_mesh(
             quads[i] = face
         else:
             raise RuntimeError(f"Unexpected face geometry type {type(face)}.")
-    for i, curve in enumerate(
-        filter(
-            lambda x: x is not None,
-            map(
-                methodcaller("GetCurve"), itertools.chain.from_iterable(elements.faces)
-            ),
-        ),
-        len(curved_edges),
-    ):
-        curve.SetGlobalID(i)
-        curved_faces[i] = curve
+        curve = face.GetCurve()
+        if curve is not None:
+            curve.curveID = i
+            curved_faces[i] = curve
     for i, element in enumerate(itertools.chain.from_iterable(elements.elements)):
         element.SetGlobalID(i)
         if isinstance(element, SD.SegGeom):

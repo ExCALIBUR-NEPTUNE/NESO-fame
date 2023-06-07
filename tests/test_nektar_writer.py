@@ -3,6 +3,7 @@ from functools import reduce
 import itertools
 import operator
 import pathlib
+from tempfile import TemporaryDirectory
 from typing import Callable, cast, Type, TypeVar, Union
 import xml.etree.ElementTree as ET
 
@@ -418,6 +419,9 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
     else:
         assert all(curved_edges[i].curveID == i for i in range(n_curve))
         all_expected_segments = reduce(operator.or_, elements.segments)
+        n_curves = sum(seg.GetCurve() is not None for seg in all_expected_segments)
+        assert n_curves > 0
+        assert len(curved_edges) == n_curves
         for item in actual_segments:
             seg = item.data()
             curve = seg.GetCurve()
@@ -431,6 +435,8 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
                         SD.SegGeom, find_item(seg.GetGlobalID(), all_expected_segments)
                     ).GetCurve()
                 )
+                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(curve.points[0])
+                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(curve.points[-1])
 
     curved_faces = meshgraph.GetCurvedFaces()
     if order == 1:
@@ -504,13 +510,10 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
         assert len(interfaces) == 0
 
 
-def test_read_write_nektar_mesh() -> None:
-    # Probably best way to do this is to read an example grid and
-    # check it is the same when written out again. Just need to be
-    # wary of any date information.
-
-    # Will probably need to parse XML, deleting the metadata, and then save to a new file.
-    pass
+def find_element(parent: ET.Element, tag: str) -> ET.Element:
+        elem = parent.find(tag)
+        assert isinstance(elem, ET.Element)
+        return elem
 
 
 # Integration test for very simple 1-element mesh
@@ -542,6 +545,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
         ),
         np.array([0.0]),
     )
+
     xml_file = tmp_path / "simple_mesh.xml"
     nektar_writer.write_nektar(simple_mesh, 1, str(xml_file))
 
@@ -550,11 +554,6 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert isinstance(root, ET.Element)
     assert root.tag == "NEKTAR"
     assert root.attrib == {}
-
-    def find_element(parent: ET.Element, tag: str) -> ET.Element:
-        elem = parent.find(tag)
-        assert isinstance(elem, ET.Element)
-        return elem
 
     geom = find_element(root, "GEOMETRY")
     assert geom.tag == "GEOMETRY"
@@ -660,3 +659,37 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert {int(cast(str, left.get("ID"))), int(cast(str, right.get("ID")))} == {0, 1}
     assert cast(str, left.get("BOUNDARY")).strip() == f"C[{west_comp}]"
     assert cast(str, right.get("BOUNDARY")).strip() == f"C[{east_comp}]"
+
+
+@given(from_type(Mesh), integers(2, 10), booleans())
+def test_write_nektar_curves(mesh: Mesh, order:int, write_movement: bool) -> None:
+    with TemporaryDirectory() as tmp_path:
+        xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
+        nektar_writer.write_nektar(mesh, order, str(xml_file), write_movement)
+        nektar_writer.write_nektar(mesh, order, "last_mesh.xml", write_movement)
+        tree = ET.parse(xml_file)
+
+    root = tree.getroot()
+    assert isinstance(root, ET.Element)
+    assert root.tag == "NEKTAR"
+
+    vertices = find_element(root, "GEOMETRY/VERTEX")
+    edges = find_element(root, "GEOMETRY/EDGE")
+    curves = find_element(root, "GEOMETRY/CURVED")
+
+    for curve in curves.findall("E"):
+        edge_id = curve.get("EDGEID")
+        data = list(map(float, cast(str, curve.text).split()))
+        start = np.array(data[:3])
+        end = np.array(data[-3:])
+        edge = edges.find(f"E[@ID='{edge_id}']")
+        assert edge is not None
+        start_id, end_id = cast(str, edge.text).split()
+        start_point = vertices.find(f"V[@ID='{start_id}']")
+        end_point = vertices.find(f"V[@ID='{end_id}']")
+        assert start_point is not None
+        assert end_point is not None
+        expected_start = np.array(list(map(float, cast(str, start_point.text).split())))
+        expected_end = np.array(list(map(float, cast(str, end_point.text).split())))
+        np.testing.assert_allclose(start, expected_start, 1e-8)
+        np.testing.assert_allclose(end, expected_end, 1e-8)
