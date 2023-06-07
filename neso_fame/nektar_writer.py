@@ -165,7 +165,7 @@ def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeM
 
 
 def nektar_mesh(
-    elements: NektarElements, mesh_dim: int, spatial_dim: int
+    elements: NektarElements, mesh_dim: int, spatial_dim: int, write_movement=True
 ) -> SD.MeshGraphXml:
     meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)
     points = meshgraph.GetAllPointGeoms()
@@ -243,7 +243,8 @@ def nektar_mesh(
         composites[i] = layer
         domain = nektar_composite_map(i, layer)
         domains[i] = domain
-        movement.AddZone(SD.ZoneFixed(i, i, domain, 3))
+        if write_movement:
+            movement.AddZone(SD.ZoneFixed(i, i, domain, 3))
 
     n = len(elements.layers)
     _near_faces = enumerate(elements.near_faces, n)
@@ -253,14 +254,15 @@ def nektar_mesh(
     for i, ((j, near), (k, far)) in enumerate(zip(near_faces, far_faces)):
         composites[j] = near
         composites[k] = far
-        near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
-        far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
-        movement.AddInterface(f"Interface {i}", near_interface, far_interface)
+        if write_movement:
+            near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
+            far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
+            movement.AddInterface(f"Interface {i}", near_interface, far_interface)
 
     return meshgraph
 
 
-def write_nektar(mesh: Mesh, order: int, filename: str) -> None:
+def write_nektar(mesh: Mesh, order: int, filename: str, write_movement=True) -> None:
     nek_elements = nektar_elements(mesh, order)
-    nek_mesh = nektar_mesh(nek_elements, 2, 3)
+    nek_mesh = nektar_mesh(nek_elements, 2, 3, write_movement)
     nek_mesh.Write(filename, True, SD.FieldMetaDataMap())

@@ -17,6 +17,7 @@ from hypothesis.strategies import (
 )
 from NekPy import LibUtilities as LU
 from NekPy import SpatialDomains as SD
+from hypothesis.strategies._internal.core import booleans
 from neso_fame.fields import straight_field
 import numpy as np
 from pytest import approx, mark
@@ -349,8 +350,8 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@given(builds(nektar_writer.nektar_elements, from_type(Mesh), order), order)
-def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None:
+@given(builds(nektar_writer.nektar_elements, from_type(Mesh), order), order, booleans())
+def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_movement) -> None:
     def extract_and_merge(
         nek_type: Type[N], *items: Sequence[frozenset[NekType]]
     ) -> list[frozenset[N]]:
@@ -378,7 +379,7 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None
                 return geom
         raise IndexError(f"Item with ID {i} not found in set {geoms}")
 
-    meshgraph = nektar_writer.nektar_mesh(elements, 2, 3)
+    meshgraph = nektar_writer.nektar_mesh(elements, 2, 3, write_movement)
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
@@ -476,27 +477,31 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int) -> None
     zones = movement.GetZones()
     interfaces = movement.GetInterfaces()
 
-    assert len(zones) == n_layers
-    for i in range(n_layers):
-        zone_domain = zones[i].GetDomain()
-        assert len(zone_domain) == 1
-        assert comparable_composite(zone_domain[i]) == comparable_composite(
-            domains[i][i]
-        )
+    if write_movement:
+        assert len(zones) == n_layers
+        for i in range(n_layers):
+            zone_domain = zones[i].GetDomain()
+            assert len(zone_domain) == 1
+            assert comparable_composite(zone_domain[i]) == comparable_composite(
+                domains[i][i]
+            )
 
-    assert len(interfaces) == n_layers
-    actual_near_composites = comparable_composites(
-        actual_composites[next(iter(interface.GetLeftInterface().GetCompositeIDs()))]
-        for interface in interfaces.values()
-    )
-    actual_far_composites = comparable_composites(
-        actual_composites[next(iter(interface.GetRightInterface().GetCompositeIDs()))]
-        for interface in interfaces.values()
-    )
-    assert len(actual_near_composites) == n_layers
-    assert len(actual_far_composites) == n_layers
-    assert actual_near_composites == expected_near_composites
-    assert actual_far_composites == expected_far_composites
+        assert len(interfaces) == n_layers
+        actual_near_composites = comparable_composites(
+            actual_composites[next(iter(interface.GetLeftInterface().GetCompositeIDs()))]
+            for interface in interfaces.values()
+        )
+        actual_far_composites = comparable_composites(
+            actual_composites[next(iter(interface.GetRightInterface().GetCompositeIDs()))]
+            for interface in interfaces.values()
+        )
+        assert len(actual_near_composites) == n_layers
+        assert len(actual_far_composites) == n_layers
+        assert actual_near_composites == expected_near_composites
+        assert actual_far_composites == expected_far_composites
+    else:
+        assert len(zones) == 0
+        assert len(interfaces) == 0
 
 
 def test_read_write_nektar_mesh() -> None:

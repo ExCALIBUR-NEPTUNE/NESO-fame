@@ -102,3 +102,42 @@ def test_angled_grid() -> None:
             assert np.all(north_points.x2 == 0.0)
             np.testing.assert_allclose(north_points.x3, x3_positions)
         x3_start = x3_end
+
+
+# Test for simple grid
+def test_subdivided_grid() -> None:
+    starts = SliceCoords(
+        np.linspace(
+            -1.0,
+            1.0,
+            5,
+        ),
+        np.empty(5),
+        CoordinateSystem.Cartesian,
+    )
+    field = straight_field()
+    x3 = (0.0, 2.0)
+    n = 4
+    resolution = 2
+    mesh = generators.field_aligned_2d(starts, field, x3, 1, resolution, subdivisions=n)
+    assert len(mesh) == 16
+    dx3 = (x3[1] - x3[0]) / n
+    # Check corners of quads are in correct locations
+    for k, quad in enumerate(mesh):
+        corners = quad.corners()
+        assert len(corners) == 4
+        i = k // n
+        j = k % n
+        # Bounding curves in quad are not ordered, so don't know
+        # whether higher or lower will come first
+        if corners.x1[2] > corners.x1[0]:
+            x1_0 = starts.x1[i]
+            x1_2 = starts.x1[i + 1]
+        else:
+            x1_0 = starts.x1[i + 1]
+            x1_2 = starts.x1[i]
+        np.testing.assert_allclose(corners.x1[[0, 1]], x1_0)
+        np.testing.assert_allclose(corners.x1[[2, 3]], x1_2)
+        assert np.all(corners.x2 == 0.0)
+        np.testing.assert_allclose(corners.x3[[0, 2]], x3[0] + j * dx3)
+        np.testing.assert_allclose(corners.x3[[1, 3]], x3[0] + (j + 1) * dx3)

@@ -31,6 +31,7 @@ def field_aligned_2d(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     connectivity: Optional[Connectivity] = None,
+    subdivisions: int = 1
 ) -> Mesh:
     """Generate a 2D mesh where element edges follow field
     lines. Start with a 1D mesh defined in the poloidal plane. Edges
@@ -63,6 +64,8 @@ def field_aligned_2d(
         Item at index `n` is a sequence of the indices for all the
         other points connected to `n`. If not provided, assume points
         are connected in an ordered line.
+    subdivisions
+        Depth of cells in x3-direction in each layer.
 
     Returns
     -------
@@ -83,7 +86,7 @@ def field_aligned_2d(
     curves = [
         Curve(
             normalise_field_line(
-                field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution
+                field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution * subdivisions
             )
         )
         for coord in flattened_mesh.iter_points()
@@ -115,4 +118,4 @@ def field_aligned_2d(
         else:
             quad_map[q1] = {q2: False}
 
-    return Mesh(MeshLayer(quad_map), x3_mid)
+    return Mesh(MeshLayer(quad_map, subdivisions=subdivisions), x3_mid)
