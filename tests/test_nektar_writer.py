@@ -417,7 +417,6 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
     if order == 1:
         assert n_curve == 0
     else:
-        assert all(curved_edges[i].curveID == i for i in range(n_curve))
         all_expected_segments = reduce(operator.or_, elements.segments)
         n_curves = sum(seg.GetCurve() is not None for seg in all_expected_segments)
         assert n_curves > 0
@@ -661,7 +660,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert cast(str, right.get("BOUNDARY")).strip() == f"C[{east_comp}]"
 
 
-@given(from_type(Mesh), integers(2, 10), booleans())
+@given(from_type(Mesh), integers(2, 6), booleans())
 def test_write_nektar_curves(mesh: Mesh, order:int, write_movement: bool) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"

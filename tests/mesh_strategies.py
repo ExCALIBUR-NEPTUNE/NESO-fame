@@ -187,7 +187,7 @@ register_type_strategy(
             tuples(whole_numbers, whole_numbers, whole_numbers),
         ).filter(lambda x: x[0][0:2] != x[1][0:2]),
         coordinate_systems,
-    ).filter(lambda x: x is not None),
+    ).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4),
 )
 
 starts_and_ends = tuples(
