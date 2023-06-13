@@ -39,7 +39,8 @@ def field_aligned_2d(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     connectivity: Optional[Connectivity] = None,
-    subdivisions: int = 1
+    subdivisions: int = 1,
+    conform_to_bounds = True,
 ) -> Mesh:
     """Generate a 2D mesh where element edges follow field
     lines. Start with a 1D mesh defined in the poloidal plane. Edges
@@ -74,6 +75,9 @@ def field_aligned_2d(
         are connected in an ordered line.
     subdivisions
         Depth of cells in x3-direction in each layer.
+    conform_to_bounds
+        If True, make the first and last curves straight lines, so that
+        there are regular edges to the domain.
 
     Returns
     -------
@@ -89,7 +93,7 @@ def field_aligned_2d(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
     
-    curves = [_boundary_curve(coord, dx3) if i == 0 or i == num_nodes - 1 else
+    curves = [_boundary_curve(coord, dx3) if (i == 0 or i == num_nodes - 1) and conform_to_bounds else
         Curve(
             normalise_field_line(
                 field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution * subdivisions
