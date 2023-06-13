@@ -4,10 +4,22 @@ import numpy.typing as npt
 from neso_fame.mesh import (
     FieldTrace,
     C,
+    CoordinateSystem,
     SliceCoord,
     SliceCoords,
 )
 
+
+def _cylindrical_distance(x1_start, angle, x3):
+    a = x1_start
+    b = np.tan(angle)
+    d = (a + b * x3)
+    c = np.sqrt(d**2 + b**2)
+    c0 = np.sqrt(a**2 + b**2)
+    if np.abs(angle) < 1e-8:
+        return a * x3
+    else:
+        return c * d / (2 * b) + 0.5 * b * np.log(c + d) - (c0 * a / (2*b) + 0.5 * b * np.log(c0 + a))
 
 def straight_field(angle=0.0) -> "FieldTrace[C]":
     """Returns a field trace corresponding to straight field lines
@@ -20,7 +32,7 @@ def straight_field(angle=0.0) -> "FieldTrace[C]":
         """Returns a trace for a straight field line."""
         x1 = start.x1 + perpendicular_coord * np.tan(angle)
         x2 = np.asarray(start.x2)
-        return SliceCoords(x1, x2, start.system), np.asarray(
+        return SliceCoords(x1, x2, start.system), _cylindrical_distance(start.x1, angle, perpendicular_coord) if start.system == CoordinateSystem.Cylindrical else np.asarray(
             perpendicular_coord
         ) / np.cos(angle)
 
