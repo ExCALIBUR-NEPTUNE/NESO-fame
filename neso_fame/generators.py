@@ -8,13 +8,17 @@ import numpy as np
 
 from .mesh import (
     C,
+    Coord,
     Curve,
     FieldTrace,
     Mesh,
     MeshLayer,
+    NormalisedFieldLine,
     normalise_field_line,
     Quad,
+    SliceCoord,
     SliceCoords,
+    Coords,
 )
 
 Connectivity = Sequence[Sequence[int]]
@@ -22,6 +26,10 @@ Connectivity = Sequence[Sequence[int]]
 
 def _ordered_connectivity(size: int) -> Connectivity:
     return [[1]] + [[i - 1, i + 1] for i in range(1, size - 1)] + [[size - 2]]
+
+
+def _boundary_curve(start: SliceCoord[C], dx3: float) -> Curve[C]:
+    return Curve(lambda s: Coords(np.full_like(s, start.x1), np.full_like(s, start.x2), dx3 * (np.asarray(s) - 0.5), start.system)) 
 
 
 def field_aligned_2d(
@@ -73,26 +81,23 @@ def field_aligned_2d(
         A MeshGraph object containing the field-aligned, non-conformal
         grid
     """
-    # Ensure poloidal mesh is actually 1-D (required to keep output 2-D)
-    flattened_mesh = SliceCoords(
-        lower_dim_mesh.x1, np.array(0.0), lower_dim_mesh.system
-    )
+    num_nodes = len(lower_dim_mesh)
 
     # Calculate x3 positions for nodes in final mesh
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    curves = [
+    
+    curves = [_boundary_curve(coord, dx3) if i == 0 or i == num_nodes - 1 else
         Curve(
             normalise_field_line(
                 field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution * subdivisions
             )
         )
-        for coord in flattened_mesh.iter_points()
+        for i, coord in enumerate(lower_dim_mesh.iter_points())
     ]
 
-    num_nodes = len(flattened_mesh)
     # FIXME: Pretty sure I could represent this more efficiently as
     # pairs of node positions. Approach used here was when I expected
     # to be filtering edges and needed to be able to look up adjoining

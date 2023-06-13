@@ -13,7 +13,7 @@ def test_simple_grid() -> None:
             1.0,
             5,
         ),
-        np.empty(5),
+        np.zeros(5),
         CoordinateSystem.Cartesian,
     )
     field = straight_field()
@@ -63,20 +63,21 @@ def test_simple_grid() -> None:
 # Test for angled grid
 def test_angled_grid() -> None:
     angle = np.pi / 18
+    m = 4
     starts = SliceCoords(
         np.linspace(
             1.0,
-            3.0,
-            3,
+            4.0,
+            m,
         ),
-        np.empty(3),
+        np.zeros(m),
         CoordinateSystem.Cartesian,
     )
     field = straight_field(angle)
     x3 = (-2.0, 1.0)
     n = 5
     mesh = generators.field_aligned_2d(starts, field, x3, n)
-    assert len(mesh) == 10
+    assert len(mesh) == n * (m - 1)
     x3_start = x3[0]
     dx3 = (x3[1] - x3[0]) / n
     x1_offsets = np.array([-np.tan(angle) * dx3 / 2, 0.0, np.tan(angle) * dx3 / 2])
@@ -89,16 +90,20 @@ def test_angled_grid() -> None:
             # whether higher or lower will come first
             if quad.south(0.0).x1 < quad.north(0.0).x1:
                 x1_south_mid = starts.x1[i]
+                south_offsets = 0 if i == 0 else x1_offsets
                 x1_north_mid = starts.x1[i + 1]
+                north_offsets = 0 if i == m - 2 else x1_offsets
             else:
                 x1_south_mid = starts.x1[i + 1]
+                south_offsets = 0 if i == m - 2 else x1_offsets
                 x1_north_mid = starts.x1[i]
+                north_offsets = 0 if i == 0 else x1_offsets
             south_points = quad.south.control_points(2)
-            np.testing.assert_allclose(south_points.x1, x1_south_mid + x1_offsets)
+            np.testing.assert_allclose(south_points.x1, x1_south_mid + south_offsets)
             assert np.all(south_points.x2 == 0.0)
             np.testing.assert_allclose(south_points.x3, x3_positions)
             north_points = quad.north.control_points(2)
-            np.testing.assert_allclose(north_points.x1, x1_north_mid + x1_offsets)
+            np.testing.assert_allclose(north_points.x1, x1_north_mid + north_offsets)
             assert np.all(north_points.x2 == 0.0)
             np.testing.assert_allclose(north_points.x3, x3_positions)
         x3_start = x3_end
@@ -112,7 +117,7 @@ def test_subdivided_grid() -> None:
             1.0,
             5,
         ),
-        np.empty(5),
+        np.zeros(5),
         CoordinateSystem.Cartesian,
     )
     field = straight_field()
