@@ -31,6 +31,7 @@ def asarrays(coords: CoordTriple) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray
 class CoordinateSystem(Enum):
     Cartesian = 0
     Cylindrical = 1
+    Cartesian2D = 2
 
 
 COORDINATE_TRANSFORMS = {
@@ -40,11 +41,13 @@ COORDINATE_TRANSFORMS = {
         x1 * np.sin(x3),
         x2,
     ),
+    CoordinateSystem.Cartesian2D: lambda x1, _, x3: (x1, x3, 0.)
 }
 
 CartesianCoordinates = Literal[CoordinateSystem.Cartesian]
 CylindricalCoordinates = Literal[CoordinateSystem.Cylindrical]
-C = TypeVar("C", CartesianCoordinates, CylindricalCoordinates)
+CartesianCoordinates2D = Literal[CoordinateSystem.Cartesian2D]
+C = TypeVar("C", CartesianCoordinates, CylindricalCoordinates, CartesianCoordinates2D)
 
 
 @dataclass(frozen=True)
