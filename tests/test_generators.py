@@ -44,20 +44,7 @@ def test_simple_grid() -> None:
             np.testing.assert_allclose(corners.x3[[0, 2]], x3_start)
             np.testing.assert_allclose(corners.x3[[1, 3]], x3_end)
         x3_start = x3_end
-    # Check connectivity of quads is correct
-    ordered_quads = list(mesh.reference_layer.reference_elements.keys())
-    for i, (quad, connections) in enumerate(
-        mesh.reference_layer.reference_elements.items()
-    ):
-        assert not any(connections.values())
-        if 0 < i < len(starts) - 2:
-            assert len(connections) == 2
-        else:
-            assert len(connections) == 1
-        if i != 0:
-            assert any(c == ordered_quads[i - 1] for c in connections)
-        if i != len(starts) - 2:
-            assert any(c == ordered_quads[i + 1] for c in connections)
+        # FIXME: Check boundaries
 
 
 # Test for angled grid
@@ -107,6 +94,10 @@ def test_angled_grid() -> None:
             assert np.all(north_points.x2 == 0.0)
             np.testing.assert_allclose(north_points.x3, x3_positions)
         x3_start = x3_end
+        # FIXME: Check boundaries
+
+
+# FIXME: Add tests for forcing conforming to boundaries
 
 
 # Test for angled grid
@@ -152,6 +143,7 @@ def test_angled_grid_jagged_bounds() -> None:
             assert np.all(north_points.x2 == 0.0)
             np.testing.assert_allclose(north_points.x3, x3_positions)
         x3_start = x3_end
+    # FIXME: Check boundaries
 
 
 # Test for simple grid
@@ -191,3 +183,4 @@ def test_subdivided_grid() -> None:
         assert np.all(corners.x2 == 0.0)
         np.testing.assert_allclose(corners.x3[[0, 2]], x3[0] + j * dx3)
         np.testing.assert_allclose(corners.x3[[1, 3]], x3[0] + (j + 1) * dx3)
+    # FIXME: Check boundaries

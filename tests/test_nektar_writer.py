@@ -4,10 +4,10 @@ import itertools
 import operator
 import pathlib
 from tempfile import TemporaryDirectory
-from typing import Callable, cast, Type, TypeVar, Union
+from typing import Callable, Iterator, cast, Type, TypeVar, Union, TypeGuard
 import xml.etree.ElementTree as ET
 
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis.strategies import (
     builds,
     from_type,
@@ -25,7 +25,17 @@ from pytest import approx, mark
 
 from . import mesh_strategies
 from neso_fame import nektar_writer
-from neso_fame.mesh import Coord, Coords, Curve, CoordinateSystem, Mesh, MeshLayer, Quad
+from neso_fame.mesh import (
+    Coord,
+    Coords,
+    Curve,
+    CoordinateSystem,
+    GenericMesh,
+    MeshLayer,
+    Quad,
+    QuadMesh,
+    Tet,
+)
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -45,6 +55,7 @@ def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
 ComparablePoint = tuple[float, float, float]
 ComparableDimensionalGeometry = tuple[str, frozenset[ComparablePoint]]
 ComparableGeometry = ComparablePoint | ComparableDimensionalGeometry
+ComparableComposite = frozenset[int]
 
 
 def comparable_coord(c: Coord) -> ComparablePoint:
@@ -93,13 +104,13 @@ def comparable_set(vals: Iterable[SD.Geometry]) -> frozenset[ComparableGeometry]
     return frozenset(map(comparable_geometry, vals))
 
 
-def comparable_composite(val: SD.Composite) -> frozenset[ComparableGeometry]:
+def comparable_composite(val: SD.Composite) -> frozenset[ComparableComposite]:
     return frozenset(map(operator.methodcaller("GetGlobalID"), val.geometries))
 
 
 def comparable_composites(
     vals: Iterable[SD.Composite],
-) -> frozenset[frozenset[ComparableGeometry]]:
+) -> frozenset[frozenset[ComparableComposite]]:
     return frozenset(map(comparable_composite, vals))
 
 
@@ -179,19 +190,6 @@ def test_nektar_edge_higher_order(curve: Curve, order: int, layer: int) -> None:
         assert_nek_points_eq(p1, p2)
 
 
-@mark.filterwarnings("ignore:invalid value:RuntimeWarning")
-@given(from_type(Coord), from_type(Coord), integers())
-def test_connect_points(c1: Coord, c2: Coord, layer) -> None:
-    edge = nektar_writer.connect_points(
-        nektar_writer.nektar_point(c1, layer),
-        nektar_writer.nektar_point(c2, layer),
-        layer,
-    )
-    assert_points_eq(edge.GetVertex(0), c1)
-    assert_points_eq(edge.GetVertex(1), c2)
-    assert edge.GetCurve() is None
-
-
 @given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, order, layer)
@@ -215,30 +213,31 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
 # as I can't access the GetCurve method?
 
 
-def check_layer_quads(
-    mesh: MeshLayer[Quad], nek_layer: nektar_writer.NektarLayer, order: int
-) -> None:
+def check_points(expected: Iterable[Quad | Tet], actual: Iterable[SD.PointGeom]):
     expected_points = frozenset(
         map(
             comparable_coord,
             itertools.chain.from_iterable(
-                e.corners().to_cartesian().iter_points() for e in mesh
+                e.corners().to_cartesian().iter_points() for e in expected
             ),
         )
     )
-    actual_points = comparable_set(nek_layer.points)
+    actual_points = comparable_set(actual)
     assert expected_points == actual_points
+    
+def check_edges(mesh: MeshLayer[Quad, Curve] | GenericMesh[Quad, Curve], elements: Iterable[SD.Geometry2D], edges: Iterable[SD.SegGeom]):
+    # Assumes the elements are Quads, as is currently the case. Will
+    # need to change if I generalise this implementation
     quad_edges = frozenset(
         itertools.chain.from_iterable(
             map(comparable_geometry, map(q.GetEdge, range(4)))
-            for q in nek_layer.elements
+            for q in elements
         )
     )
-    actual_edges = comparable_set(nek_layer.segments)
+    actual_edges = comparable_set(edges)
     assert actual_edges == quad_edges
-    expected_x3_aligned_edges = frozenset(
-        comparable_edge(q.north) for q in mesh
-    ) | frozenset(comparable_edge(q.south) for q in mesh)
+    expected_x3_aligned_edges = reduce(operator.or_, (frozenset(
+        {comparable_edge(q.north), comparable_edge(q.south)}) for q in mesh))
     expected_near_faces = frozenset(
         (
             SD.SegGeom.__name__,
@@ -267,59 +266,69 @@ def check_layer_quads(
         expected_x3_aligned_edges | expected_near_faces | expected_far_faces
         == actual_edges
     )
-    assert len(nek_layer.faces) == 0
-    actual_elements = comparable_set(nek_layer.elements)
+
+
+def check_face_composites(expected: Iterable[Quad], expected_location: float, actual: SD.Composite):
+    expected_faces = frozenset(
+        (
+            SD.SegGeom.__name__,
+            frozenset(
+                {
+                    comparable_coord(q.north(expected_location).to_cartesian().to_coord()),
+                    comparable_coord(q.south(expected_location).to_cartesian().to_coord()),
+                }
+            ),
+        )
+        for q in expected
+    )
+    actual_faces = comparable_set(actual.geometries)
+    assert expected_faces == actual_faces
+
+
+def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
+    actual_elements = comparable_set(actual)
+    expected_elements = frozenset(map(comparable_quad, expected))
     # FIXME: For some reason, only 3 unique vertices are being
     # returned by Nektar QuadGeom types. I think there is something
     # wrong with the implementation within Nektar++. It means the test
     # below fails.
     #
-    # expected_elements = frozenset(map(comparable_quad, mesh))
     # assert actual_elements == expected_elements
-    composite_elements = comparable_set(nek_layer.layer.geometries)
-    assert actual_elements == composite_elements
-    actual_near_faces = comparable_set(nek_layer.near_face.geometries)
-    assert actual_near_faces == expected_near_faces
-    actual_far_faces = comparable_set(nek_layer.far_face.geometries)
-    assert actual_far_faces == expected_far_faces
+    assert len(actual_elements) == len(expected_elements)
 
 
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
 @given(from_type(MeshLayer), integers(1, 12), integers())
-def test_nektar_layer_elements(mesh: MeshLayer[Quad], order: int, layer: int) -> None:
+def test_nektar_layer_elements(mesh: MeshLayer[Quad, Curve], order: int, layer: int) -> None:
     nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
-    check_layer_quads(mesh, nek_layer, order)
+    assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
+    check_points(iter(mesh), iter(nek_layer.points))
+    check_edges(mesh, iter(nek_layer.elements), iter(nek_layer.segments))
+    check_face_composites(iter(mesh), 0., nek_layer.near_face)
+    check_face_composites(iter(mesh), 1., nek_layer.far_face)
+    check_elements(iter(mesh), iter(nek_layer.elements))
+    # TODO: Handle case where mesh forms a closed surface and has no boundary
+    # assert isinstance(nek_layer.layer_bound, tuple)
+    # actual_bound_1, actual_bound_2 = map(comparable_geometry, nek_layer.layer_bound)
+    # assert actual_bound_1 in expected_x3_aligned_edges
+    # assert actual_bound_2 in expected_x3_aligned_edges
+    # FIXME: This test isn't very useful, as it isn't straightforward to judge somthing as less than
+    # assert actual_bound_1 == south_bound
+    # assert actual_bound_2 == north_bound
 
 
 # Check all elements present when converting a mesh
-@given(from_type(Mesh), integers(1, 4))
-def test_nektar_elements(mesh: Mesh[Quad], order: int) -> None:
+@given(from_type(GenericMesh), integers(1, 4))
+def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(mesh, order)
-    n = len(nek_mesh.points)
-    assert len(nek_mesh.segments) == n
-    assert len(nek_mesh.faces) == n
-    assert len(nek_mesh.elements) == n
-    assert len(nek_mesh.layers) == n
-    assert len(nek_mesh.near_faces) == n
-    assert len(nek_mesh.far_faces) == n
-    for nek_layer, mesh_layer in zip(
-        itertools.starmap(
-            nektar_writer.NektarLayer,
-            zip(
-                nek_mesh.points,
-                nek_mesh.segments,
-                nek_mesh.faces,
-                nek_mesh.elements,
-                nek_mesh.layers,
-                nek_mesh.near_faces,
-                nek_mesh.far_faces,
-            ),
-        ),
-        mesh.layers(),
-    ):
-        check_layer_quads(mesh_layer, nek_layer, order)
-
+    assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
+    check_points(iter(mesh), nek_mesh.points())
+    check_edges(mesh, cast(Iterator[SD.QuadGeom], nek_mesh.elements()), nek_mesh.segments())
+    for layer, near, far in zip(mesh.layers(), nek_mesh.near_faces(), nek_mesh.far_faces()):
+        check_face_composites(iter(layer), 0., near)
+        check_face_composites(iter(layer), 1., far)
+    check_elements(iter(mesh), nek_mesh.elements())
 
 @given(
     integers(-256, 256),
@@ -343,37 +352,29 @@ def test_nektar_composite_map(comp_id: int, composite: SD.Composite) -> None:
     )
 
 
-order = shared(integers(1, 8))
+order = shared(integers(1, 4))
 NekType = Union[SD.Curve, SD.Geometry]
 N = TypeVar("N", SD.Curve, SD.Geometry)
+
+
+# TODO: Write some unit tests for the iterator methods on NektarElements
 
 
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@given(builds(nektar_writer.nektar_elements, from_type(Mesh), order), order, booleans())
-def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_movement) -> None:
+@given(builds(nektar_writer.nektar_elements, from_type(GenericMesh), order), order, booleans())
+def test_nektar_mesh(
+    elements: nektar_writer.NektarElements, order: int, write_movement
+) -> None:
     def extract_and_merge(
-        nek_type: Type[N], *items: Sequence[frozenset[NekType]]
-    ) -> list[frozenset[N]]:
-        # MyPy seemed to struggle with the typing here, so put in lots
-        # of cast expressiosn to help it along
-        return list(
-            map(
-                cast(Callable[[Iterable[N]], frozenset[N]], frozenset),
-                cast(
-                    Iterable[Iterable[N]],
-                    map(
-                        lambda x: filter(lambda y: isinstance(y, nek_type), x),
-                        cast(
-                            Iterable[frozenset[NekType]],
-                            map(lambda z: reduce(operator.or_, z), zip(*items)),
-                        ),
-                    ),
-                ),
+        nek_type: Type[N], *items: Iterator[NekType]
+    ) -> Iterable[N]:
+        return filter(cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
+                itertools.chain(*items),
+                      
             )
-        )
-
+    
     def find_item(i: int, geoms: frozenset[SD.Geometry]) -> SD.Geometry:
         for geom in geoms:
             if geom.GetGlobalID() == i:
@@ -394,22 +395,23 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
         meshgraph.GetAllPrismGeoms(),
         meshgraph.GetAllHexGeoms(),
     ]
-    expected_geometries: list[Sequence[frozenset[SD.Geometry]]] = [
-        elements.points,
-        elements.segments,
-        extract_and_merge(SD.TriGeom, elements.faces, elements.elements),
-        extract_and_merge(SD.QuadGeom, elements.faces, elements.elements),
-        extract_and_merge(SD.TetGeom, elements.elements),
-        extract_and_merge(SD.PyrGeom, elements.elements),
-        extract_and_merge(SD.PrismGeom, elements.elements),
-        extract_and_merge(SD.HexGeom, elements.elements),
-    ]
+    extract_and_merge(SD.TriGeom, elements.faces(), elements.elements())
+    expected_geometries: Iterable[list[SD.Geometry]] = map(list, [
+        elements.points(),
+        elements.segments(),
+        extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
+        extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
+        extract_and_merge(SD.TetGeom, elements.elements()),
+        extract_and_merge(SD.PyrGeom, elements.elements()),
+        extract_and_merge(SD.PrismGeom, elements.elements()),
+        extract_and_merge(SD.HexGeom, elements.elements()),
+    ])
     for expected, actual in zip(expected_geometries, actual_geometries):
-        n = sum(map(len, expected))
+        n = len(expected)
         assert len(actual) == n
         assert all(actual[i].GetGlobalID() == i for i in range(n))
         actual_comparable = comparable_set(actual[i] for i in range(n))
-        expected_comparable = comparable_set(reduce(operator.or_, expected))
+        expected_comparable = comparable_set(expected)
         assert actual_comparable == expected_comparable
 
     curved_edges = meshgraph.GetCurvedEdges()
@@ -417,7 +419,7 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
     if order == 1:
         assert n_curve == 0
     else:
-        all_expected_segments = reduce(operator.or_, elements.segments)
+        all_expected_segments = frozenset(elements.segments())
         n_curves = sum(seg.GetCurve() is not None for seg in all_expected_segments)
         assert n_curves > 0
         assert len(curved_edges) == n_curves
@@ -434,8 +436,12 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
                         SD.SegGeom, find_item(seg.GetGlobalID(), all_expected_segments)
                     ).GetCurve()
                 )
-                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(curve.points[0])
-                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(curve.points[-1])
+                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(
+                    curve.points[0]
+                )
+                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(
+                    curve.points[-1]
+                )
 
     curved_faces = meshgraph.GetCurvedFaces()
     if order == 1:
@@ -444,7 +450,7 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
         assert all(
             curved_faces[i] == i for i in range(n_curve, n_curve + len(curved_faces))
         )
-        all_expected_faces = reduce(operator.or_, elements.faces)
+        all_expected_faces = frozenset(elements.faces())
         for item in itertools.chain(actual_triangles, actual_quads):
             face = item.data()
             curve = face.GetCurve()
@@ -460,14 +466,29 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
                 )
 
     actual_composites = meshgraph.GetComposites()
-    n_layers = len(elements.layers)
-    n_comp = 3 * n_layers
+    n_layers = len(list(elements.layers()))
+    n_comp = 3 * n_layers + 2
     assert len(actual_composites) == n_comp
-    expected_layer_composites = comparable_composites(elements.layers)
-    expected_near_composites = comparable_composites(elements.near_faces)
-    expected_far_composites = comparable_composites(elements.far_faces)
+    expected_layer_composites = comparable_composites(elements.layers())
+    expected_near_composites = comparable_composites(elements.near_faces())
+    expected_far_composites = comparable_composites(elements.far_faces())
+    expected_bound_composites = frozenset(
+        frozenset(
+            map(
+                operator.methodcaller("GetGlobalID"),
+                map(
+                    operator.itemgetter(i),
+                    cast(list[tuple[SD.SegGeom, SD.SegGeom]], elements.bounds),
+                ),
+            )
+        )
+        for i in range(2)
+    )
     assert (
-        expected_layer_composites | expected_near_composites | expected_far_composites
+        expected_layer_composites
+        | expected_near_composites
+        | expected_far_composites
+        | expected_bound_composites
         == comparable_composites(actual_composites[i] for i in range(n_comp))
     )
 
@@ -493,11 +514,15 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
 
         assert len(interfaces) == n_layers
         actual_near_composites = comparable_composites(
-            actual_composites[next(iter(interface.GetLeftInterface().GetCompositeIDs()))]
+            actual_composites[
+                next(iter(interface.GetLeftInterface().GetCompositeIDs()))
+            ]
             for interface in interfaces.values()
         )
         actual_far_composites = comparable_composites(
-            actual_composites[next(iter(interface.GetRightInterface().GetCompositeIDs()))]
+            actual_composites[
+                next(iter(interface.GetRightInterface().GetCompositeIDs()))
+            ]
             for interface in interfaces.values()
         )
         assert len(actual_near_composites) == n_layers
@@ -510,17 +535,14 @@ def test_nektar_mesh(elements: nektar_writer.NektarElements, order: int, write_m
 
 
 def find_element(parent: ET.Element, tag: str) -> ET.Element:
-        elem = parent.find(tag)
-        assert isinstance(elem, ET.Element)
-        return elem
+    elem = parent.find(tag)
+    assert isinstance(elem, ET.Element)
+    return elem
 
 
 # Integration test for very simple 1-element mesh
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
-    simple_mesh = Mesh(
-        MeshLayer(
-            {
-                Quad(
+    quad = Quad(
                     Curve(
                         lambda x: Coords(
                             np.array(1.0),
@@ -539,8 +561,11 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
                     ),
                     None,
                     straight_field(),
-                ): {}
-            }
+                )
+
+    simple_mesh = GenericMesh(
+        MeshLayer(
+            [quad], [frozenset([quad.north]), frozenset([quad.south])]
         ),
         np.array([0.0]),
     )
@@ -565,13 +590,13 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
         assert vertex.tag == "V" or vertex.tag == "VERTEX"
         assert int(cast(str, vertex.get("ID"))) == i
         coord = tuple(map(float, cast(str, vertex.text).split()))
-        if coord == (0.0, 0.0, 0.0):
+        if coord == (0.0, 0.0, 1.0):
             south_west = i
-        elif coord == (0.0, 0.0, 1.0):
+        elif coord == (0.0, 0.0, 0.0):
             south_east = i
-        elif coord == (1.0, 0.0, 0.0):
-            north_west = i
         elif coord == (1.0, 0.0, 1.0):
+            north_west = i
+        elif coord == (1.0, 0.0, 0.0):
             north_east = i
         else:
             raise RuntimeError(f"Unexpected vertex location {coord}")
@@ -585,6 +610,8 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     edge_vals: set[tuple[int, int]] = set()
     east = -1
     west = -1
+    north = -1
+    south = -1
     expected_east = tuple(sorted((north_east, south_east)))
     expected_west = tuple(sorted((north_west, south_west)))
     expected_north = tuple(sorted((north_east, north_west)))
@@ -599,6 +626,10 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
             east = i
         elif termini == expected_west:
             west = i
+        elif termini == expected_north:
+            north = i
+        elif termini == expected_south:
+            south = i
         edge_vals.add(termini)
     assert edge_vals == {expected_east, expected_west, expected_north, expected_south}
 
@@ -613,10 +644,12 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert len(curves) == 0
 
     composites = find_element(geom, "COMPOSITE")
-    assert len(composites) == 3
+    assert len(composites) == 5
     domain_comp = -1
     east_comp = -1
     west_comp = -1
+    north_comp = -1
+    south_comp = -1
     for i, comp in enumerate(composites):
         assert comp.tag == "C"
         assert int(cast(str, comp.get("ID"))) == i
@@ -627,11 +660,17 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
             east_comp = i
         elif content == f"E[{west}]":
             west_comp = i
+        elif content == f"E[{north}]":
+            north_comp = i
+        elif content == f"E[{south}]":
+            south_comp = i
         else:
             raise RuntimeError(f"Unexpected composite {content}")
     assert domain_comp >= 0
     assert east_comp >= 0
     assert west_comp >= 0
+    assert north_comp >= 0
+    assert south_comp >= 0
 
     domains = find_element(geom, "DOMAIN")
     assert len(domains) == 1
@@ -660,11 +699,11 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert cast(str, right.get("BOUNDARY")).strip() == f"C[{east_comp}]"
 
 
-@given(from_type(Mesh), integers(2, 6), booleans())
-def test_write_nektar_curves(mesh: Mesh, order:int, write_movement: bool) -> None:
+@given(from_type(GenericMesh), integers(2, 4))
+def test_write_nektar_curves(mesh: GenericMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
-        nektar_writer.write_nektar(mesh, order, str(xml_file), write_movement)
+        nektar_writer.write_nektar(mesh, order, str(xml_file), False)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()

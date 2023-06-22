@@ -7,41 +7,47 @@ from typing import Optional
 import numpy as np
 
 from .mesh import (
-    C,
-    Coord,
     Curve,
-    FieldTrace,
-    Mesh,
-    MeshLayer,
-    NormalisedFieldLine,
-    normalise_field_line,
     Quad,
+    FieldTrace,
+    GenericMesh,
+    MeshLayer,
+    QuadMesh,
+    normalise_field_line,
     SliceCoord,
     SliceCoords,
     Coords,
 )
 
-Connectivity = Sequence[Sequence[int]]
+Connectivity = Sequence[tuple[int, int]]
 
 
 def _ordered_connectivity(size: int) -> Connectivity:
-    return [[1]] + [[i - 1, i + 1] for i in range(1, size - 1)] + [[size - 2]]
+    return list(itertools.pairwise(range(size)))
 
 
-def _boundary_curve(start: SliceCoord[C], dx3: float) -> Curve[C]:
-    return Curve(lambda s: Coords(np.full_like(s, start.x1), np.full_like(s, start.x2), dx3 * (np.asarray(s) - 0.5), start.system)) 
+def _boundary_curve(start: SliceCoord, dx3: float) -> Curve:
+    return Curve(
+        lambda s: Coords(
+            np.full_like(s, start.x1),
+            np.full_like(s, start.x2),
+            dx3 * (np.asarray(s) - 0.5),
+            start.system,
+        )
+    )
 
 
 def field_aligned_2d(
-    lower_dim_mesh: SliceCoords[C],
-    field_line: FieldTrace[C],
+    lower_dim_mesh: SliceCoords,
+    field_line: FieldTrace,
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     n: int = 10,
     spatial_interp_resolution: int = 11,
     connectivity: Optional[Connectivity] = None,
+    boundaries: tuple[int, int] = (0, -1),
     subdivisions: int = 1,
-    conform_to_bounds = True,
-) -> Mesh:
+    conform_to_bounds=True,
+) -> QuadMesh:
     """Generate a 2D mesh where element edges follow field
     lines. Start with a 1D mesh defined in the poloidal plane. Edges
     are then traced along the field lines both backwards and forwards
@@ -73,6 +79,9 @@ def field_aligned_2d(
         Item at index `n` is a sequence of the indices for all the
         other points connected to `n`. If not provided, assume points
         are connected in an ordered line.
+    boundaries
+        Indices of the quads (in the connectivity sequence) that make
+        up the north and south boundary, respectively
     subdivisions
         Depth of cells in x3-direction in each layer.
     conform_to_bounds
@@ -81,9 +90,9 @@ def field_aligned_2d(
 
     Returns
     -------
-    MeshGraph
-        A MeshGraph object containing the field-aligned, non-conformal
-        grid
+    QuadMesh
+        A 2D field-aligned, non-conformal grid
+
     """
     num_nodes = len(lower_dim_mesh)
 
@@ -92,11 +101,17 @@ def field_aligned_2d(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    
-    curves = [_boundary_curve(coord, dx3) if (i == 0 or i == num_nodes - 1) and conform_to_bounds else
-        Curve(
+
+    curves = [
+        _boundary_curve(coord, dx3)
+        if (i == 0 or i == num_nodes - 1) and conform_to_bounds
+        else Curve(
             normalise_field_line(
-                field_line, coord, -0.5 * dx3, 0.5 * dx3, spatial_interp_resolution * subdivisions
+                field_line,
+                coord,
+                -0.5 * dx3,
+                0.5 * dx3,
+                spatial_interp_resolution * subdivisions,
             )
         )
         for i, coord in enumerate(lower_dim_mesh.iter_points())
@@ -109,22 +124,6 @@ def field_aligned_2d(
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 
-    quads_grouped_by_curve = (
-        (
-            Quad.from_unordered_curves(curves[i], curves[j], None, field_line)
-            for j in connections
-        )
-        for i, connections in enumerate(connectivity)
-    )
-    adjacent_quads = itertools.chain.from_iterable(
-        itertools.permutations(g, 2) for g in quads_grouped_by_curve
-    )
-    # FIXME (minor): What would be the functional way to do this, without needing to mutate quad_map?
-    quad_map: dict[Quad, dict[Quad, bool]] = {}
-    for q1, q2 in adjacent_quads:
-        if q1 in quad_map:
-            quad_map[q1][q2] = False
-        else:
-            quad_map[q1] = {q2: False}
-
-    return Mesh(MeshLayer(quad_map, subdivisions=subdivisions), x3_mid)
+    quads = [Quad(curves[i], curves[j], None, field_line) for i, j in connectivity]
+    
+    return GenericMesh(MeshLayer(quads, [frozenset({quads[boundaries[0]].north}), frozenset({quads[boundaries[1]].south})], subdivisions=subdivisions), x3_mid)

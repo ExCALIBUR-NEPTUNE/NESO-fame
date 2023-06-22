@@ -18,6 +18,7 @@ from hypothesis.strategies import (
     sampled_from,
     just,
     one_of,
+    shared,
     tuples,
 )
 import numpy as np
@@ -70,12 +71,12 @@ register_type_strategy(
 )
 
 
-def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.C) -> mesh.FieldTrace:
+def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.CoordinateSystem) -> mesh.FieldTrace:
     a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0
     a2p = a2 / a3
 
     def cartesian_func(
-        start: mesh.SliceCoord[mesh.CartesianCoordinates], x3: npt.ArrayLike
+        start: mesh.SliceCoord, x3: npt.ArrayLike
     ) -> tuple[mesh.SliceCoords, npt.NDArray]:
         if c == mesh.CoordinateSystem.Cartesian:
             s = np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3)
@@ -94,7 +95,7 @@ def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.C) -> mesh.Field
 
 
 def linear_field_line(
-    a1: float, a2: float, a3: float, b1: float, b2: float, b3: float, c: mesh.C
+    a1: float, a2: float, a3: float, b1: float, b2: float, b3: float, c: mesh.CoordinateSystem
 ) -> mesh.NormalisedFieldLine:
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
         a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0
@@ -113,7 +114,7 @@ def flat_quad(
     a2: float,
     a3: float,
     starts: tuple[tuple[float, float, float], tuple[float, float, float]],
-    c: mesh.C,
+    c: mesh.CoordinateSystem,
 ) -> mesh.Quad:
     trace = linear_field_trace(a1, a2, a3, c)
     north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c))
@@ -121,31 +122,27 @@ def flat_quad(
     return mesh.Quad(north, south, None, trace)
 
 
-def _quad_mesh_connections(
+def _quad_mesh_elements(
     a1: float,
     a2: float,
     a3: float,
     limits: tuple[tuple[float, float, float], tuple[float, float, float]],
     num_quads: int,
-    c: mesh.C,
-) -> dict[mesh.Quad, dict[mesh.Quad, bool]]:
+    c: mesh.CoordinateSystem,
+) -> list[mesh.Quad]:
     trace = linear_field_trace(a1, a2, a3, c)
     starts = np.linspace(limits[0], limits[1], num_quads + 1)
-    quads = [
+    return [
         mesh.Quad(c1, c2, None, trace)
         for c1, c2 in itertools.pairwise(
             mesh.Curve(linear_field_line(a1, a2, a3, s[0], s[1], s[2], c))
             for s in starts
         )
     ]
-    return {
-        q: {quads[i + 1]: False}
-        if i == 0
-        else {quads[i - 1]: False}
-        if i == num_quads - 1
-        else {quads[i + 1]: False, quads[i - 1]: False}
-        for i, q in enumerate(quads)
-    }
+
+
+def get_boundaries(mesh_sequence: list[mesh.Quad]) -> list[frozenset[mesh.Curve]]:
+    return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
 
 
 def _get_end_point(
@@ -195,8 +192,8 @@ starts_and_ends = tuples(
     floats(1.0, 1e3),
     floats(0.0, 2 * np.pi),
 ).map(lambda s: (s[0], _get_end_point(*s)))
-quad_mesh_connections = builds(
-    _quad_mesh_connections,
+quad_mesh_elements = builds(
+    _quad_mesh_elements,
     whole_numbers,
     whole_numbers,
     non_zero,
@@ -204,13 +201,15 @@ quad_mesh_connections = builds(
     integers(2, 8),
     coordinate_systems,
 )
-mesh_connections = one_of(quad_mesh_connections)
-quad_mesh_layer_no_divisions = quad_mesh_connections.map(mesh.MeshLayer[mesh.Quad])
+mesh_connections = one_of(quad_mesh_elements)
+quad_mesh_layer_no_divisions = quad_mesh_elements.map(lambda x: mesh.MeshLayer(x, get_boundaries(x)))
+shared_quads = shared(quad_mesh_elements)
 quad_mesh_layer = builds(
     mesh.MeshLayer,
-    quad_mesh_connections,
+    shared_quads,
+    shared_quads.map(get_boundaries),
     one_of(none(), whole_numbers),
-    integers(1, 10),
+    integers(1, 3),
 )
 
 # TODO: Create strategy for Tet meshes and make them an option when generating meshes
@@ -218,5 +217,5 @@ register_type_strategy(mesh.MeshLayer, quad_mesh_layer)
 
 x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
 register_type_strategy(
-    mesh.Mesh, builds(mesh.Mesh, from_type(mesh.MeshLayer), x3_offsets)
+    mesh.GenericMesh, builds(mesh.GenericMesh, from_type(mesh.MeshLayer), x3_offsets)
 )
