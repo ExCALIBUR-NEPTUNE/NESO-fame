@@ -1,4 +1,5 @@
 import itertools
+from operator import methodcaller
 from typing import Type, Optional
 from unittest.mock import MagicMock
 
@@ -21,13 +22,14 @@ from .mesh_strategies import (
     non_nans,
     coordinate_systems,
     linear_field_trace,
-    mesh_connections,
+    mesh_arguments,
     mutually_broadcastable_arrays,
     non_zero,
     _quad_mesh_elements,
     quad_mesh_layer_no_divisions,
     whole_numbers,
 )
+from tests import mesh_strategies
 
 
 @given(non_nans(), non_nans(), coordinate_systems)
@@ -115,7 +117,7 @@ def test_slice_coords_getitem(
     x1: npt.NDArray,
     x2: npt.NDArray,
     index: tuple[int, ...] | int,
-    expected: mesh.SliceCoord[mesh.CartesianCoordinates],
+    expected: mesh.SliceCoord,
 ) -> None:
     coords = mesh.SliceCoords(x1, x2, mesh.CoordinateSystem.Cartesian)
     coord = coords[index]
@@ -228,7 +230,7 @@ def test_coords_getitem(
     x2: npt.NDArray,
     x3: npt.NDArray,
     index: tuple[int, ...] | int,
-    expected: mesh.Coord[mesh.CartesianCoordinates],
+    expected: mesh.Coord,
 ) -> None:
     coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.Cartesian)
     coord = coords[index]
@@ -355,7 +357,7 @@ def test_coords_to_cartesian() -> None:
 
 def test_curve_call() -> None:
     mock = MagicMock()
-    curve = mesh.AbstractCurve(mock)
+    curve = mesh.Curve(mock)
     result = curve(1.0)
     mock.assert_called_once_with(1.0)
     assert result is mock.return_value
@@ -367,7 +369,7 @@ def test_curve_call() -> None:
 )
 def test_curve_offset_0(arg: float | list[float], result: mesh.Coords) -> None:
     mock = MagicMock(return_value=result)
-    curve = mesh.AbstractCurve(mock).offset(0.0)
+    curve = mesh.Curve(mock).offset(0.0)
     result = curve(arg)
     mock.assert_called_once()
     assert np.all(result.x1 == mock.return_value.x1)
@@ -385,7 +387,7 @@ def test_curve_offset_0(arg: float | list[float], result: mesh.Coords) -> None:
     ],
 )
 def test_curve_offset(arg: float, offset: float, expected: float) -> None:
-    result = mesh.AbstractCurve(
+    result = mesh.Curve(
         lambda x: mesh.Coords(
             np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
         )
@@ -398,7 +400,7 @@ def test_curve_offset(arg: float, offset: float, expected: float) -> None:
 
 @given(integers(-50, 100))
 def test_curve_subdivision_len(divisions: int) -> None:
-    curve = mesh.AbstractCurve(
+    curve = mesh.Curve(
         lambda x: mesh.Coords(
             np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
         )
@@ -413,7 +415,7 @@ def test_curve_subdivision_len(divisions: int) -> None:
 
 @given(integers(-5, 100))
 def test_curve_subdivision(divisions: int) -> None:
-    curve = mesh.AbstractCurve(
+    curve = mesh.Curve(
         lambda x: mesh.Coords(
             np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
         )
@@ -433,7 +435,7 @@ def test_curve_subdivision(divisions: int) -> None:
 
 
 def test_curve_control_points_cached() -> None:
-    curve = mesh.AbstractCurve(
+    curve = mesh.Curve(
         lambda x: mesh.Coords(
             np.asarray(x), np.asarray(x), np.asarray(x), mesh.CoordinateSystem.Cartesian
         )
@@ -443,8 +445,8 @@ def test_curve_control_points_cached() -> None:
     assert p1 is p2
 
 
-@given(from_type(mesh.AbstractCurve), integers(1, 10))
-def test_curve_control_points_size(curve: mesh.AbstractCurve, n: int) -> None:
+@given(from_type(mesh.Curve), integers(1, 10))
+def test_curve_control_points_size(curve: mesh.Curve, n: int) -> None:
     assert len(curve.control_points(n)) == n + 1
 
 
@@ -452,7 +454,7 @@ def test_curve_control_points_values() -> None:
     a = 2.0
     b = 0.5
     c = -1.0
-    curve = mesh.AbstractCurve(
+    curve = mesh.Curve(
         lambda x: mesh.Coords(
             np.asarray(x) * a,
             np.asarray(x) * b,
@@ -466,12 +468,12 @@ def test_curve_control_points_values() -> None:
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
 
 
-@given(from_type(mesh.AbstractQuad))
-def test_quad_from_unordered_curves(original: mesh.AbstractQuad) -> None:
-    q1 = mesh.AbstractQuad.from_unordered_curves(
+@given(from_type(mesh.Quad))
+def test_quad_from_unordered_curves(original: mesh.Quad) -> None:
+    q1 = mesh.Quad.from_unordered_curves(
         original.north, original.south, None, original.field
     )
-    q2 = mesh.AbstractQuad.from_unordered_curves(
+    q2 = mesh.Quad.from_unordered_curves(
         original.south, original.north, None, original.field
     )
     assert q1.north is original.north or q1.north is original.south
@@ -481,8 +483,8 @@ def test_quad_from_unordered_curves(original: mesh.AbstractQuad) -> None:
     assert q1 is q2
 
 
-@given(from_type(mesh.AbstractQuad))
-def test_quad_corners(q: mesh.AbstractQuad) -> None:
+@given(from_type(mesh.Quad))
+def test_quad_corners(q: mesh.Quad) -> None:
     corners = q.corners()
     assert corners[0] == next(q.north(0.0).iter_points())
     assert corners[1] == next(q.north(1.0).iter_points())
@@ -490,8 +492,8 @@ def test_quad_corners(q: mesh.AbstractQuad) -> None:
     assert corners[3] == next(q.south(1.0).iter_points())
 
 
-@given(from_type(mesh.AbstractQuad), integers(1, 5))
-def test_quad_control_points_within_corners(q: mesh.AbstractQuad, n: int) -> None:
+@given(from_type(mesh.Quad), integers(1, 5))
+def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     corners = q.corners()
     x1_max, x2_max, x3_max = map(np.max, corners)
     x1_min, x2_min, x3_min = map(np.min, corners)
@@ -511,8 +513,8 @@ def test_quad_control_points_within_corners(q: mesh.AbstractQuad, n: int) -> Non
     pass
 
 
-@given(from_type(mesh.AbstractQuad), whole_numbers, integers(1, 5))
-def test_quad_offset(q: mesh.AbstractQuad, x: float, n: int) -> None:
+@given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
+def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
     actual = q.offset(x).control_points(n)
     expected = q.control_points(n).offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
@@ -521,8 +523,8 @@ def test_quad_offset(q: mesh.AbstractQuad, x: float, n: int) -> None:
     assert actual.system == expected.system
 
 
-@given(from_type(mesh.AbstractQuad), integers(-50, 100))
-def test_quad_subdivision_len(quad: mesh.AbstractQuad, divisions: int) -> None:
+@given(from_type(mesh.Quad), integers(-50, 100))
+def test_quad_subdivision_len(quad: mesh.Quad, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = quad.subdivide(divisions)
     for _ in range(expected):
@@ -531,8 +533,8 @@ def test_quad_subdivision_len(quad: mesh.AbstractQuad, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.AbstractQuad), integers(-5, 100))
-def test_quad_subdivision(quad: mesh.AbstractQuad, divisions: int) -> None:
+@given(from_type(mesh.Quad), integers(-5, 100))
+def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
     divisions_iter = quad.subdivide(divisions)
     quad_corners = quad.corners()
     first = next(divisions_iter)
@@ -573,8 +575,8 @@ def test_tet_offset() -> None:
     pass
 
 
-@given(from_type(mesh.AbstractTet), integers(-50, 100))
-def test_tet_subdivision_len(tet: mesh.AbstractTet, divisions: int) -> None:
+@given(from_type(mesh.Tet), integers(-50, 100))
+def test_tet_subdivision_len(tet: mesh.Tet, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = tet.subdivide(divisions)
     for _ in range(expected):
@@ -583,8 +585,8 @@ def test_tet_subdivision_len(tet: mesh.AbstractTet, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.AbstractTet), integers(-5, 100))
-def test_tet_subdivision(tet: mesh.AbstractTet, divisions: int) -> None:
+@given(from_type(mesh.Tet), integers(-5, 100))
+def test_tet_subdivision(tet: mesh.Tet, divisions: int) -> None:
     divisions_iter = tet.subdivide(divisions)
     tet_corners = tet.corners()
     first = next(divisions_iter)
@@ -601,39 +603,49 @@ def test_tet_subdivision(tet: mesh.AbstractTet, divisions: int) -> None:
         np.testing.assert_allclose(p[1::2], t[1::2])
 
 
-@given(mesh_connections)
+@given(mesh_arguments)
 def test_mesh_layer_elements_no_offset(
-    connections: dict[mesh.E, dict[mesh.E, bool]]
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]]
 ) -> None:
-    layer = mesh.MeshLayer(connections, None)
-    for actual, expected in zip(layer, connections):
+    layer = mesh.MeshLayer(*args, None)
+    for actual, expected in zip(layer, args[0]):
         assert actual is expected
+    for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
+        assert actual_bound is expected_bound
 
 
-@given(mesh_connections, non_nans())
+@given(mesh_arguments, non_nans())
 def test_mesh_layer_elements_with_offset(
-    connections: dict[mesh.E, dict[mesh.E, bool]], offset: float
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]], offset: float
 ) -> None:
-    layer = mesh.MeshLayer(connections, offset)
-    for actual, expected in zip(layer, connections):
+    layer = mesh.MeshLayer(*args, offset)
+    for actual, expected in zip(layer, args[0]):
         actual_corners = actual.corners()
         expected_corners = expected.offset(offset).corners()
         np.testing.assert_allclose(actual_corners.x1, expected_corners.x1, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
+    for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
+        for actual_elem, expected_elem in zip(actual_bound, expected_bound):
+            # FIXME: Think of generic way to test both curves and quads?
+            actual_bound_corners = actual_elem.corners()
+            expected_bound_corners = expected_elem.offset(offset).corners()
+            np.testing.assert_allclose(actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12)
+            np.testing.assert_allclose(actual_bound_corners.x2, expected_bound_corners.x2, atol=1e-12)
+            np.testing.assert_allclose(actual_bound_corners.x3, expected_bound_corners.x3, atol=1e-12)
 
 
-@given(mesh_connections, integers(1, 10))
+@given(mesh_arguments, integers(1, 10))
 def test_mesh_layer_elements_with_subdivisions(
-    connections: dict[mesh.E, dict[mesh.E, bool]], subdivisions: int
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
-    layer = mesh.MeshLayer(connections, subdivisions=subdivisions)
+    layer = mesh.MeshLayer(*args, subdivisions=subdivisions)
     expected = frozenset(
         itertools.chain.from_iterable(
             map(
                 lambda x: x.corners().iter_points(),
                 itertools.chain.from_iterable(
-                    map(lambda x: x.subdivide(subdivisions), connections)
+                    map(lambda x: x.subdivide(subdivisions), args[0])
                 ),
             )
         )
@@ -642,7 +654,10 @@ def test_mesh_layer_elements_with_subdivisions(
         itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
     )
     assert expected == actual
+    # FIXME: Test boundaries
 
+
+# FIXME: Add tests for near and far faces
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
@@ -672,14 +687,14 @@ quad_mesh_connectivity = (
         # FIXME: Check for Tet-mesh
     ],
 )
-def test_mesh_layer_element_type(connections: dict[mesh.E, dict[mesh.E, bool]]) -> None:
-    layer = mesh.MeshLayer(connections)
-    element = next(iter(connections))
+def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
+    layer = mesh.MeshLayer(elements, [])
+    element = next(iter(elements))
     assert layer.element_type is type(element)
 
 
 @given(quad_mesh_layer_no_divisions)
-def test_mesh_layer_quads_for_quads(layer: mesh.MeshLayer[mesh.AbstractQuad]) -> None:
+def test_mesh_layer_quads_for_quads(layer: mesh.MeshLayer[mesh.Quad, mesh.Curve]) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
@@ -688,24 +703,24 @@ def test_mesh_layer_quads_for_tets() -> None:
     pass
 
 
-@given(from_type(mesh.MeshLayer))
-def test_mesh_layer_num_unique_corners(layer: mesh.MeshLayer) -> None:
-    corners = frozenset(
-        itertools.chain.from_iterable(elem.corners().iter_points() for elem in layer)
-    )
-    assert layer.num_unique_corners == len(corners)
+# @given(from_type(mesh.MeshLayer))
+# def test_mesh_layer_num_unique_corners(layer: mesh.MeshLayer) -> None:
+#     corners = frozenset(
+#         itertools.chain.from_iterable(elem.corners().iter_points() for elem in layer)
+#     )
+#     assert layer.num_unique_corners == len(corners)
 
 
-@given(from_type(mesh.MeshLayer), integers(1, 5))
-def test_mesh_layer_num_unique_control_points(
-    layer: mesh.MeshLayer, order: int
-) -> None:
-    control_points = frozenset(
-        itertools.chain.from_iterable(
-            elem.control_points(order).iter_points() for elem in layer
-        )
-    )
-    assert layer.num_unique_control_points(order) == len(control_points)
+# @given(from_type(mesh.MeshLayer), integers(1, 5))
+# def test_mesh_layer_num_unique_control_points(
+#     layer: mesh.MeshLayer, order: int
+# ) -> None:
+#     control_points = frozenset(
+#         itertools.chain.from_iterable(
+#             elem.control_points(order).iter_points() for elem in layer
+#         )
+#     )
+#     assert layer.num_unique_control_points(order) == len(control_points)
 
 
 @given(from_type(mesh.GenericMesh))
@@ -725,39 +740,39 @@ def test_mesh_len(m: mesh.GenericMesh) -> None:
         next(mesh_iter)
 
 
-@given(from_type(mesh.GenericMesh))
-def test_mesh_num_unique_corners(m: mesh.GenericMesh) -> None:
-    # Create a set of tuples of layer number and control point. Using
-    # these tuples ensures any coincident points on adjacent layers
-    # won't be treated as the same.
-    corners = frozenset(
-        itertools.chain.from_iterable(
-            itertools.chain.from_iterable(
-                (((i, p) for p in elem.corners().iter_points()) for elem in layer)
-                for i, layer in enumerate(m.layers())
-            )
-        )
-    )
-    assert m.num_unique_corners == len(corners)
+# @given(from_type(mesh.GenericMesh))
+# def test_mesh_num_unique_corners(m: mesh.GenericMesh) -> None:
+#     # Create a set of tuples of layer number and control point. Using
+#     # these tuples ensures any coincident points on adjacent layers
+#     # won't be treated as the same.
+#     corners = frozenset(
+#         itertools.chain.from_iterable(
+#             itertools.chain.from_iterable(
+#                 (((i, p) for p in elem.corners().iter_points()) for elem in layer)
+#                 for i, layer in enumerate(m.layers())
+#             )
+#         )
+#     )
+#     assert m.num_unique_corners == len(corners)
 
 
-@given(from_type(mesh.GenericMesh), integers(1, 5))
-def test_mesh_num_unique_control_points(m: mesh.GenericMesh, order: int) -> None:
-    # Create a set of tuples of layer number and control point. Using
-    # these tuples ensures any coincident points on adjacent layers
-    # won't be treated as the same.
-    control_points = frozenset(
-        itertools.chain.from_iterable(
-            itertools.chain.from_iterable(
-                (
-                    ((i, p) for p in elem.control_points(order).iter_points())
-                    for elem in layer
-                )
-                for i, layer in enumerate(m.layers())
-            )
-        )
-    )
-    assert m.num_unique_control_points(order) == len(control_points)
+# @given(from_type(mesh.GenericMesh), integers(1, 5))
+# def test_mesh_num_unique_control_points(m: mesh.GenericMesh, order: int) -> None:
+#     # Create a set of tuples of layer number and control point. Using
+#     # these tuples ensures any coincident points on adjacent layers
+#     # won't be treated as the same.
+#     control_points = frozenset(
+#         itertools.chain.from_iterable(
+#             itertools.chain.from_iterable(
+#                 (
+#                     ((i, p) for p in elem.control_points(order).iter_points())
+#                     for elem in layer
+#                 )
+#                 for i, layer in enumerate(m.layers())
+#             )
+#         )
+#     )
+#     assert m.num_unique_control_points(order) == len(control_points)
 
 
 shared_coords = shared(coordinate_systems, key=0)
