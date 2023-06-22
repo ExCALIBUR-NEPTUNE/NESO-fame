@@ -201,8 +201,9 @@ quad_mesh_elements = builds(
     integers(2, 8),
     coordinate_systems,
 )
-mesh_connections = one_of(quad_mesh_elements)
-quad_mesh_layer_no_divisions = quad_mesh_elements.map(lambda x: mesh.MeshLayer(x, get_boundaries(x)))
+quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
+mesh_arguments = one_of(quad_mesh_arguments)
+quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_quads = shared(quad_mesh_elements)
 quad_mesh_layer = builds(
     mesh.MeshLayer,
