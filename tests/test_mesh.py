@@ -611,7 +611,14 @@ def test_mesh_layer_elements_no_offset(
     for actual, expected in zip(layer, args[0]):
         assert actual is expected
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        assert actual_bound is expected_bound
+        assert actual_bound == expected_bound
+
+
+def get_corners(shape: mesh.Tet | mesh.Quad | mesh.Curve) -> mesh.Coords:
+    if isinstance(shape, mesh.Curve):
+        return shape([0., 1.])
+    else:
+        return shape.corners()
 
 
 @given(mesh_arguments, non_nans())
@@ -627,9 +634,8 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         for actual_elem, expected_elem in zip(actual_bound, expected_bound):
-            # FIXME: Think of generic way to test both curves and quads?
-            actual_bound_corners = actual_elem.corners()
-            expected_bound_corners = expected_elem.offset(offset).corners()
+            actual_bound_corners = get_corners(actual_elem)
+            expected_bound_corners = get_corners(expected_elem.offset(offset))
             np.testing.assert_allclose(actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12)
             np.testing.assert_allclose(actual_bound_corners.x2, expected_bound_corners.x2, atol=1e-12)
             np.testing.assert_allclose(actual_bound_corners.x3, expected_bound_corners.x3, atol=1e-12)
@@ -654,7 +660,10 @@ def test_mesh_layer_elements_with_subdivisions(
         itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
     )
     assert expected == actual
-    # FIXME: Test boundaries
+    for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
+        expected_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), itertools.chain.from_iterable(map(lambda x: x.subdivide(subdivisions), expected_bound)))))
+        actual_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), actual_bound)))
+        assert expected_corners == actual_corners
 
 
 # FIXME: Add tests for near and far faces
@@ -668,7 +677,7 @@ def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
         next(layer_iter)
 
 
-quad_mesh_connectivity = (
+quad_mesh_elements = (
     _quad_mesh_elements(
         1.0,
         1.0,
@@ -681,9 +690,9 @@ quad_mesh_connectivity = (
 
 
 @pytest.mark.parametrize(
-    "connections",
+    "elements",
     [
-        (quad_mesh_connectivity,),
+        (quad_mesh_elements,),
         # FIXME: Check for Tet-mesh
     ],
 )
