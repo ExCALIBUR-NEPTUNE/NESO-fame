@@ -224,20 +224,26 @@ def check_points(expected: Iterable[Quad | Tet], actual: Iterable[SD.PointGeom])
     )
     actual_points = comparable_set(actual)
     assert expected_points == actual_points
-    
-def check_edges(mesh: MeshLayer[Quad, Curve] | GenericMesh[Quad, Curve], elements: Iterable[SD.Geometry2D], edges: Iterable[SD.SegGeom]):
+
+
+def check_edges(
+    mesh: MeshLayer[Quad, Curve] | GenericMesh[Quad, Curve],
+    elements: Iterable[SD.Geometry2D],
+    edges: Iterable[SD.SegGeom],
+):
     # Assumes the elements are Quads, as is currently the case. Will
     # need to change if I generalise this implementation
     quad_edges = frozenset(
         itertools.chain.from_iterable(
-            map(comparable_geometry, map(q.GetEdge, range(4)))
-            for q in elements
+            map(comparable_geometry, map(q.GetEdge, range(4))) for q in elements
         )
     )
     actual_edges = comparable_set(edges)
     assert actual_edges == quad_edges
-    expected_x3_aligned_edges = reduce(operator.or_, (frozenset(
-        {comparable_edge(q.north), comparable_edge(q.south)}) for q in mesh))
+    expected_x3_aligned_edges = reduce(
+        operator.or_,
+        (frozenset({comparable_edge(q.north), comparable_edge(q.south)}) for q in mesh),
+    )
     expected_near_faces = frozenset(
         (
             SD.SegGeom.__name__,
@@ -272,9 +278,10 @@ def check_face_composites(expected: Iterable[Curve], actual: SD.Composite):
     expected_faces = frozenset(
         (
             SD.SegGeom.__name__,
-            frozenset(map(comparable_coord, curve([0., 1.]).to_cartesian().iter_points())
+            frozenset(
+                map(comparable_coord, curve([0.0, 1.0]).to_cartesian().iter_points())
+            ),
         )
-            )
         for curve in expected
     )
     actual_faces = comparable_set(actual.geometries)
@@ -296,7 +303,9 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
 @given(from_type(MeshLayer), integers(1, 12), integers())
-def test_nektar_layer_elements(mesh: MeshLayer[Quad, Curve], order: int, layer: int) -> None:
+def test_nektar_layer_elements(
+    mesh: MeshLayer[Quad, Curve], order: int, layer: int
+) -> None:
     nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
     assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
     check_points(iter(mesh), iter(nek_layer.points))
@@ -312,11 +321,16 @@ def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(mesh, order)
     assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
     check_points(iter(mesh), nek_mesh.points())
-    check_edges(mesh, cast(Iterator[SD.QuadGeom], nek_mesh.elements()), nek_mesh.segments())
-    for layer, near, far in zip(mesh.layers(), nek_mesh.near_faces(), nek_mesh.far_faces()):
+    check_edges(
+        mesh, cast(Iterator[SD.QuadGeom], nek_mesh.elements()), nek_mesh.segments()
+    )
+    for layer, near, far in zip(
+        mesh.layers(), nek_mesh.near_faces(), nek_mesh.far_faces()
+    ):
         check_face_composites(layer.near_faces(), near)
         check_face_composites(layer.far_faces(), far)
     check_elements(iter(mesh), nek_mesh.elements())
+
 
 @given(
     integers(-256, 256),
@@ -352,18 +366,20 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
 @settings(report_multiple_bugs=False)
-@given(builds(nektar_writer.nektar_elements, from_type(GenericMesh), order), order, booleans())
+@given(
+    builds(nektar_writer.nektar_elements, from_type(GenericMesh), order),
+    order,
+    booleans(),
+)
 def test_nektar_mesh(
     elements: nektar_writer.NektarElements, order: int, write_movement
 ) -> None:
-    def extract_and_merge(
-        nek_type: Type[N], *items: Iterator[NekType]
-    ) -> Iterable[N]:
-        return filter(cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
-                itertools.chain(*items),
-                      
-            )
-    
+    def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
+        return filter(
+            cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
+            itertools.chain(*items),
+        )
+
     def find_item(i: int, geoms: frozenset[SD.Geometry]) -> SD.Geometry:
         for geom in geoms:
             if geom.GetGlobalID() == i:
@@ -385,16 +401,19 @@ def test_nektar_mesh(
         meshgraph.GetAllHexGeoms(),
     ]
     extract_and_merge(SD.TriGeom, elements.faces(), elements.elements())
-    expected_geometries: Iterable[list[SD.Geometry]] = map(list, [
-        elements.points(),
-        elements.segments(),
-        extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
-        extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
-        extract_and_merge(SD.TetGeom, elements.elements()),
-        extract_and_merge(SD.PyrGeom, elements.elements()),
-        extract_and_merge(SD.PrismGeom, elements.elements()),
-        extract_and_merge(SD.HexGeom, elements.elements()),
-    ])
+    expected_geometries: Iterable[list[SD.Geometry]] = map(
+        list,
+        [
+            elements.points(),
+            elements.segments(),
+            extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
+            extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
+            extract_and_merge(SD.TetGeom, elements.elements()),
+            extract_and_merge(SD.PyrGeom, elements.elements()),
+            extract_and_merge(SD.PrismGeom, elements.elements()),
+            extract_and_merge(SD.HexGeom, elements.elements()),
+        ],
+    )
     for expected, actual in zip(expected_geometries, actual_geometries):
         n = len(expected)
         assert len(actual) == n
@@ -521,30 +540,28 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 # Integration test for very simple 1-element mesh
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
     quad = Quad(
-                    Curve(
-                        lambda x: Coords(
-                            np.array(1.0),
-                            np.array(0.0),
-                            np.asarray(x),
-                            CoordinateSystem.Cartesian,
-                        )
-                    ),
-                    Curve(
-                        lambda x: Coords(
-                            np.array(0.0),
-                            np.array(0.0),
-                            np.asarray(x),
-                            CoordinateSystem.Cartesian,
-                        )
-                    ),
-                    None,
-                    straight_field(),
-                )
+        Curve(
+            lambda x: Coords(
+                np.array(1.0),
+                np.array(0.0),
+                np.asarray(x),
+                CoordinateSystem.Cartesian,
+            )
+        ),
+        Curve(
+            lambda x: Coords(
+                np.array(0.0),
+                np.array(0.0),
+                np.asarray(x),
+                CoordinateSystem.Cartesian,
+            )
+        ),
+        None,
+        straight_field(),
+    )
 
     simple_mesh = GenericMesh(
-        MeshLayer(
-            [quad], [frozenset([quad.north]), frozenset([quad.south])]
-        ),
+        MeshLayer([quad], [frozenset([quad.north]), frozenset([quad.south])]),
         np.array([0.0]),
     )
 

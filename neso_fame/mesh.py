@@ -36,7 +36,11 @@ class CoordinateSystem(Enum):
     Cylindrical = 1
     Cartesian2D = 2
 
-CartesianTransform = Callable[[npt.NDArray, npt.NDArray, npt.NDArray], tuple[npt.NDArray, npt.NDArray, npt.NDArray]]
+
+CartesianTransform = Callable[
+    [npt.NDArray, npt.NDArray, npt.NDArray],
+    tuple[npt.NDArray, npt.NDArray, npt.NDArray],
+]
 
 COORDINATE_TRANSFORMS = {
     CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
@@ -86,7 +90,7 @@ class SliceCoords:
 
 
 @dataclass(frozen=True)
-class Coord():
+class Coord:
     x1: float
     x2: float
     x3: float
@@ -95,7 +99,9 @@ class Coord():
     def to_cartesian(self) -> "Coord":
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](*self)
         return Coord(
-            x1, x2, x3,
+            x1,
+            x2,
+            x3,
             CoordinateSystem.Cartesian,
         )
 
@@ -125,7 +131,9 @@ class Coords:
     def to_cartesian(self) -> "Coords":
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](self.x1, self.x2, self.x3)
         return Coords(
-            x1, x2, x3,
+            x1,
+            x2,
+            x3,
             CoordinateSystem.Cartesian,
         )
 
@@ -144,18 +152,19 @@ class Coords:
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
 
-FieldTrace = Callable[
-    [SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]
-]
+FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]
 NormalisedFieldLine = Callable[[npt.ArrayLike], Coords]
 
 
 T = TypeVar("T")
 
-class ElementLike(Protocol):
-    def offset(self: T, offset: float) -> T: ...
 
-    def subdivide(self: T, num_divisions: int) -> Iterator[T]: ...
+class ElementLike(Protocol):
+    def offset(self: T, offset: float) -> T:
+        ...
+
+    def subdivide(self: T, num_divisions: int) -> Iterator[T]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -196,11 +205,19 @@ class Curve:
         s = np.linspace(0.0, 1.0, order + 1)
         return self.function(s)
 
+
 def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
     def _line(s: npt.ArrayLike) -> Coords:
         s = np.asarray(s)
-        return Coords(north.x1 + (south.x1 - north.x1) * s, north.x2 + (south.x2 - north.x2) * s, north.x3 + (south.x3 - north.x3) * s, north.system)
+        return Coords(
+            north.x1 + (south.x1 - north.x1) * s,
+            north.x2 + (south.x2 - north.x2) * s,
+            north.x3 + (south.x3 - north.x3) * s,
+            north.system,
+        )
+
     return _line
+
 
 @dataclass(frozen=True)
 class Quad:
@@ -218,11 +235,15 @@ class Quad:
 
     @cached_property
     def near(self) -> Curve:
-        return Curve(line_from_points(self.north(0.).to_coord(), self.south(0.).to_coord()))
+        return Curve(
+            line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
+        )
 
     @cached_property
     def far(self) -> Curve:
-        return Curve(line_from_points(self.north(1.).to_coord(), self.south(1.).to_coord()))
+        return Curve(
+            line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
+        )
 
     @classmethod
     @cache
@@ -341,14 +362,30 @@ class Tet:
 
     @cached_property
     def near(self) -> Quad:
-        north = Curve(line_from_points(self.north.north(0.).to_coord(), self.north.south(0.).to_coord()))
-        south = Curve(line_from_points(self.south.north(0.).to_coord(), self.south.south(0.).to_coord()))
+        north = Curve(
+            line_from_points(
+                self.north.north(0.0).to_coord(), self.north.south(0.0).to_coord()
+            )
+        )
+        south = Curve(
+            line_from_points(
+                self.south.north(0.0).to_coord(), self.south.south(0.0).to_coord()
+            )
+        )
         return Quad(north, south, None, self.north.field)
 
     @cached_property
     def far(self) -> Quad:
-        north = Curve(line_from_points(self.north.north(1.).to_coord(), self.north.south(1.).to_coord()))
-        south = Curve(line_from_points(self.south.north(1.).to_coord(), self.south.south(1.).to_coord()))
+        north = Curve(
+            line_from_points(
+                self.north.north(1.0).to_coord(), self.north.south(1.0).to_coord()
+            )
+        )
+        south = Curve(
+            line_from_points(
+                self.south.north(1.0).to_coord(), self.south.south(1.0).to_coord()
+            )
+        )
         return Quad(north, south, None, self.north.field)
 
     def corners(self) -> Coords:
@@ -410,7 +447,9 @@ class MeshLayer(Generic[E, B]):
     subdivisions: int = 1
 
     def __iter__(self) -> Iterator[E]:
-        return self._iterate_elements(self.reference_elements, self.offset, self.subdivisions)
+        return self._iterate_elements(
+            self.reference_elements, self.offset, self.subdivisions
+        )
 
     def __len__(self) -> int:
         return len(self.reference_elements) * self.subdivisions
@@ -428,26 +467,45 @@ class MeshLayer(Generic[E, B]):
             )
 
     def boundaries(self) -> Iterator[frozenset[B]]:
-        return map(frozenset, map(lambda b: self._iterate_elements(b, self.offset, self.subdivisions), self.bounds))
-
+        return map(
+            frozenset,
+            map(
+                lambda b: self._iterate_elements(b, self.offset, self.subdivisions),
+                self.bounds,
+            ),
+        )
 
     def near_faces(self) -> Iterator[B]:
-        return map(lambda e: cast(B, e.near), self._iterate_elements(self.reference_elements, self.offset, 1))
-
+        return map(
+            lambda e: cast(B, e.near),
+            self._iterate_elements(self.reference_elements, self.offset, 1),
+        )
 
     # FIXME: This won't be bit-wise identical to to the last subdivision. Can I access those objects instead, somehow?
     def far_faces(self) -> Iterator[B]:
-        return map(lambda e: cast(B, e.far), self._iterate_elements(self.reference_elements, self.offset, 1))
-        
+        return map(
+            lambda e: cast(B, e.far),
+            self._iterate_elements(self.reference_elements, self.offset, 1),
+        )
 
     @overload
     @staticmethod
-    def _iterate_elements(elements: Iterable[E], offset: Optional[float], subdivisions: int) -> Iterator[E]: ...
+    def _iterate_elements(
+        elements: Iterable[E], offset: Optional[float], subdivisions: int
+    ) -> Iterator[E]:
+        ...
+
     @overload
     @staticmethod
-    def _iterate_elements(elements: Iterable[B], offset: Optional[float], subdivisions: int) -> Iterator[B]: ...
+    def _iterate_elements(
+        elements: Iterable[B], offset: Optional[float], subdivisions: int
+    ) -> Iterator[B]:
+        ...
+
     @staticmethod
-    def _iterate_elements(elements: Iterable[ElementLike], offset: Optional[float], subdivisions: int) -> Iterator[ElementLike]:
+    def _iterate_elements(
+        elements: Iterable[ElementLike], offset: Optional[float], subdivisions: int
+    ) -> Iterator[ElementLike]:
         if isinstance(offset, float):
             x = offset
             return itertools.chain.from_iterable(
@@ -460,7 +518,6 @@ class MeshLayer(Generic[E, B]):
             return itertools.chain.from_iterable(
                 map(lambda e: e.subdivide(subdivisions), elements)
             )
-    
 
     # @cached_property
     # def num_unique_corners(self) -> int:
@@ -530,9 +587,11 @@ class GenericMesh(Generic[E, B]):
     # def num_unique_control_points(self, order: int) -> int:
     #     return self.offsets.size * self.reference_layer.num_unique_control_points(order)
 
+
 QuadMesh = GenericMesh[Quad, Curve]
 TetMesh = GenericMesh[Tet, Quad]
 Mesh = QuadMesh | TetMesh
+
 
 def normalise_field_line(
     trace: FieldTrace,

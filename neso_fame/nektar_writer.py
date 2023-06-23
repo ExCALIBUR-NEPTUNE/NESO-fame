@@ -86,7 +86,9 @@ class NektarElements:
     def bounds(self) -> Iterator[SD.Composite]:
         zipped_bounds: Iterator[
             tuple[Sequence[SD.SegGeom | SD.Geometry2D]]
-        ] = itertools.zip_longest(*map(attrgetter("bounds"), self._layers), fillvalue=frozenset())
+        ] = itertools.zip_longest(
+            *map(attrgetter("bounds"), self._layers), fillvalue=frozenset()
+        )
         return map(lambda ls: SD.Composite(list(reduce(or_, ls))), zipped_bounds)
 
     def num_bounds(self) -> int:
@@ -104,11 +106,13 @@ def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
 
 
 @cache
-def _nektar_curve(points: tuple[SD.PointGeom, ...], layer_id: int) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
+def _nektar_curve(
+    points: tuple[SD.PointGeom, ...], layer_id: int
+) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     nek_curve = SD.Curve(UNSET_ID, LU.PointsType.PolyEvenlySpaced)
     nek_curve.points = list(points)
     return nek_curve, (points[0], points[-1])
-    
+
 
 def nektar_curve(
     curve: Curve, order: int, layer_id: int
@@ -121,7 +125,9 @@ def nektar_curve(
 
 
 @cache
-def _nektar_edge(termini: tuple[SD.PointGeom, SD.PointGeom], nek_curve: SD.Curve) -> SD.SegGeom:
+def _nektar_edge(
+    termini: tuple[SD.PointGeom, SD.PointGeom], nek_curve: SD.Curve
+) -> SD.SegGeom:
     return SD.SegGeom(UNSET_ID, termini[0].GetCoordim(), list(termini), nek_curve)
 
 
@@ -182,9 +188,18 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     )
     layer_composite = SD.Composite(list(elements))
     # FIXME: This doesn't work for subdivided layers
-    near_face = SD.Composite([nektar_edge(f, order, layer_id)[0] for f in layer.near_faces()])
-    far_face = SD.Composite([nektar_edge(f, order, layer_id)[0] for f in layer.far_faces()])
-    bounds = list(map(lambda x: frozenset(map(lambda y: nektar_edge(y, 1, layer_id)[0], x)), layer.boundaries()))
+    near_face = SD.Composite(
+        [nektar_edge(f, order, layer_id)[0] for f in layer.near_faces()]
+    )
+    far_face = SD.Composite(
+        [nektar_edge(f, order, layer_id)[0] for f in layer.far_faces()]
+    )
+    bounds = list(
+        map(
+            lambda x: frozenset(map(lambda y: nektar_edge(y, 1, layer_id)[0], x)),
+            layer.boundaries(),
+        )
+    )
     return NektarLayer2D(
         points,
         edges,
@@ -284,7 +299,7 @@ def nektar_mesh(
 
     # FIXME: Make wrapping of interfaces optional
     _near_faces = enumerate(elements.near_faces(), n)
-    far_faces = enumerate(elements.far_faces(), 2*n)
+    far_faces = enumerate(elements.far_faces(), 2 * n)
     first_near = next(_near_faces)
     near_faces = itertools.chain(_near_faces, [first_near])
     for i, ((j, near), (k, far)) in enumerate(zip(near_faces, far_faces)):
@@ -294,13 +309,15 @@ def nektar_mesh(
             near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
             far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
-    for i, bound in enumerate(elements.bounds(), 3*n):
+    for i, bound in enumerate(elements.bounds(), 3 * n):
         composites[i] = bound
 
     return meshgraph
 
 
-def write_nektar(mesh: QuadMesh, order: int, filename: str, write_movement=True) -> None:
+def write_nektar(
+    mesh: QuadMesh, order: int, filename: str, write_movement=True
+) -> None:
     nek_elements = nektar_elements(mesh, order)
     # FIXME: Need to be able to configure dimensiosn
     nek_mesh = nektar_mesh(nek_elements, 2, 2, write_movement)

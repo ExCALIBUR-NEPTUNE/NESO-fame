@@ -81,12 +81,14 @@ register_type_strategy(
         whole_numbers,
         whole_numbers,
         whole_numbers,
-        sampled_from(mesh.CoordinateSystem)
-    )
+        sampled_from(mesh.CoordinateSystem),
+    ),
 )
 
 
-def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.CoordinateSystem) -> mesh.FieldTrace:
+def linear_field_trace(
+    a1: float, a2: float, a3: float, c: mesh.CoordinateSystem
+) -> mesh.FieldTrace:
     a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0
     a2p = a2 / a3
 
@@ -110,7 +112,13 @@ def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.CoordinateSystem
 
 
 def linear_field_line(
-    a1: float, a2: float, a3: float, b1: float, b2: float, b3: float, c: mesh.CoordinateSystem
+    a1: float,
+    a2: float,
+    a3: float,
+    b1: float,
+    b2: float,
+    b3: float,
+    c: mesh.CoordinateSystem,
 ) -> mesh.NormalisedFieldLine:
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
         a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0
@@ -120,6 +128,7 @@ def linear_field_line(
             a3 * np.asarray(x) + b3 - 0.5 * a3,
             c,
         )
+
     return linear_func
 
 

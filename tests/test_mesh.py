@@ -77,7 +77,9 @@ def test_slice_coords_iter_points(
 
 
 @given(mutually_broadcastable_arrays(2), coordinate_systems)
-def test_slice_coords_iter(x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem) -> None:
+def test_slice_coords_iter(
+    x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem
+) -> None:
     coords = mesh.SliceCoords(*x, c)
     coords_iter = iter(coords)
     assert np.all(next(coords_iter) == x[0])
@@ -87,7 +89,9 @@ def test_slice_coords_iter(x: tuple[npt.NDArray, npt.NDArray], c: mesh.Coordinat
 
 
 @given(mutually_broadcastable_arrays(2), coordinate_systems)
-def test_slice_coords_len(x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem) -> None:
+def test_slice_coords_len(
+    x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem
+) -> None:
     coords = mesh.SliceCoords(*x, c)
     coords_iter = coords.iter_points()
     for _ in range(len(coords)):
@@ -485,22 +489,24 @@ def test_quad_from_unordered_curves(original: mesh.Quad) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_near_edge(q: mesh.Quad) -> None:
-    expected = frozenset({q.north(0.).to_coord(), q.south(0.).to_coord()})
-    actual = frozenset(q.near([0., 1.]).iter_points())
-    assert expected  == actual
+    expected = frozenset({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
+    actual = frozenset(q.near([0.0, 1.0]).iter_points())
+    assert expected == actual
 
 
 @given(from_type(mesh.Quad))
 def test_quad_far_edge(q: mesh.Quad) -> None:
-    expected = frozenset({q.north(1.).to_coord(), q.south(1.).to_coord()})
-    actual = frozenset(q.far([0., 1.]).iter_points())
+    expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
+    actual = frozenset(q.far([0.0, 1.0]).iter_points())
     assert expected == actual
 
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
     expected = frozenset(q.corners().iter_points())
-    actual = frozenset(q.far([0., 1.]).iter_points()) | frozenset(q.near([0., 1.]).iter_points())
+    actual = frozenset(q.far([0.0, 1.0]).iter_points()) | frozenset(
+        q.near([0.0, 1.0]).iter_points()
+    )
     assert expected == actual
 
 
@@ -658,7 +664,7 @@ def test_mesh_layer_elements_no_offset(
 
 def get_corners(shape: mesh.Tet | mesh.Quad | mesh.Curve) -> mesh.Coords:
     if isinstance(shape, mesh.Curve):
-        return shape([0., 1.])
+        return shape([0.0, 1.0])
     else:
         return shape.corners()
 
@@ -678,9 +684,15 @@ def test_mesh_layer_elements_with_offset(
         for actual_elem, expected_elem in zip(actual_bound, expected_bound):
             actual_bound_corners = get_corners(actual_elem)
             expected_bound_corners = get_corners(expected_elem.offset(offset))
-            np.testing.assert_allclose(actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12)
-            np.testing.assert_allclose(actual_bound_corners.x2, expected_bound_corners.x2, atol=1e-12)
-            np.testing.assert_allclose(actual_bound_corners.x3, expected_bound_corners.x3, atol=1e-12)
+            np.testing.assert_allclose(
+                actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                actual_bound_corners.x2, expected_bound_corners.x2, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                actual_bound_corners.x3, expected_bound_corners.x3, atol=1e-12
+            )
 
 
 @given(mesh_arguments, integers(1, 10))
@@ -703,8 +715,21 @@ def test_mesh_layer_elements_with_subdivisions(
     )
     assert expected == actual
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        expected_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), itertools.chain.from_iterable(map(lambda x: x.subdivide(subdivisions), expected_bound)))))
-        actual_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), actual_bound)))
+        expected_corners = frozenset(
+            itertools.chain.from_iterable(
+                map(
+                    lambda x: get_corners(x).iter_points(),
+                    itertools.chain.from_iterable(
+                        map(lambda x: x.subdivide(subdivisions), expected_bound)
+                    ),
+                )
+            )
+        )
+        actual_corners = frozenset(
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), actual_bound)
+            )
+        )
         assert expected_corners == actual_corners
 
 
@@ -717,33 +742,63 @@ def evaluate_element(element: mesh.Quad | mesh.Tet, s: float) -> list[mesh.Coord
 
 @given(mesh_arguments, whole_numbers, integers(1, 5))
 def test_mesh_layer_near_faces(
-    args: tuple[list[mesh.E], list[frozenset[mesh.B]]], offset: float, subdivisions: int,
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
+    offset: float,
+    subdivisions: int,
 ) -> None:
     layer = mesh.MeshLayer(*args, offset, subdivisions)
-    expected = frozenset(itertools.chain.from_iterable(map(lambda x: evaluate_element(x.offset(offset), 0.), args[0])))
-    actual = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), layer.near_faces())))
+    expected = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0])
+        )
+    )
+    actual = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+        )
+    )
     assert expected == actual
 
 
 @given(mesh_arguments, whole_numbers, integers(1, 5))
 def test_mesh_layer_far_faces(
-    args: tuple[list[mesh.E], list[frozenset[mesh.B]]], offset: float, subdivisions: int,
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
+    offset: float,
+    subdivisions: int,
 ) -> None:
     layer = mesh.MeshLayer(*args, offset, subdivisions)
-    expected = frozenset(itertools.chain.from_iterable(map(lambda x: evaluate_element(x.offset(offset), 1.), args[0])))
-    actual = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), layer.far_faces())))
+    expected = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
+        )
+    )
+    actual = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+        )
+    )
     assert expected == actual
 
-    
+
 @given(from_type(mesh.MeshLayer))
-def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer
-) -> None:
-    element_corners = frozenset(itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer)))
-    near_face_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), layer.near_faces())))
-    far_face_corners = frozenset(itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), layer.far_faces())))
+def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
+    element_corners = frozenset(
+        itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
+    )
+    near_face_corners = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+        )
+    )
+    far_face_corners = frozenset(
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+        )
+    )
     assert near_face_corners < element_corners
     assert far_face_corners < element_corners
-    
+
+
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
     layer_iter = iter(layer)
@@ -779,7 +834,9 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
 
 
 @given(quad_mesh_layer_no_divisions)
-def test_mesh_layer_quads_for_quads(layer: mesh.MeshLayer[mesh.Quad, mesh.Curve]) -> None:
+def test_mesh_layer_quads_for_quads(
+    layer: mesh.MeshLayer[mesh.Quad, mesh.Curve]
+) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 

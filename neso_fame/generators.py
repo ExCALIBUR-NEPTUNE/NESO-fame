@@ -125,5 +125,15 @@ def field_aligned_2d(
         connectivity = _ordered_connectivity(num_nodes)
 
     quads = [Quad(curves[i], curves[j], None, field_line) for i, j in connectivity]
-    
-    return GenericMesh(MeshLayer(quads, [frozenset({quads[boundaries[0]].north}), frozenset({quads[boundaries[1]].south})], subdivisions=subdivisions), x3_mid)
+
+    return GenericMesh(
+        MeshLayer(
+            quads,
+            [
+                frozenset({quads[boundaries[0]].north}),
+                frozenset({quads[boundaries[1]].south}),
+            ],
+            subdivisions=subdivisions,
+        ),
+        x3_mid,
+    )
