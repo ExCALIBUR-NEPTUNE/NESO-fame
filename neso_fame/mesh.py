@@ -196,6 +196,11 @@ class Curve:
         s = np.linspace(0.0, 1.0, order + 1)
         return self.function(s)
 
+def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
+    def _line(s: npt.ArrayLike) -> Coords:
+        s = np.asarray(s)
+        return Coords(north.x1 + (south.x1 - north.x1) * s, north.x2 + (south.x2 - north.x2) * s, north.x3 + (south.x3 - north.x3) * s, north.system)
+    return _line
 
 @dataclass(frozen=True)
 class Quad:
@@ -213,15 +218,11 @@ class Quad:
 
     @cached_property
     def near(self) -> Curve:
-        north = self.north(0.)
-        south = self.south(0.)
-        return Curve(lambda s: Coords(north.x1 + (south.x1 - north.x1) * s, north.x1 + (south.x1 - north.x1) * s, north.x1 + (south.x1 - north.x1) * s, north.system))
+        return Curve(line_from_points(self.north(0.).to_coord(), self.south(0.).to_coord()))
 
     @cached_property
     def far(self) -> Curve:
-        north = self.north(1.)
-        south = self.south(1.)
-        return Curve(lambda s: Coords(north.x1 + (south.x1 - north.x1) * s, north.x1 + (south.x1 - north.x1) * s, north.x1 + (south.x1 - north.x1) * s, north.system))
+        return Curve(line_from_points(self.north(1.).to_coord(), self.south(1.).to_coord()))
 
     @classmethod
     @cache
@@ -340,22 +341,14 @@ class Tet:
 
     @cached_property
     def near(self) -> Quad:
-        nn = self.north.north(0.)
-        ns = self.north.south(0.)
-        sn = self.south.north(0.)
-        ss = self.south.south(0.)
-        north = Curve(lambda s: Coords(nn.x1 + (ns.x1 - nn.x1) * s, nn.x1 + (ns.x1 - nn.x1) * s, nn.x1 + (ns.x1 - nn.x1) * s, nn.system))
-        south = Curve(lambda s: Coords(sn.x1 + (ss.x1 - sn.x1) * s, sn.x1 + (ss.x1 - sn.x1) * s, sn.x1 + (ss.x1 - sn.x1) * s, ss.system))
+        north = Curve(line_from_points(self.north.north(0.).to_coord(), self.north.south(0.).to_coord()))
+        south = Curve(line_from_points(self.south.north(0.).to_coord(), self.south.south(0.).to_coord()))
         return Quad(north, south, None, self.north.field)
 
     @cached_property
     def far(self) -> Quad:
-        nn = self.north.north(1.)
-        ns = self.north.south(1.)
-        sn = self.south.north(1.)
-        ss = self.south.south(1.)
-        north = Curve(lambda s: Coords(nn.x1 + (ns.x1 - nn.x1) * s, nn.x1 + (ns.x1 - nn.x1) * s, nn.x1 + (ns.x1 - nn.x1) * s, nn.system))
-        south = Curve(lambda s: Coords(sn.x1 + (ss.x1 - sn.x1) * s, sn.x1 + (ss.x1 - sn.x1) * s, sn.x1 + (ss.x1 - sn.x1) * s, ss.system))
+        north = Curve(line_from_points(self.north.north(1.).to_coord(), self.north.south(1.).to_coord()))
+        south = Curve(line_from_points(self.south.north(1.).to_coord(), self.south.south(1.).to_coord()))
         return Quad(north, south, None, self.north.field)
 
     def corners(self) -> Coords:
@@ -444,7 +437,7 @@ class MeshLayer(Generic[E, B]):
 
     # FIXME: This won't be bit-wise identical to to the last subdivision. Can I access those objects instead, somehow?
     def far_faces(self) -> Iterator[B]:
-        return map(lambda e: cast(B, e.near), self._iterate_elements(self.reference_elements, self.offset, 1))
+        return map(lambda e: cast(B, e.far), self._iterate_elements(self.reference_elements, self.offset, 1))
         
 
     @overload

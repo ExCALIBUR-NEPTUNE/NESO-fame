@@ -49,7 +49,7 @@ def assert_nek_points_eq(actual: SD.PointGeom, expected: SD.PointGeom) -> None:
 
 def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
     for a, e in zip(actual.GetCoordinates(), expected.to_cartesian()):
-        assert a == approx(e) or both_nan(a, e)
+        assert a == approx(e, 1e-8, 1e-8, True)
 
 
 ComparablePoint = tuple[float, float, float]
@@ -60,11 +60,11 @@ ComparableComposite = frozenset[int]
 
 def comparable_coord(c: Coord) -> ComparablePoint:
     c = c.to_cartesian()
-    return c.x1, c.x2, c.x3
+    return round(c.x1, 8), round(c.x2, 8), round(c.x3, 8)
 
 
 def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
-    return geom.GetCoordinates()
+    return tuple(round(p, 8) for p in geom.GetCoordinates())
 
 
 def comparable_curve(curve: Curve, order: int) -> ComparableGeometry:
@@ -268,18 +268,14 @@ def check_edges(mesh: MeshLayer[Quad, Curve] | GenericMesh[Quad, Curve], element
     )
 
 
-def check_face_composites(expected: Iterable[Quad], expected_location: float, actual: SD.Composite):
+def check_face_composites(expected: Iterable[Curve], actual: SD.Composite):
     expected_faces = frozenset(
         (
             SD.SegGeom.__name__,
-            frozenset(
-                {
-                    comparable_coord(q.north(expected_location).to_cartesian().to_coord()),
-                    comparable_coord(q.south(expected_location).to_cartesian().to_coord()),
-                }
-            ),
+            frozenset(map(comparable_coord, curve([0., 1.]).to_cartesian().iter_points())
         )
-        for q in expected
+            )
+        for curve in expected
     )
     actual_faces = comparable_set(actual.geometries)
     assert expected_faces == actual_faces
@@ -305,17 +301,9 @@ def test_nektar_layer_elements(mesh: MeshLayer[Quad, Curve], order: int, layer: 
     assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
     check_points(iter(mesh), iter(nek_layer.points))
     check_edges(mesh, iter(nek_layer.elements), iter(nek_layer.segments))
-    check_face_composites(iter(mesh), 0., nek_layer.near_face)
-    check_face_composites(iter(mesh), 1., nek_layer.far_face)
+    check_face_composites(mesh.near_faces(), nek_layer.near_face)
+    check_face_composites(mesh.far_faces(), nek_layer.far_face)
     check_elements(iter(mesh), iter(nek_layer.elements))
-    # TODO: Handle case where mesh forms a closed surface and has no boundary
-    # assert isinstance(nek_layer.layer_bound, tuple)
-    # actual_bound_1, actual_bound_2 = map(comparable_geometry, nek_layer.layer_bound)
-    # assert actual_bound_1 in expected_x3_aligned_edges
-    # assert actual_bound_2 in expected_x3_aligned_edges
-    # FIXME: This test isn't very useful, as it isn't straightforward to judge somthing as less than
-    # assert actual_bound_1 == south_bound
-    # assert actual_bound_2 == north_bound
 
 
 # Check all elements present when converting a mesh
@@ -326,8 +314,8 @@ def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     check_points(iter(mesh), nek_mesh.points())
     check_edges(mesh, cast(Iterator[SD.QuadGeom], nek_mesh.elements()), nek_mesh.segments())
     for layer, near, far in zip(mesh.layers(), nek_mesh.near_faces(), nek_mesh.far_faces()):
-        check_face_composites(iter(layer), 0., near)
-        check_face_composites(iter(layer), 1., far)
+        check_face_composites(layer.near_faces(), near)
+        check_face_composites(layer.far_faces(), far)
     check_elements(iter(mesh), nek_mesh.elements())
 
 @given(
@@ -363,6 +351,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
+@settings(report_multiple_bugs=False)
 @given(builds(nektar_writer.nektar_elements, from_type(GenericMesh), order), order, booleans())
 def test_nektar_mesh(
     elements: nektar_writer.NektarElements, order: int, write_movement
@@ -472,18 +461,7 @@ def test_nektar_mesh(
     expected_layer_composites = comparable_composites(elements.layers())
     expected_near_composites = comparable_composites(elements.near_faces())
     expected_far_composites = comparable_composites(elements.far_faces())
-    expected_bound_composites = frozenset(
-        frozenset(
-            map(
-                operator.methodcaller("GetGlobalID"),
-                map(
-                    operator.itemgetter(i),
-                    cast(list[tuple[SD.SegGeom, SD.SegGeom]], elements.bounds),
-                ),
-            )
-        )
-        for i in range(2)
-    )
+    expected_bound_composites = comparable_composites(elements.bounds())
     assert (
         expected_layer_composites
         | expected_near_composites

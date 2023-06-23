@@ -36,8 +36,7 @@ class NektarLayerCommon:
 @dataclass(frozen=True)
 class NektarLayer2D(NektarLayerCommon):
     elements: frozenset[SD.Geometry2D]
-    layer: SD.Composite
-    layer_bounds: Sequence[frozenset[SD.SegGeom]]
+    bounds: Sequence[frozenset[SD.SegGeom]]
 
 
 @dataclass(frozen=True)
@@ -87,18 +86,22 @@ class NektarElements:
     def bounds(self) -> Iterator[SD.Composite]:
         zipped_bounds: Iterator[
             tuple[Sequence[SD.SegGeom | SD.Geometry2D]]
-        ] = itertools.zip_longest(*map(attrgetter("layer_bounds"), self._layers), fillvalue=frozenset())
+        ] = itertools.zip_longest(*map(attrgetter("bounds"), self._layers), fillvalue=frozenset())
         return map(lambda ls: SD.Composite(list(reduce(or_, ls))), zipped_bounds)
 
     def num_bounds(self) -> int:
-        return max(map(len, map(attrgetter("layer_bounds"), self._layers)))
+        return max(map(len, map(attrgetter("bounds"), self._layers)))
+
+
+def _nektar_point(x1: float, x2: float, x3: float, layer_id: int) -> SD.PointGeom:
+    return SD.PointGeom(2, UNSET_ID, x1, x2, x3)
 
 
 @cache
 def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
-    return SD.PointGeom(2, UNSET_ID, *position.to_cartesian())
+    pos = position.to_cartesian()
+    return _nektar_point(round(pos.x1, 8), round(pos.x2, 8), round(pos.x3, 8), layer_id)
 
-# FIXME: There is a problem with caching these, as different calls to iterators produce different IDs for the functions contained in Curves. Working around it for now, but this is not robust.
 
 @cache
 def _nektar_curve(points: tuple[SD.PointGeom, ...], layer_id: int) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
@@ -179,8 +182,8 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     )
     layer_composite = SD.Composite(list(elements))
     # FIXME: This doesn't work for subdivided layers
-    near_face = SD.Composite(list(layer.near_faces()))
-    far_face = SD.Composite(list(layer.far_faces()))
+    near_face = SD.Composite([nektar_edge(f, order, layer_id)[0] for f in layer.near_faces()])
+    far_face = SD.Composite([nektar_edge(f, order, layer_id)[0] for f in layer.far_faces()])
     bounds = list(map(lambda x: frozenset(map(lambda y: nektar_edge(y, 1, layer_id)[0], x)), layer.boundaries()))
     return NektarLayer2D(
         points,

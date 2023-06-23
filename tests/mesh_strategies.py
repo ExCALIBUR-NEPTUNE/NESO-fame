@@ -28,6 +28,9 @@ from neso_fame import mesh
 
 non_nans = lambda: floats(allow_nan=False)
 arbitrary_arrays = lambda: arrays(floating_dtypes(), array_shapes())
+whole_numbers = integers(-1000, 1000).map(float)
+nonnegative_numbers = integers(1, 1000).map(float)
+non_zero = whole_numbers.filter(lambda x: x != 0.0)
 
 
 def mutually_broadcastable_arrays(
@@ -71,6 +74,18 @@ register_type_strategy(
 )
 
 
+register_type_strategy(
+    mesh.Coord,
+    builds(
+        mesh.Coord,
+        whole_numbers,
+        whole_numbers,
+        whole_numbers,
+        sampled_from(mesh.CoordinateSystem)
+    )
+)
+
+
 def linear_field_trace(a1: float, a2: float, a3: float, c: mesh.CoordinateSystem) -> mesh.FieldTrace:
     a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0
     a2p = a2 / a3
@@ -105,7 +120,6 @@ def linear_field_line(
             a3 * np.asarray(x) + b3 - 0.5 * a3,
             c,
         )
-
     return linear_func
 
 
@@ -156,9 +170,6 @@ def _get_end_point(
 
 
 coordinate_systems = sampled_from(mesh.CoordinateSystem)
-whole_numbers = integers(-1000, 1000).map(float)
-nonnegative_numbers = integers(1, 1000).map(float)
-non_zero = whole_numbers.filter(lambda x: x != 0.0)
 register_type_strategy(
     mesh.Curve,
     builds(
@@ -198,7 +209,7 @@ quad_mesh_elements = builds(
     whole_numbers,
     non_zero,
     starts_and_ends,
-    integers(2, 8),
+    integers(1, 4),
     coordinate_systems,
 )
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
