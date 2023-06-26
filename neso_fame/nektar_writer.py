@@ -95,11 +95,11 @@ class NektarElements:
         return max(map(len, map(attrgetter("bounds"), self._layers)))
 
 
+@cache
 def _nektar_point(x1: float, x2: float, x3: float, layer_id: int) -> SD.PointGeom:
     return SD.PointGeom(2, UNSET_ID, x1, x2, x3)
 
 
-@cache
 def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
     pos = position.to_cartesian()
     return _nektar_point(round(pos.x1, 8), round(pos.x2, 8), round(pos.x3, 8), layer_id)
@@ -189,10 +189,10 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     layer_composite = SD.Composite(list(elements))
     # FIXME: This doesn't work for subdivided layers
     near_face = SD.Composite(
-        [nektar_edge(f, order, layer_id)[0] for f in layer.near_faces()]
+        [nektar_edge(f, 1, layer_id)[0] for f in layer.near_faces()]
     )
     far_face = SD.Composite(
-        [nektar_edge(f, order, layer_id)[0] for f in layer.far_faces()]
+        [nektar_edge(f, 1, layer_id)[0] for f in layer.far_faces()]
     )
     bounds = list(
         map(

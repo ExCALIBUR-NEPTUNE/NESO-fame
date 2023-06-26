@@ -124,7 +124,7 @@ def test_nektar_point(coord: Coord, i: int) -> None:
 
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(
-    lists(from_type(Coord), min_size=2, max_size=2, unique=True),
+    lists(from_type(Coord), min_size=2, max_size=2, unique=True).filter(lambda x: x[0].to_cartesian() != x[1].to_cartesian()),
     lists(integers(), min_size=2, max_size=2, unique=True),
 )
 def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
@@ -312,6 +312,8 @@ def test_nektar_layer_elements(
     check_edges(mesh, iter(nek_layer.elements), iter(nek_layer.segments))
     check_face_composites(mesh.near_faces(), nek_layer.near_face)
     check_face_composites(mesh.far_faces(), nek_layer.far_face)
+    assert frozenset(nek_layer.near_face.geometries) <= nek_layer.segments
+    assert frozenset(nek_layer.far_face.geometries) <= nek_layer.segments
     check_elements(iter(mesh), iter(nek_layer.elements))
 
 
@@ -512,13 +514,13 @@ def test_nektar_mesh(
         assert len(interfaces) == n_layers
         actual_near_composites = comparable_composites(
             actual_composites[
-                next(iter(interface.GetLeftInterface().GetCompositeIDs()))
+                next(iter(interface.GetRightInterface().GetCompositeIDs()))
             ]
             for interface in interfaces.values()
         )
         actual_far_composites = comparable_composites(
             actual_composites[
-                next(iter(interface.GetRightInterface().GetCompositeIDs()))
+                next(iter(interface.GetLeftInterface().GetCompositeIDs()))
             ]
             for interface in interfaces.values()
         )
