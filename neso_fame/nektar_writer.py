@@ -1,3 +1,7 @@
+"""Tools for creating Nektar++ objects for representing a mesh.
+
+"""
+
 from dataclasses import dataclass
 from functools import cache, reduce
 import itertools
@@ -11,6 +15,7 @@ from .mesh import QuadMesh, MeshLayer, Coord, Curve, Quad
 
 UNSET_ID = -1
 
+
 NektarQuadGeomElements = tuple[
     frozenset[SD.QuadGeom],
     frozenset[SD.SegGeom],
@@ -18,14 +23,12 @@ NektarQuadGeomElements = tuple[
 ]
 
 
-QuadLayerBoundItem = list[SD.SegGeom]
-TetLayerBoundItem = list[SD.Geometry2D]
-LayerBoundItem = QuadLayerBoundItem | TetLayerBoundItem
-LayerBound = Sequence[LayerBoundItem]
-
-
 @dataclass(frozen=True)
 class NektarLayerCommon:
+    """Base type for NektarLayer objects, containing attributes common
+    to both 2D and 3D meshes.
+
+    """
     points: frozenset[SD.PointGeom]
     segments: frozenset[SD.SegGeom]
     layer: SD.Composite
@@ -35,12 +38,20 @@ class NektarLayerCommon:
 
 @dataclass(frozen=True)
 class NektarLayer2D(NektarLayerCommon):
+    """Represents the Nektar++ objects present in a single layer of
+    a 2D mesh.
+
+    """
     elements: frozenset[SD.Geometry2D]
     bounds: Sequence[frozenset[SD.SegGeom]]
 
 
 @dataclass(frozen=True)
 class NektarLayer3D(NektarLayerCommon):
+    """Represents the Nektar++ objects present in a single layer of
+    a 3D mesh.
+
+    """
     faces: frozenset[SD.Geometry2D]
     elements: frozenset[SD.Geometry3D]
     bounds: Sequence[frozenset[SD.Geometry2D]]
@@ -49,18 +60,30 @@ class NektarLayer3D(NektarLayerCommon):
 NektarLayer = NektarLayer2D | NektarLayer3D
 
 
-# FIXME: Do I really need this or could I just have a list of NektarLayer objects?
 @dataclass
 class NektarElements:
+    """Represents all of the Nektar++ objects that make up a mesh, but
+    not yet assembled into a MeshGraph objects.
+
+    """
     _layers: list[NektarLayer]
 
     def points(self) -> Iterator[SD.PointGeom]:
+        """Iterate over all of the PointGeom objects in the mesh.
+
+        """
         return itertools.chain.from_iterable(map(attrgetter("points"), self._layers))
 
     def segments(self) -> Iterator[SD.SegGeom]:
+        """Iterate over all of the SegGeom objects in the mesh.
+        """
         return itertools.chain.from_iterable(map(attrgetter("segments"), self._layers))
 
     def faces(self) -> Iterator[SD.Geometry2D]:
+        """Iterate over all of the 2D faces present in the mesh. Will
+        be empty if your mesh is 2D.
+
+        """
         return itertools.chain.from_iterable(
             map(
                 attrgetter("faces"),
@@ -69,21 +92,44 @@ class NektarElements:
         )
 
     def elements(self) -> Iterator[SD.Geometry2D] | Iterator[SD.Geometry3D]:
+        """Iterate over all of the elements in the mesh.
+        
+        """
         return itertools.chain.from_iterable(map(attrgetter("elements"), self._layers))
 
     def layers(self) -> Iterator[SD.Composite]:
+        """Iterate ovre the Composite objects representing each of the
+        layers of the mesh.
+
+        """
         return map(attrgetter("layer"), self._layers)
 
     def num_layers(self) -> int:
+        """Returns the number of layers present in the mesh.
+
+        """
         return len(self._layers)
 
     def near_faces(self) -> Iterator[SD.Composite]:
+        """Iterates over the Composite objects representing the near face of
+        each layer of the mesh.
+
+        """
         return map(attrgetter("near_face"), self._layers)
 
     def far_faces(self) -> Iterator[SD.Composite]:
+        """Iterates over the Composite objects representing the far
+        face of each layer of the mesh.
+
+        """
         return map(attrgetter("far_face"), self._layers)
 
     def bounds(self) -> Iterator[SD.Composite]:
+        """Iterates over the Composite objects representing each of
+        the boundary regions of the mesh. This does not include
+        boundaries which are normal to the x3-direction.
+
+        """
         zipped_bounds: Iterator[
             tuple[Sequence[SD.SegGeom | SD.Geometry2D]]
         ] = itertools.zip_longest(
@@ -92,6 +138,10 @@ class NektarElements:
         return map(lambda ls: SD.Composite(list(reduce(or_, ls))), zipped_bounds)
 
     def num_bounds(self) -> int:
+        """Returns the number of boundary regions of teh mesh, not
+        counting those which are perpendicular to the x3-direction.
+
+        """
         return max(map(len, map(attrgetter("bounds"), self._layers)))
 
 
@@ -101,6 +151,11 @@ def _nektar_point(x1: float, x2: float, x3: float, layer_id: int) -> SD.PointGeo
 
 
 def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
+    """Returns a Nektar++ PointGeom object at the specified position
+    in the given layer. Caching is used to ensure that, given the same
+    location and layer, the object will always be the same.
+
+    """
     pos = position.to_cartesian()
     return _nektar_point(round(pos.x1, 8), round(pos.x2, 8), round(pos.x3, 8), layer_id)
 
@@ -117,6 +172,15 @@ def _nektar_curve(
 def nektar_curve(
     curve: Curve, order: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
+    """Returns a Nektar++ Curve object and the PointGeom objects
+    corresponding to the start and end of the given curve. The curve
+    will be represented to the specified order. Caching is used to
+    ensure that the same curve, in the same layer, represented to the
+    same order, will always return the same objects. The caching is
+    done based on the locations of the control points of the curve,
+    rather than the identity of the function defining the curve.
+
+    """
     points = tuple(
         nektar_point(coord, layer_id)
         for coord in curve.control_points(order).iter_points()
@@ -134,6 +198,16 @@ def _nektar_edge(
 def nektar_edge(
     curve: Curve, order: int, layer_id: int
 ) -> tuple[SD.SegGeom, tuple[SD.PointGeom, SD.PointGeom]]:
+    """Returns a Nektar++ SegGeom representing the curve in the
+    specified layer, to the specified order. It also returns the
+    PointGeom objects representing the start and end of the segment.
+    Caching is used to ensure that the same curve, in the same layer,
+    represented to the same order, will always return the same
+    objects. The caching is done based on the locations of the control
+    points of the curve, rather than the identity of the function
+    defining the curve.
+
+    """
     if order > 1:
         nek_curve, termini = nektar_curve(curve, order, layer_id)
     else:
@@ -151,6 +225,14 @@ def nektar_edge(
 
 @cache
 def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements:
+    """Returns a Nektar++ QuadGeom objects (along with the SegGeom and
+    PointGeom objects that make it up) representing the given quad, to
+    the given order. Caching is used to ensure the same quad, in the
+    same layer, represented to the same order will always return the
+    same objects. Caching is done based on the location of the control
+    points of the quad argument, not the identity of the quad object.
+
+    """
     if quad.in_plane is not None:
         raise NotImplementedError("Not yet dealing with Quads as faces.")
     north, north_termini = nektar_edge(quad.north, order, layer_id)
@@ -179,6 +261,10 @@ def _combine_quad_items(
 
 
 def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
+    """Creates Nektar++ objects needed to represent the given mesh
+    layer to the given order.
+
+    """
     # FIXME: Currently inherantly 2D
     assert issubclass(layer.element_type, Quad)
     elems = list(layer)
@@ -211,6 +297,10 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
 
 
 def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
+    """Creates a collection of Nektar++ objects representing the given
+    mesh.
+
+    """
     return NektarElements(
         [
             nektar_layer_elements(layer, order, i)
@@ -220,6 +310,9 @@ def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
 
 
 def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:
+    """Creates Nektar++ CompositeMap objects containing a single composite.
+
+    """
     comp_map = SD.CompositeMap()
     comp_map[comp_id] = composite
     return comp_map
@@ -228,6 +321,40 @@ def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeM
 def nektar_mesh(
     elements: NektarElements, mesh_dim: int, spatial_dim: int, write_movement=True, periodic_interfaces=True
 ) -> SD.MeshGraphXml:
+    """Creates a Nektar++ MeshGraphXml object from a collection of
+    Nektar++ geometry objects.
+
+    Parameters
+    ----------
+    elements
+        The collection of Nektar++ objects to be assembled into a
+        MeshGraph object.
+    mesh_dim
+        The dimension of the elements of the mesh.
+    spatial_dim
+        The dimension of the space in which the mesh elements sit.
+    write_movement
+        Whether to write information on non-conformal zones and
+        interfaces.
+    periodic_interfaces
+        If write_movement is True, whether the last layer joins
+        back up with the first, requiring an interface to be
+        defined between the two.
+
+    Danger
+    ------
+    .. warning::
+        Be very careful if calling this function more than once in the
+        same session. The IDs of the geometry objects are only set
+        when creating the MeshGraph in this function and calling it a
+        second time with some of the same elements could result in the
+        ID being changed. You must take particular care because
+        geometry elements are cached. Always write out (or otherwise
+        finish with) a MeshGraph object before calling this method
+        again. The safest way to do this is not to call this function
+        direclty but instead use `write_nektar`.
+
+    """
     meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)
     points = meshgraph.GetAllPointGeoms()
     segments = meshgraph.GetAllSegGeoms()
@@ -316,6 +443,27 @@ def nektar_mesh(
 def write_nektar(
     mesh: QuadMesh, order: int, filename: str, write_movement=True, periodic_interfaces=True
 ) -> None:
+    """Create a Nektar++ MeshGraph object from your mesh and write it
+    to the disk.
+
+    Parameters
+    ----------
+    mesh
+        The mesh to be converted to Nektar++ format.
+    order
+        The order to use when representing the elements of the mesh.
+    filename
+        The name of the file to write the mesh to. Should use the
+        ``.xml`` extension.
+    write_movement
+        Whether to write information on non-conformal zones and
+        interfaces.
+    periodic_interfaces
+        If write_movement is True, whether the last layer joins
+        back up with the first, requiring an interface to be
+        defined between the two.
+
+    """
     nek_elements = nektar_elements(mesh, order)
     # FIXME: Need to be able to configure dimensiosn
     nek_mesh = nektar_mesh(nek_elements, 2, 2, write_movement, periodic_interfaces)

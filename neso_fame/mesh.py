@@ -32,6 +32,8 @@ def asarrays(coords: CoordTriple) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray
 
 
 class CoordinateSystem(Enum):
+    """Represent the type of coordinate system being used.
+    """
     Cartesian = 0
     Cylindrical = 1
     Cartesian2D = 2
@@ -42,7 +44,7 @@ CartesianTransform = Callable[
     tuple[npt.NDArray, npt.NDArray, npt.NDArray],
 ]
 
-COORDINATE_TRANSFORMS = {
+COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
     CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
     CoordinateSystem.Cylindrical: lambda x1, x2, x3: (
         x1 * np.cos(x3),
@@ -55,22 +57,35 @@ COORDINATE_TRANSFORMS = {
 
 @dataclass(frozen=True)
 class SliceCoord:
+    """Representation of a point in a poloidal slice (or
+    analogous).
+
+    """
     x1: float
     x2: float
     system: CoordinateSystem
 
     def __iter__(self) -> Iterator[float]:
+        """Iterate over the coordinates of the point.
+
+        """
         yield self.x1
         yield self.x2
 
 
 @dataclass
 class SliceCoords:
+    """Representation of a collection of points in a poloidal slice (or
+    analogous).
+
+    """
     x1: npt.NDArray
     x2: npt.NDArray
     system: CoordinateSystem
 
     def iter_points(self) -> Iterator[SliceCoord]:
+        """Iterate over the points held in this object.
+        """
         for x1, x2 in cast(
             Iterator[tuple[float, float]],
             zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))),
@@ -78,25 +93,40 @@ class SliceCoords:
             yield SliceCoord(x1, x2, self.system)
 
     def __iter__(self) -> Iterator[npt.NDArray]:
+        """Iterate over the coordinates of the points.
+
+        """
         for array in np.broadcast_arrays(self.x1, self.x2):
             yield array
 
     def __len__(self) -> int:
+        """Returns the number of points contained in the object.
+
+        """
         return np.broadcast(self.x1, self.x2).size
 
     def __getitem__(self, idx) -> SliceCoord:
+        """Return an individual point from the collection.
+        
+        """
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
 
 @dataclass(frozen=True)
 class Coord:
+    """Represents a point in 3D space.
+    
+    """
     x1: float
     x2: float
     x3: float
     system: CoordinateSystem
 
     def to_cartesian(self) -> "Coord":
+        """Convert the point to Cartesian coordinates.
+
+        """
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](*self)
         return Coord(
             x1,
@@ -106,6 +136,9 @@ class Coord:
         )
 
     def __iter__(self) -> Iterator[float]:
+        """Iterate over the individual coordinates of the point.
+
+        """
         yield self.x1
         yield self.x2
         yield self.x3
@@ -113,12 +146,16 @@ class Coord:
 
 @dataclass
 class Coords:
+    """Represents a collection of points in 3D space.
+    """
     x1: npt.NDArray
     x2: npt.NDArray
     x3: npt.NDArray
     system: CoordinateSystem
 
     def iter_points(self) -> Iterator[Coord]:
+        """Iterate over the points held in this object.
+        """
         for x1, x2, x3 in cast(
             Iterator[tuple[float, float, float]],
             zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))),
@@ -126,9 +163,15 @@ class Coords:
             yield Coord(float(x1), float(x2), float(x3), self.system)
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords":
+        """Changes the x3 coordinate by the specified ammount.
+
+        """
         return Coords(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def to_cartesian(self) -> "Coords":
+        """Converts the points to be in Cartesian coordiantes.
+        
+        """
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](self.x1, self.x2, self.x3)
         return Coords(
             x1,
@@ -138,17 +181,24 @@ class Coords:
         )
 
     def __iter__(self) -> Iterator[npt.NDArray]:
+        """Iterate over the individual coordinates of the points.
+
+        """
         for array in np.broadcast_arrays(self.x1, self.x2, self.x3):
             yield array
 
     def __len__(self) -> int:
+        """Returns the number of poitns present in the collection."""
         return np.broadcast(self.x1, self.x2, self.x3).size
 
     def __getitem__(self, idx) -> Coord:
+        """Returns the coordinates of an individual point."""
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
 
     def to_coord(self) -> Coord:
+        """Tries to convert the object to a `Coord` object. This will
+        only work if the collection contains exactly one point."""
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
 
@@ -160,6 +210,10 @@ T = TypeVar("T")
 
 
 class ElementLike(Protocol):
+    """Protocal defining the methods that can be used to manipulate
+    mesh components. Exists for internal type-checking.
+
+    """
     def offset(self: T, offset: float) -> T:
         ...
 
@@ -169,26 +223,29 @@ class ElementLike(Protocol):
 
 @dataclass(frozen=True)
 class Curve:
-    function: NormalisedFieldLine
-    # control_points: Coords[C]
+    """Represents a curve in 3D space. A curve is defined by a
+    function which takes a single argument, 0 <= s <= 1, and returns
+    coordinates for the location on that curve in space. The distance
+    along the curve from the start to the position represented by s is
+    directly proportional to s.
 
-    # @cached_property
-    # def _interpolant(self) -> NormalisedFieldLine:
-    #     s = np.linspace(0.0, 1.0, len(self.control_points))
-    #     interpolators = [lagrange(s, coord) for coord in self.control_points]
-    #     return lambda s: Coords(
-    #         *asarrays(tuple(interp(s) for interp in interpolators)),
-    #         self.control_points.system,
-    #     )
+    """
+    function: NormalisedFieldLine
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Convenience function so that a Curve is itself a NormalisedFieldLine"""
         return self.function(s)
 
     def offset(self, offset: float) -> "Curve":
+        """Returns a new `Curve` object which is identical except
+        offset by the specified ammount in the x3-direction.
+        """
         return Curve(lambda s: self.function(s).offset(offset))
 
     def subdivide(self, num_divisions: int) -> Iterator[Curve]:
+        """Returns an iterator of curves created by splitting this one
+        up into equal-length segments.
+        """
         def subdivision(
             func: NormalisedFieldLine, i: int, divs: int
         ) -> NormalisedFieldLine:
@@ -202,11 +259,18 @@ class Curve:
 
     @cache
     def control_points(self, order) -> Coords:
+        """Returns a set of locations on the line which can be used to
+        represent it to the specified order of accuracy. These points
+        will be equally spaced along the curve.
+        """
         s = np.linspace(0.0, 1.0, order + 1)
         return self.function(s)
 
 
 def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
+    """Creates a function representing a straight line between the two
+    specified points.
+    """
     def _line(s: npt.ArrayLike) -> Coords:
         s = np.asarray(s)
         return Coords(
@@ -221,6 +285,21 @@ def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
 
 @dataclass(frozen=True)
 class Quad:
+    """Representation of a four-sided polygon (quadrilateral). It is
+    represented by two curves representing opposite edges. The
+    remaining edges are created by connecting the corresponding
+    termini of the bounding lines. It also contains information on the
+    magnetic field along which the curves defining the figure were
+    traced.
+
+    ToDo
+    ----
+    There is an optional attribute which is meant to define how the
+    quadrilateral may curve into a third dimension, but this has not
+    yet been used in the implementation. It probably will not be
+    sufficiently general to be useful, in any case.
+
+    """
     north: Curve
     south: Curve
     in_plane: Optional[
@@ -230,17 +309,27 @@ class Quad:
     NUM_CORNERS: ClassVar[int] = 4
 
     def __iter__(self) -> Iterable[Curve]:
+        """Iterate over the two curves definge the edges of the quadrilateral.
+        """
         yield self.north
         yield self.south
 
     @cached_property
     def near(self) -> Curve:
+        """Returns a curve connecting the starting points (s=0) of the
+        curves defining the boundaries of the quadrilateral.
+
+        """
         return Curve(
             line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
         )
 
     @cached_property
     def far(self) -> Curve:
+        """Returns a curve connecting the end-points (s=1) of the
+        curves defining the boundaries of the quadrilateral.
+
+        """
         return Curve(
             line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
         )
@@ -277,6 +366,9 @@ class Quad:
             return cls._cached_quad(curve2, curve1, in_plane, field)
 
     def corners(self) -> Coords:
+        """Returns the points corresponding to the corners of the quadrilateral.
+        
+        """
         north_corners = self.north.control_points(1)
         south_corners = self.south.control_points(1)
         return Coords(
@@ -308,6 +400,10 @@ class Quad:
             )
 
     def offset(self, offset: float) -> Quad:
+        """Returns a quad which is identical except that it is shifted
+        by the specified offset in teh x3 direction.
+        
+        """
         return Quad(
             self.north.offset(offset),
             self.south.offset(offset),
@@ -316,6 +412,11 @@ class Quad:
         )
 
     def subdivide(self, num_divisions: int) -> Iterator[Quad]:
+        """Returns an iterator of quad objects produced by splitting
+        the bounding-linse of this quad into the specified number of
+        equally-sized segments.
+
+        """
         if num_divisions <= 1:
             yield self
         else:
@@ -330,20 +431,6 @@ class Quad:
                     else None,
                     self.field,
                 )
-
-    # def _normalised_map(self) -> RegularGridInterpolator:
-    #     resolution = max(self.north.resolution, self.south.resolution)
-    #     normed_coords = np.linspace(0., 1., resolution)
-    #     start_points = SliceCoords(np.linspace(self.north.start.x1, self.south.start.x1, resolution), np.linspace(self.north.start.x2, self.south.start.x2, resolution), self.north.start.system)
-    #     x3_min = cast(float, self.north(0.0).x3)
-    #     x3_max = cast(float, self.north(1.0).x3)
-    #     assert x3_min == self.south(0.0).x3, "Bounding curves must have same start and end in x3"
-    #     assert x3_max == self.south(1.0).x3, "Bounding curves must have same start and end in x3"
-    #     lines = itertools.chain([self.north], (Curve.normalise_field_line(self.field, start, x3_min, x3_max, resolution) for start in start_points.iter_points()), [self.south])
-    #     positions = np.swapaxes(np.array([interp(normed_coords) for interp in lines]), 1, 2)
-    #     # FIXME: spacing in the non-x3 direction isn't equal along curve of face
-    #     order = "cubic" if resolution > 2 else "linear"
-    #     return RegularGridInterpolator((normed_coords, normed_coords), positions, order)
 
 
 @dataclass(frozen=True)
