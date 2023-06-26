@@ -187,7 +187,6 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
         (nektar_quad(elem, order, layer_id) for elem in elems),
     )
     layer_composite = SD.Composite(list(elements))
-    # FIXME: This doesn't work for subdivided layers
     near_face = SD.Composite(
         [nektar_edge(f, 1, layer_id)[0] for f in layer.near_faces()]
     )
@@ -227,7 +226,7 @@ def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeM
 
 
 def nektar_mesh(
-    elements: NektarElements, mesh_dim: int, spatial_dim: int, write_movement=True
+    elements: NektarElements, mesh_dim: int, spatial_dim: int, write_movement=True, periodic_interfaces=True
 ) -> SD.MeshGraphXml:
     meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)
     points = meshgraph.GetAllPointGeoms()
@@ -297,15 +296,14 @@ def nektar_mesh(
 
     n = elements.num_layers()
 
-    # FIXME: Make wrapping of interfaces optional
-    _near_faces = enumerate(elements.near_faces(), n)
+    near_faces = enumerate(elements.near_faces(), n)
+    first_near = next(near_faces)
+    near_faces = itertools.chain(near_faces, [first_near])
     far_faces = enumerate(elements.far_faces(), 2 * n)
-    first_near = next(_near_faces)
-    near_faces = itertools.chain(_near_faces, [first_near])
     for i, ((j, near), (k, far)) in enumerate(zip(near_faces, far_faces)):
         composites[j] = near
         composites[k] = far
-        if write_movement:
+        if write_movement and (i != n-1 or periodic_interfaces):
             near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
             far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
@@ -316,9 +314,9 @@ def nektar_mesh(
 
 
 def write_nektar(
-    mesh: QuadMesh, order: int, filename: str, write_movement=True
+    mesh: QuadMesh, order: int, filename: str, write_movement=True, periodic_interfaces=True
 ) -> None:
     nek_elements = nektar_elements(mesh, order)
     # FIXME: Need to be able to configure dimensiosn
-    nek_mesh = nektar_mesh(nek_elements, 2, 2, write_movement)
+    nek_mesh = nektar_mesh(nek_elements, 2, 2, write_movement, periodic_interfaces)
     nek_mesh.Write(filename, True, SD.FieldMetaDataMap())

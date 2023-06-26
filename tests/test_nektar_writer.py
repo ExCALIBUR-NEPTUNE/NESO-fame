@@ -372,9 +372,10 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
     builds(nektar_writer.nektar_elements, from_type(GenericMesh), order),
     order,
     booleans(),
+    booleans(),
 )
 def test_nektar_mesh(
-    elements: nektar_writer.NektarElements, order: int, write_movement
+        elements: nektar_writer.NektarElements, order: int, write_movement: bool, periodic: bool
 ) -> None:
     def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
         return filter(
@@ -388,7 +389,7 @@ def test_nektar_mesh(
                 return geom
         raise IndexError(f"Item with ID {i} not found in set {geoms}")
 
-    meshgraph = nektar_writer.nektar_mesh(elements, 2, 3, write_movement)
+    meshgraph = nektar_writer.nektar_mesh(elements, 2, 3, write_movement, periodic)
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
@@ -480,9 +481,13 @@ def test_nektar_mesh(
     n_comp = 3 * n_layers + 2
     assert len(actual_composites) == n_comp
     expected_layer_composites = comparable_composites(elements.layers())
-    expected_near_composites = comparable_composites(elements.near_faces())
-    expected_far_composites = comparable_composites(elements.far_faces())
-    expected_bound_composites = comparable_composites(elements.bounds())
+    if periodic:
+        expected_near_composites = comparable_composites(elements.near_faces())
+        expected_far_composites = comparable_composites(elements.far_faces())
+    else:
+        expected_near_composites = comparable_composites(itertools.islice(elements.near_faces(), 1, None))
+        expected_far_composites = comparable_composites(itertools.islice(elements.far_faces(), n_layers - 1))
+    expected_bound_composites = comparable_composites(elements.bounds()) | frozenset({comparable_composite(elements._layers[0].near_face), comparable_composite(elements._layers[-1].far_face)})
     assert (
         expected_layer_composites
         | expected_near_composites
@@ -511,7 +516,7 @@ def test_nektar_mesh(
                 domains[i][i]
             )
 
-        assert len(interfaces) == n_layers
+        assert len(interfaces) == n_layers if periodic else n_layers - 1
         actual_near_composites = comparable_composites(
             actual_composites[
                 next(iter(interface.GetRightInterface().GetCompositeIDs()))
@@ -524,8 +529,8 @@ def test_nektar_mesh(
             ]
             for interface in interfaces.values()
         )
-        assert len(actual_near_composites) == n_layers
-        assert len(actual_far_composites) == n_layers
+        assert len(actual_near_composites) == n_layers if periodic else n_layers - 1
+        assert len(actual_far_composites) == n_layers if periodic else n_layers - 1
         assert actual_near_composites == expected_near_composites
         assert actual_far_composites == expected_far_composites
     else:
