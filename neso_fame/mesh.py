@@ -1,34 +1,29 @@
+"""Classes to represent meshes and their constituent elements.
+
+"""
+
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence, Iterable, Mapping
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
 import itertools
 from typing import (
-    Any,
-    cast,
     Callable,
+    cast,
     ClassVar,
     Generic,
-    Literal,
     Optional,
-    Type,
-    TypeVar,
     overload,
     Protocol,
+    Type,
+    TypeVar,
 )
 
 import numpy as np
 import numpy.typing as npt
-from scipy.interpolate import interp1d, lagrange
-
-
-CoordTriple = tuple[npt.ArrayLike, npt.ArrayLike, npt.ArrayLike]
-
-
-def asarrays(coords: CoordTriple) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
-    return np.asarray(coords[0]), np.asarray(coords[1]), np.asarray(coords[2])
+from scipy.interpolate import interp1d
 
 
 class CoordinateSystem(Enum):
@@ -309,7 +304,7 @@ class Quad:
     NUM_CORNERS: ClassVar[int] = 4
 
     def __iter__(self) -> Iterable[Curve]:
-        """Iterate over the two curves definge the edges of the quadrilateral.
+        """Iterate over the two curves defining the edges of the quadrilateral.
         """
         yield self.north
         yield self.south
@@ -401,7 +396,7 @@ class Quad:
 
     def offset(self, offset: float) -> Quad:
         """Returns a quad which is identical except that it is shifted
-        by the specified offset in teh x3 direction.
+        by the specified offset in the x3 direction.
         
         """
         return Quad(
@@ -414,7 +409,8 @@ class Quad:
     def subdivide(self, num_divisions: int) -> Iterator[Quad]:
         """Returns an iterator of quad objects produced by splitting
         the bounding-linse of this quad into the specified number of
-        equally-sized segments.
+        equally-sized segments. This has the effect of splitting the
+        quad equally in the x3 direction.
 
         """
         if num_divisions <= 1:
@@ -434,7 +430,17 @@ class Quad:
 
 
 @dataclass(frozen=True)
-class Tet:
+class Hex:
+    """Representation of a six-sided solid (hexahedron). It is
+    represented by four quads making up its faces. The remaining two
+    faces are made up of the edges of these quads at s=0 and s=1 and
+    are normal to the x3-direction.
+
+    ToDo
+    ----
+    This requires more extensive testing.
+
+    """
     north: Quad
     south: Quad
     east: Quad
@@ -442,6 +448,8 @@ class Tet:
     NUM_CORNERS: ClassVar[int] = 8
 
     def __iter__(self) -> Iterable[Quad]:
+        """Iterate over the four quads defining the faces of the hexahedron.
+        """
         yield self.north
         yield self.east
         yield self.south
@@ -449,6 +457,11 @@ class Tet:
 
     @cached_property
     def near(self) -> Quad:
+        """Returns a quad made from the near edges of the
+        quadrilaterals defining this hexahedron. This corresponds to a
+        face of the hexahedron normal to x3.
+
+        """
         north = Curve(
             line_from_points(
                 self.north.north(0.0).to_coord(), self.north.south(0.0).to_coord()
@@ -463,6 +476,11 @@ class Tet:
 
     @cached_property
     def far(self) -> Quad:
+        """Returns a quad made from the far edges of the
+        quadrilaterals defining this hexahedron. This corresponds to a
+        face of the hexahedron normal to x3.
+
+        """
         north = Curve(
             line_from_points(
                 self.north.north(1.0).to_coord(), self.north.south(1.0).to_coord()
@@ -476,6 +494,10 @@ class Tet:
         return Quad(north, south, None, self.north.field)
 
     def corners(self) -> Coords:
+        """Returns the points corresponding to the vertices of the
+        quadrilateral.
+
+        """
         north_corners = self.north.corners()
         south_corners = self.south.corners()
         # TODO Check that east and west corners are the same as north and south
@@ -486,29 +508,25 @@ class Tet:
             north_corners.system,
         )
 
-    @cached_property
-    def control_points(self) -> npt.NDArray:
-        """Returns the coordinates of the control points for the
-        surface, in an array of dimensions [3, order + 1, order + 1, order + 1].
-
+    def offset(self, offset: float) -> Hex:
+        """Returns a hex which is identical except that it is shifted
+        by the specified offset in the x3 direction.
+        
         """
-        raise NotImplementedError("Not written yet")
-
-    def quads(self) -> Iterable[Quad]:
-        yield self.north
-        yield self.east
-        yield self.south
-        yield self.west
-
-    def offset(self, offset: float) -> Tet:
-        return Tet(
+        return Hex(
             self.north.offset(offset),
             self.south.offset(offset),
             self.east.offset(offset),
             self.west.offset(offset),
         )
 
-    def subdivide(self, num_divisions: int) -> Iterator[Tet]:
+    def subdivide(self, num_divisions: int) -> Iterator[Hex]:
+        """Returns an iterator of hex objects produced by splitting
+        the bounding-quads of this hex into the specified number of
+        equally-sized parts. This has the effect of splitting the
+        hex equally in the x3 direction.
+
+        """
         if num_divisions <= 0:
             yield self
         else:
@@ -518,42 +536,71 @@ class Tet:
                 self.east.subdivide(num_divisions),
                 self.west.subdivide(num_divisions),
             ):
-                yield Tet(n, s, e, w)
+                yield Hex(n, s, e, w)
 
 
-E = TypeVar("E", Quad, Tet)
+E = TypeVar("E", Quad, Hex)
 B = TypeVar("B", Curve, Quad)
 
 
 @dataclass(frozen=True)
 class MeshLayer(Generic[E, B]):
+    """Representation of a single "layer" of the mesh. A layer is a
+    region of the mesh where the elements are conformal and aligned
+    with the magnetic field. A mesh may contain multiple layers, but
+    there will be a non-conformal interface between each of them.
+
+    """
     reference_elements: Sequence[E]
-    # FIXME: This isn't a great solution, as we care about the nodes/curves which are on the boundaries, not elements
     bounds: Sequence[frozenset[B]]
     offset: Optional[float] = None
     subdivisions: int = 1
 
     def __iter__(self) -> Iterator[E]:
+        """Iterate over all of hte elements (`Quad` or `Hex` objects)
+        which make up this layer of the mesh.
+
+        """
         return self._iterate_elements(
             self.reference_elements, self.offset, self.subdivisions
         )
 
     def __len__(self) -> int:
+        """Returns the number of elements in this layer.
+
+        """
         return len(self.reference_elements) * self.subdivisions
 
     @cached_property
     def element_type(self) -> Type[E]:
+        """Returns the type object for the elements of the mesh layer.
+
+        """
         return type(next(iter(self.reference_elements)))
 
     def quads(self) -> Iterable[Quad]:
+        """Iterates over teh `Quad` objects in the mesh. If the mesh
+        is made up of quads then this is the same as iterating over
+        the elements. Otherwise, it iterates over the quads defining
+        the boundaries of the constituent `Hex` elements.
+
+        """
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
             return cast(Iterable[Quad], self)
         else:
             return itertools.chain.from_iterable(
-                map(lambda t: t.quads(), cast(Iterable[Tet], self))
+                map(iter, cast(Iterable[Hex], self))
             )
 
     def boundaries(self) -> Iterator[frozenset[B]]:
+        """Iterates over the boundary regions in this layer. This
+        excludes boundaries normal to the x3-direction. There may be
+        any number of boundary regions. If the mesh is made up of
+        `Quad` elements then the boundaries are sets of `Curve`
+        objects. If the mesh is made up of `Hex` elements, then the
+        boundaries are sets of `Quad` objects.
+
+        """
         return map(
             frozenset,
             map(
@@ -563,6 +610,13 @@ class MeshLayer(Generic[E, B]):
         )
 
     def near_faces(self) -> Iterator[B]:
+        """Iterates over the near faces of the elements in the
+        layer. If the layer is subdivided (i.e., is more than one
+        element deep in the x3-direction) then only the near faces of
+        the first subdivision will be returned. This constitutes one
+        of the boundaries normal to the x3-direction.
+
+        """
         return map(
             lambda e: cast(B, e.near),
             self._iterate_elements(self.reference_elements, self.offset, 1),
@@ -570,6 +624,13 @@ class MeshLayer(Generic[E, B]):
 
     # FIXME: This won't be bit-wise identical to to the last subdivision. Can I access those objects instead, somehow?
     def far_faces(self) -> Iterator[B]:
+        """Iterates over the far faces of the elements in the
+        layer. If the layer is subdivided (i.e., is more than one
+        element deep in the x3-direction) then only the far faces of
+        the last subdivision will be returned. This constitutes one
+        of the boundaries normal to the x3-direction.
+
+        """
         return map(
             lambda e: cast(B, e.far),
             self._iterate_elements(self.reference_elements, self.offset, 1),
@@ -593,6 +654,10 @@ class MeshLayer(Generic[E, B]):
     def _iterate_elements(
         elements: Iterable[ElementLike], offset: Optional[float], subdivisions: int
     ) -> Iterator[ElementLike]:
+        """Convenience method used by other iteration methods. It
+        handles offsets and subdivisions appropriately.
+
+        """
         if isinstance(offset, float):
             x = offset
             return itertools.chain.from_iterable(
@@ -606,51 +671,33 @@ class MeshLayer(Generic[E, B]):
                 map(lambda e: e.subdivide(subdivisions), elements)
             )
 
-    # @cached_property
-    # def num_unique_corners(self) -> int:
-    #     element_corners = self.element_type.NUM_CORNERS * (self.subdivisions + 1) // 2
-    #     total_corners = element_corners * len(self.reference_elements)
-    #     num_face_connections = sum(
-    #         list(connections.values()).count(True)
-    #         for connections in self.reference_elements.values()
-    #     )
-    #     num_edge_connections = sum(
-    #         list(connections.values()).count(False)
-    #         for connections in self.reference_elements.values()
-    #     )
-    #     assert num_face_connections % 2 == 0, "Ill-defined mesh connectivity"
-    #     assert num_edge_connections % 2 == 0, "Ill-defined mesh connectivity"
-    #     return (
-    #         total_corners
-    #         - (num_face_connections // 2) * (element_corners)
-    #         - (num_edge_connections // 2) * (element_corners // 2)
-    #     )
-
-    # def num_unique_control_points(self, order: int) -> int:
-    #     points_per_edge = order * self.subdivisions + 1
-    #     points_per_face = (order + 1) * points_per_edge
-    #     if issubclass(self.element_type, Quad):
-    #         points_per_element = points_per_face
-    #     else:
-    #         points_per_element = (order + 1) * points_per_face
-    #     total_control_points = points_per_element * len(self.reference_elements)
-    #     num_shared_points = sum(
-    #         sum(
-    #             points_per_face if is_face else points_per_edge
-    #             for is_face in connections.values()
-    #         )
-    #         for connections in self.reference_elements.values()
-    #     )
-    #     assert num_shared_points % 2 == 0, "Ill-defined mesh connectivity"
-    #     return total_control_points - num_shared_points // 2
-
 
 @dataclass(frozen=True)
 class GenericMesh(Generic[E, B]):
+    """Class representing a complete mesh. It is defined by a
+    representative layer and an array of offsets. Physically, these
+    correspond to a mesh made up of a series of identical layers, with
+    nonconformal interfaces, each offset by a certain ammount along
+    the x3-direction.
+
+    Caution
+    -------
+    This class is generic in both the element and boundary types, but
+    only certain combinations of these make sense in practice: `Quad`
+    elements and `Curve` boundaries; or `Hex` elements and `Quad`
+    boundaries. GenericMesh should not be used for type annotations;
+    use `QuadMesh`, `HexMesh`, or `Mesh` instead, as these are
+    constrained to the valid combinations.
+
+    """
     reference_layer: MeshLayer[E, B]
     offsets: npt.NDArray
 
     def layers(self) -> Iterable[MeshLayer[E, B]]:
+        """Iterate through the `MeshLayer` objects which make up this
+        mesh.
+
+        """
         return map(
             lambda off: MeshLayer(
                 self.reference_layer.reference_elements,
@@ -662,22 +709,21 @@ class GenericMesh(Generic[E, B]):
         )
 
     def __iter__(self) -> Iterator[E]:
+        """Iterate through all of the elements contained in this mesh.
+
+        """
         return itertools.chain.from_iterable(map(iter, self.layers()))
 
     def __len__(self) -> int:
+        """Returns the number of elements in this mesh.
+
+        """
         return len(self.reference_layer) * self.offsets.size
-
-    # @property
-    # def num_unique_corners(self) -> int:
-    #     return self.offsets.size * self.reference_layer.num_unique_corners
-
-    # def num_unique_control_points(self, order: int) -> int:
-    #     return self.offsets.size * self.reference_layer.num_unique_control_points(order)
 
 
 QuadMesh = GenericMesh[Quad, Curve]
-TetMesh = GenericMesh[Tet, Quad]
-Mesh = QuadMesh | TetMesh
+HexMesh = GenericMesh[Hex, Quad]
+Mesh = QuadMesh | HexMesh
 
 
 def normalise_field_line(
@@ -687,6 +733,35 @@ def normalise_field_line(
     x3_max: float,
     resolution=10,
 ) -> NormalisedFieldLine:
+    """Takes a function defining a magnetic field and returns a new
+    function tracing a field line within it. The returned function
+    take an argument ``s`` between 0 and 1 and returns a coordinate
+    along the field line. The distance of the point from the start of
+    the field line is directly proportional to ``s``. This function is
+    vectorised, so can be called with an array-like argument.
+
+    Parameters
+    ----------
+    trace
+        A callable which takes a `SliceCoord` defining a position on
+        the x3=0 plane and an array-like object with x3
+        coordinates. It should return a 2-tuple. The first element is
+        the locations found by tracing the magnetic field line
+        beginning at the position of the first argument until reaching
+        the x3 locations described in the second argument. The second
+        element is the distance traversed along the field line.
+    start
+        The location on the x3=0 plane which the traced field line will
+        pass through.
+    x3_min
+        The minimum x3 value to trace the field line from.
+    x3_max
+        The maximum x3 value to trace the field line to.
+    resolution
+        The number of locations used along the field line used to
+        interpolate distances.
+
+    """
     x3 = np.linspace(x3_min, x3_max, resolution)
     x1_x2_coords: SliceCoords
     s: npt.NDArray

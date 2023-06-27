@@ -8,10 +8,11 @@ import itertools
 from operator import attrgetter, or_
 from typing import Iterator, Sequence
 
-import NekPy.SpatialDomains as SD
 import NekPy.LibUtilities as LU
+import NekPy.SpatialDomains as SD
 
-from .mesh import QuadMesh, MeshLayer, Coord, Curve, Quad
+from .mesh import Coord, Curve, MeshLayer, Quad, QuadMesh
+
 
 UNSET_ID = -1
 

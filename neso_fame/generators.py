@@ -1,12 +1,17 @@
+"""Functions for generating full meshes from magnetic field data.
+
+"""
+
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 import itertools
 from typing import Optional
 
 import numpy as np
 
 from .mesh import (
+    Coords,
     Curve,
     Quad,
     FieldTrace,
@@ -16,17 +21,24 @@ from .mesh import (
     normalise_field_line,
     SliceCoord,
     SliceCoords,
-    Coords,
 )
 
 Connectivity = Sequence[tuple[int, int]]
 
 
 def _ordered_connectivity(size: int) -> Connectivity:
+    """Produces connectivity information representing a sequence of
+    nodes connected to each other one after the other.
+
+    """
     return list(itertools.pairwise(range(size)))
 
 
 def _boundary_curve(start: SliceCoord, dx3: float) -> Curve:
+    """Produces a curve with constant x1 and x2 coordinates set by
+    ``start`` and which goes from ``-x3/2`` to ``x3/2``.
+
+    """
     return Curve(
         lambda s: Coords(
             np.full_like(s, start.x1),
@@ -63,22 +75,25 @@ def field_aligned_2d(
         along field-lines. Unless providing `connectivity`, must be
         ordered.
     field_line
-        Function returning the poloidal coordinate of a field line.
-        The first argument is the starting poloidal position and the
-        second is the toroidal offset.
+        A callable which takes a `SliceCoord` defining a position on
+        the x3=0 plane and an array-like object with x3
+        coordinates. It should return a 2-tuple. The first element is
+        the locations found by tracing the magnetic field line
+        beginning at the position of the first argument until reaching
+        the x3 locations described in the second argument. The second
+        element is the distance traversed along the field line.
     extrusion_limits
-        The lower and upper limits of the domain in the toroidal
-        direction.
+        The lower and upper limits of the domain in the x3-direction.
     n
         Number of layers to generate in the x3 direction
     spatial_interp_resolution
         Number of points used to interpolate distances along the field
         line.
     connectivity
-        Defines which points are connected to each other in the mesh.
-        Item at index `n` is a sequence of the indices for all the
-        other points connected to `n`. If not provided, assume points
-        are connected in an ordered line.
+        Defines which points are connected to each other in the
+        mesh. Consists of pairs of integers indicating the indices of
+        two points which are connected by an edge. If not provided,
+        assume points are connected in an ordered line.
     boundaries
         Indices of the quads (in the connectivity sequence) that make
         up the north and south boundary, respectively

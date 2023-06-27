@@ -1,23 +1,23 @@
 import itertools
 
 from hypothesis.extra.numpy import (
-    BroadcastableShapes,
     array_shapes,
     arrays,
+    BroadcastableShapes,
     floating_dtypes,
     mutually_broadcastable_shapes,
 )
 from hypothesis.strategies import (
-    SearchStrategy,
     builds,
     floats,
     from_type,
     integers,
+    just,
     none,
+    one_of,
     register_type_strategy,
     sampled_from,
-    just,
-    one_of,
+    SearchStrategy,
     shared,
     tuples,
 )

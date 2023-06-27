@@ -1,6 +1,5 @@
 import itertools
-from operator import methodcaller
-from typing import Type, Optional
+from typing import Type
 from unittest.mock import MagicMock
 
 from hypothesis import given
@@ -578,76 +577,76 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]])
 
 
-# @given(from_type(mesh.Tet))
-# def test_tet_near_edge(t: mesh.Tet) -> None:
+# @given(from_type(mesh.Hex))
+# def test_hex_near_edge(t: mesh.Hex) -> None:
 #     expected = frozenset({t.north.north(0.).to_coord(), t.north.south(0.).to_coord(), t.south.north(0.).to_coord(), t.south.south(0.).to_coord()})
 #     actual = frozenset(t.near.corners().iter_points())
 #     assert expected  == actual
 
 
-# @given(from_type(mesh.Tet))
-# def test_tet_far_edge(t: mesh.Tet) -> None:
+# @given(from_type(mesh.Hex))
+# def test_hex_far_edge(t: mesh.Hex) -> None:
 #     expected = frozenset({t.north.north(1.).to_coord(), t.north.south(1.).to_coord(), t.south.north(1.).to_coord(), t.south.south(1.).to_coord()})
 #     actual = frozenset(t.far.corners().iter_points())
 #     assert expected  == actual
 
 
-# @given(from_type(mesh.Tet))
-# def test_tet_near_far_corners(t: mesh.Tet) -> None:
+# @given(from_type(mesh.Hex))
+# def test_hex_near_far_corners(t: mesh.Hex) -> None:
 #     expected = frozenset(t.corners().iter_points())
 #     actual = frozenset(t.near.corners().iter_points()) | frozenset(t.far.corners().iter_points())
 #     assert expected == actual
 
 
-def test_tet_corners() -> None:
+def test_hex_corners() -> None:
     pass
 
 
-def test_tet_control_points_cached() -> None:
+def test_hex_control_points_cached() -> None:
     pass
 
 
-def test_tet_control_points_size() -> None:
+def test_hex_control_points_size() -> None:
     pass
 
 
-def test_tet_control_points_values() -> None:
+def test_hex_control_points_values() -> None:
     pass
 
 
-def test_tet_get_quads() -> None:
+def test_hex_get_quads() -> None:
     pass
 
 
-def test_tet_offset() -> None:
+def test_hex_offset() -> None:
     pass
 
 
-@given(from_type(mesh.Tet), integers(-50, 100))
-def test_tet_subdivision_len(tet: mesh.Tet, divisions: int) -> None:
+@given(from_type(mesh.Hex), integers(-50, 100))
+def test_hex_subdivision_len(hex: mesh.Hex, divisions: int) -> None:
     expected = max(1, divisions)
-    divisions_iter = tet.subdivide(divisions)
+    divisions_iter = hex.subdivide(divisions)
     for _ in range(expected):
         _ = next(divisions_iter)
     with pytest.raises(StopIteration):
         next(divisions_iter)
 
 
-@given(from_type(mesh.Tet), integers(-5, 100))
-def test_tet_subdivision(tet: mesh.Tet, divisions: int) -> None:
-    divisions_iter = tet.subdivide(divisions)
-    tet_corners = tet.corners()
+@given(from_type(mesh.Hex), integers(-5, 100))
+def test_hex_subdivision(hex: mesh.Hex, divisions: int) -> None:
+    divisions_iter = hex.subdivide(divisions)
+    hex_corners = hex.corners()
     first = next(divisions_iter)
     corners = first.corners()
-    for c, t in zip(corners, tet_corners):
+    for c, t in zip(corners, hex_corners):
         np.testing.assert_allclose(c[::2], t[::2])
     prev = corners
-    for tet in divisions_iter:
-        corners = tet.corners()
+    for hex in divisions_iter:
+        corners = hex.corners()
         for c, p in zip(corners, prev):
             np.testing.assert_allclose(c[::2], p[1::2])
         prev = corners
-    for p, t in zip(prev, tet_corners):
+    for p, t in zip(prev, hex_corners):
         np.testing.assert_allclose(p[1::2], t[1::2])
 
 
@@ -662,7 +661,7 @@ def test_mesh_layer_elements_no_offset(
         assert actual_bound == expected_bound
 
 
-def get_corners(shape: mesh.Tet | mesh.Quad | mesh.Curve) -> mesh.Coords:
+def get_corners(shape: mesh.Hex | mesh.Quad | mesh.Curve) -> mesh.Coords:
     if isinstance(shape, mesh.Curve):
         return shape([0.0, 1.0])
     else:
@@ -733,7 +732,7 @@ def test_mesh_layer_elements_with_subdivisions(
         assert expected_corners == actual_corners
 
 
-def evaluate_element(element: mesh.Quad | mesh.Tet, s: float) -> list[mesh.Coord]:
+def evaluate_element(element: mesh.Quad | mesh.Hex, s: float) -> list[mesh.Coord]:
     if isinstance(element, mesh.Quad):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
     else:
@@ -824,7 +823,7 @@ quad_mesh_elements = (
     "elements",
     [
         (quad_mesh_elements,),
-        # FIXME: Check for Tet-mesh
+        # FIXME: Check for Hex-mesh
     ],
 )
 def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
@@ -840,29 +839,9 @@ def test_mesh_layer_quads_for_quads(
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
-def test_mesh_layer_quads_for_tets() -> None:
+def test_mesh_layer_quads_for_hexes() -> None:
     # FIXME: Need to implement this
     pass
-
-
-# @given(from_type(mesh.MeshLayer))
-# def test_mesh_layer_num_unique_corners(layer: mesh.MeshLayer) -> None:
-#     corners = frozenset(
-#         itertools.chain.from_iterable(elem.corners().iter_points() for elem in layer)
-#     )
-#     assert layer.num_unique_corners == len(corners)
-
-
-# @given(from_type(mesh.MeshLayer), integers(1, 5))
-# def test_mesh_layer_num_unique_control_points(
-#     layer: mesh.MeshLayer, order: int
-# ) -> None:
-#     control_points = frozenset(
-#         itertools.chain.from_iterable(
-#             elem.control_points(order).iter_points() for elem in layer
-#         )
-#     )
-#     assert layer.num_unique_control_points(order) == len(control_points)
 
 
 @given(from_type(mesh.GenericMesh))
@@ -880,41 +859,6 @@ def test_mesh_len(m: mesh.GenericMesh) -> None:
         next(mesh_iter)
     with pytest.raises(StopIteration):
         next(mesh_iter)
-
-
-# @given(from_type(mesh.GenericMesh))
-# def test_mesh_num_unique_corners(m: mesh.GenericMesh) -> None:
-#     # Create a set of tuples of layer number and control point. Using
-#     # these tuples ensures any coincident points on adjacent layers
-#     # won't be treated as the same.
-#     corners = frozenset(
-#         itertools.chain.from_iterable(
-#             itertools.chain.from_iterable(
-#                 (((i, p) for p in elem.corners().iter_points()) for elem in layer)
-#                 for i, layer in enumerate(m.layers())
-#             )
-#         )
-#     )
-#     assert m.num_unique_corners == len(corners)
-
-
-# @given(from_type(mesh.GenericMesh), integers(1, 5))
-# def test_mesh_num_unique_control_points(m: mesh.GenericMesh, order: int) -> None:
-#     # Create a set of tuples of layer number and control point. Using
-#     # these tuples ensures any coincident points on adjacent layers
-#     # won't be treated as the same.
-#     control_points = frozenset(
-#         itertools.chain.from_iterable(
-#             itertools.chain.from_iterable(
-#                 (
-#                     ((i, p) for p in elem.control_points(order).iter_points())
-#                     for elem in layer
-#                 )
-#                 for i, layer in enumerate(m.layers())
-#             )
-#         )
-#     )
-#     assert m.num_unique_control_points(order) == len(control_points)
 
 
 shared_coords = shared(coordinate_systems, key=0)

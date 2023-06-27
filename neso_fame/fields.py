@@ -1,3 +1,7 @@
+"""Some functions to produce callables defning magnetic fields.
+
+"""
+
 import numpy as np
 import numpy.typing as npt
 
@@ -29,7 +33,9 @@ def _cylindrical_distance(x1_start, angle, x3):
 def straight_field(angle=0.0) -> "FieldTrace":
     """Returns a field trace corresponding to straight field lines
     slanted at `angle` above the direction of extrusion into the first
-    coordinate direction."""
+    coordinate direction.
+
+    """
 
     def trace(
         start: SliceCoord, perpendicular_coord: npt.ArrayLike
@@ -51,7 +57,13 @@ def straight_field(angle=0.0) -> "FieldTrace":
 def curved_field(weight=0.0) -> "FieldTrace":
     """Returns a field trace corresponding to straight field lines
     slanted at `angle` above the direction of extrusion into the first
-    coordinate direction."""
+    coordinate direction. The argument corresponds to the weight which
+    should be given to the nonlinear component of the curve.
+
+    Warning
+    -------
+    The distance calculation for this is wrong.
+    """
 
     def trace(
         start: SliceCoord, perpendicular_coord: npt.ArrayLike

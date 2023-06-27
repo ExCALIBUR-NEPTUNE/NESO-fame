@@ -1,14 +1,15 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from functools import reduce
 import itertools
 import operator
 import pathlib
 from tempfile import TemporaryDirectory
-from typing import Callable, Iterator, cast, Type, TypeVar, Union, TypeGuard
+from typing import Callable, cast, Iterator, Type, TypeVar, TypeGuard, Union
 import xml.etree.ElementTree as ET
 
 from hypothesis import given, settings
 from hypothesis.strategies import (
+    booleans,
     builds,
     from_type,
     integers,
@@ -18,13 +19,12 @@ from hypothesis.strategies import (
 )
 from NekPy import LibUtilities as LU
 from NekPy import SpatialDomains as SD
-from hypothesis.strategies._internal.core import booleans
-from neso_fame.fields import straight_field
 import numpy as np
 from pytest import approx, mark
 
 from . import mesh_strategies
 from neso_fame import nektar_writer
+from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     Coord,
     Coords,
@@ -34,7 +34,7 @@ from neso_fame.mesh import (
     MeshLayer,
     Quad,
     QuadMesh,
-    Tet,
+    Hex,
 )
 
 
@@ -213,7 +213,7 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
 # as I can't access the GetCurve method?
 
 
-def check_points(expected: Iterable[Quad | Tet], actual: Iterable[SD.PointGeom]):
+def check_points(expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom]):
     expected_points = frozenset(
         map(
             comparable_coord,
