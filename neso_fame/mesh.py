@@ -287,7 +287,7 @@ class Quad:
     magnetic field along which the curves defining the figure were
     traced.
 
-    ToDo
+    Note
     ----
     There is an optional attribute which is meant to define how the
     quadrilateral may curve into a third dimension, but this has not
@@ -436,8 +436,8 @@ class Hex:
     faces are made up of the edges of these quads at s=0 and s=1 and
     are normal to the x3-direction.
 
-    ToDo
-    ----
+    Caution
+    -------
     This requires more extensive testing.
 
     """
@@ -680,8 +680,8 @@ class GenericMesh(Generic[E, B]):
     nonconformal interfaces, each offset by a certain ammount along
     the x3-direction.
 
-    Caution
-    -------
+    Note
+    ----
     This class is generic in both the element and boundary types, but
     only certain combinations of these make sense in practice: `Quad`
     elements and `Curve` boundaries; or `Hex` elements and `Quad`
