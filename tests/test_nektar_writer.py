@@ -124,7 +124,9 @@ def test_nektar_point(coord: Coord, i: int) -> None:
 
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(
-    lists(from_type(Coord), min_size=2, max_size=2, unique=True).filter(lambda x: x[0].to_cartesian() != x[1].to_cartesian()),
+    lists(from_type(Coord), min_size=2, max_size=2, unique=True).filter(
+        lambda x: x[0].to_cartesian() != x[1].to_cartesian()
+    ),
     lists(integers(), min_size=2, max_size=2, unique=True),
 )
 def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
@@ -375,7 +377,10 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
     booleans(),
 )
 def test_nektar_mesh(
-        elements: nektar_writer.NektarElements, order: int, write_movement: bool, periodic: bool
+    elements: nektar_writer.NektarElements,
+    order: int,
+    write_movement: bool,
+    periodic: bool,
 ) -> None:
     def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
         return filter(
@@ -485,9 +490,18 @@ def test_nektar_mesh(
         expected_near_composites = comparable_composites(elements.near_faces())
         expected_far_composites = comparable_composites(elements.far_faces())
     else:
-        expected_near_composites = comparable_composites(itertools.islice(elements.near_faces(), 1, None))
-        expected_far_composites = comparable_composites(itertools.islice(elements.far_faces(), n_layers - 1))
-    expected_bound_composites = comparable_composites(elements.bounds()) | frozenset({comparable_composite(elements._layers[0].near_face), comparable_composite(elements._layers[-1].far_face)})
+        expected_near_composites = comparable_composites(
+            itertools.islice(elements.near_faces(), 1, None)
+        )
+        expected_far_composites = comparable_composites(
+            itertools.islice(elements.far_faces(), n_layers - 1)
+        )
+    expected_bound_composites = comparable_composites(elements.bounds()) | frozenset(
+        {
+            comparable_composite(elements._layers[0].near_face),
+            comparable_composite(elements._layers[-1].far_face),
+        }
+    )
     assert (
         expected_layer_composites
         | expected_near_composites

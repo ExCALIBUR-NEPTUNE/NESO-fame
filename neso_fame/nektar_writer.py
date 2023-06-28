@@ -30,6 +30,7 @@ class NektarLayerCommon:
     to both 2D and 3D meshes.
 
     """
+
     points: frozenset[SD.PointGeom]
     segments: frozenset[SD.SegGeom]
     layer: SD.Composite
@@ -43,6 +44,7 @@ class NektarLayer2D(NektarLayerCommon):
     a 2D mesh.
 
     """
+
     elements: frozenset[SD.Geometry2D]
     bounds: Sequence[frozenset[SD.SegGeom]]
 
@@ -53,6 +55,7 @@ class NektarLayer3D(NektarLayerCommon):
     a 3D mesh.
 
     """
+
     faces: frozenset[SD.Geometry2D]
     elements: frozenset[SD.Geometry3D]
     bounds: Sequence[frozenset[SD.Geometry2D]]
@@ -67,17 +70,15 @@ class NektarElements:
     not yet assembled into a MeshGraph objects.
 
     """
+
     _layers: list[NektarLayer]
 
     def points(self) -> Iterator[SD.PointGeom]:
-        """Iterate over all of the PointGeom objects in the mesh.
-
-        """
+        """Iterate over all of the PointGeom objects in the mesh."""
         return itertools.chain.from_iterable(map(attrgetter("points"), self._layers))
 
     def segments(self) -> Iterator[SD.SegGeom]:
-        """Iterate over all of the SegGeom objects in the mesh.
-        """
+        """Iterate over all of the SegGeom objects in the mesh."""
         return itertools.chain.from_iterable(map(attrgetter("segments"), self._layers))
 
     def faces(self) -> Iterator[SD.Geometry2D]:
@@ -93,9 +94,7 @@ class NektarElements:
         )
 
     def elements(self) -> Iterator[SD.Geometry2D] | Iterator[SD.Geometry3D]:
-        """Iterate over all of the elements in the mesh.
-        
-        """
+        """Iterate over all of the elements in the mesh."""
         return itertools.chain.from_iterable(map(attrgetter("elements"), self._layers))
 
     def layers(self) -> Iterator[SD.Composite]:
@@ -106,9 +105,7 @@ class NektarElements:
         return map(attrgetter("layer"), self._layers)
 
     def num_layers(self) -> int:
-        """Returns the number of layers present in the mesh.
-
-        """
+        """Returns the number of layers present in the mesh."""
         return len(self._layers)
 
     def near_faces(self) -> Iterator[SD.Composite]:
@@ -277,9 +274,7 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     near_face = SD.Composite(
         [nektar_edge(f, 1, layer_id)[0] for f in layer.near_faces()]
     )
-    far_face = SD.Composite(
-        [nektar_edge(f, 1, layer_id)[0] for f in layer.far_faces()]
-    )
+    far_face = SD.Composite([nektar_edge(f, 1, layer_id)[0] for f in layer.far_faces()])
     bounds = list(
         map(
             lambda x: frozenset(map(lambda y: nektar_edge(y, 1, layer_id)[0], x)),
@@ -311,16 +306,18 @@ def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
 
 
 def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:
-    """Creates Nektar++ CompositeMap objects containing a single composite.
-
-    """
+    """Creates Nektar++ CompositeMap objects containing a single composite."""
     comp_map = SD.CompositeMap()
     comp_map[comp_id] = composite
     return comp_map
 
 
 def nektar_mesh(
-    elements: NektarElements, mesh_dim: int, spatial_dim: int, write_movement=True, periodic_interfaces=True
+    elements: NektarElements,
+    mesh_dim: int,
+    spatial_dim: int,
+    write_movement=True,
+    periodic_interfaces=True,
 ) -> SD.MeshGraphXml:
     """Creates a Nektar++ MeshGraphXml object from a collection of
     Nektar++ geometry objects.
@@ -430,7 +427,7 @@ def nektar_mesh(
     for i, ((j, near), (k, far)) in enumerate(zip(near_faces, far_faces)):
         composites[j] = near
         composites[k] = far
-        if write_movement and (i != n-1 or periodic_interfaces):
+        if write_movement and (i != n - 1 or periodic_interfaces):
             near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
             far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
@@ -441,7 +438,11 @@ def nektar_mesh(
 
 
 def write_nektar(
-    mesh: QuadMesh, order: int, filename: str, write_movement=True, periodic_interfaces=True
+    mesh: QuadMesh,
+    order: int,
+    filename: str,
+    write_movement=True,
+    periodic_interfaces=True,
 ) -> None:
     """Create a Nektar++ MeshGraph object from your mesh and write it
     to the disk.

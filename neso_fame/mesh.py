@@ -27,8 +27,8 @@ from scipy.interpolate import interp1d
 
 
 class CoordinateSystem(Enum):
-    """Represent the type of coordinate system being used.
-    """
+    """Represent the type of coordinate system being used."""
+
     Cartesian = 0
     Cylindrical = 1
     Cartesian2D = 2
@@ -56,14 +56,13 @@ class SliceCoord:
     analogous).
 
     """
+
     x1: float
     x2: float
     system: CoordinateSystem
 
     def __iter__(self) -> Iterator[float]:
-        """Iterate over the coordinates of the point.
-
-        """
+        """Iterate over the coordinates of the point."""
         yield self.x1
         yield self.x2
 
@@ -74,13 +73,13 @@ class SliceCoords:
     analogous).
 
     """
+
     x1: npt.NDArray
     x2: npt.NDArray
     system: CoordinateSystem
 
     def iter_points(self) -> Iterator[SliceCoord]:
-        """Iterate over the points held in this object.
-        """
+        """Iterate over the points held in this object."""
         for x1, x2 in cast(
             Iterator[tuple[float, float]],
             zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))),
@@ -88,40 +87,31 @@ class SliceCoords:
             yield SliceCoord(x1, x2, self.system)
 
     def __iter__(self) -> Iterator[npt.NDArray]:
-        """Iterate over the coordinates of the points.
-
-        """
+        """Iterate over the coordinates of the points."""
         for array in np.broadcast_arrays(self.x1, self.x2):
             yield array
 
     def __len__(self) -> int:
-        """Returns the number of points contained in the object.
-
-        """
+        """Returns the number of points contained in the object."""
         return np.broadcast(self.x1, self.x2).size
 
     def __getitem__(self, idx) -> SliceCoord:
-        """Return an individual point from the collection.
-        
-        """
+        """Return an individual point from the collection."""
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
 
 @dataclass(frozen=True)
 class Coord:
-    """Represents a point in 3D space.
-    
-    """
+    """Represents a point in 3D space."""
+
     x1: float
     x2: float
     x3: float
     system: CoordinateSystem
 
     def to_cartesian(self) -> "Coord":
-        """Convert the point to Cartesian coordinates.
-
-        """
+        """Convert the point to Cartesian coordinates."""
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](*self)
         return Coord(
             x1,
@@ -131,9 +121,7 @@ class Coord:
         )
 
     def __iter__(self) -> Iterator[float]:
-        """Iterate over the individual coordinates of the point.
-
-        """
+        """Iterate over the individual coordinates of the point."""
         yield self.x1
         yield self.x2
         yield self.x3
@@ -141,16 +129,15 @@ class Coord:
 
 @dataclass
 class Coords:
-    """Represents a collection of points in 3D space.
-    """
+    """Represents a collection of points in 3D space."""
+
     x1: npt.NDArray
     x2: npt.NDArray
     x3: npt.NDArray
     system: CoordinateSystem
 
     def iter_points(self) -> Iterator[Coord]:
-        """Iterate over the points held in this object.
-        """
+        """Iterate over the points held in this object."""
         for x1, x2, x3 in cast(
             Iterator[tuple[float, float, float]],
             zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))),
@@ -158,15 +145,11 @@ class Coords:
             yield Coord(float(x1), float(x2), float(x3), self.system)
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords":
-        """Changes the x3 coordinate by the specified ammount.
-
-        """
+        """Changes the x3 coordinate by the specified ammount."""
         return Coords(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def to_cartesian(self) -> "Coords":
-        """Converts the points to be in Cartesian coordiantes.
-        
-        """
+        """Converts the points to be in Cartesian coordiantes."""
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](self.x1, self.x2, self.x3)
         return Coords(
             x1,
@@ -176,9 +159,7 @@ class Coords:
         )
 
     def __iter__(self) -> Iterator[npt.NDArray]:
-        """Iterate over the individual coordinates of the points.
-
-        """
+        """Iterate over the individual coordinates of the points."""
         for array in np.broadcast_arrays(self.x1, self.x2, self.x3):
             yield array
 
@@ -209,6 +190,7 @@ class ElementLike(Protocol):
     mesh components. Exists for internal type-checking.
 
     """
+
     def offset(self: T, offset: float) -> T:
         ...
 
@@ -225,6 +207,7 @@ class Curve:
     directly proportional to s.
 
     """
+
     function: NormalisedFieldLine
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
@@ -241,6 +224,7 @@ class Curve:
         """Returns an iterator of curves created by splitting this one
         up into equal-length segments.
         """
+
         def subdivision(
             func: NormalisedFieldLine, i: int, divs: int
         ) -> NormalisedFieldLine:
@@ -266,6 +250,7 @@ def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
     """Creates a function representing a straight line between the two
     specified points.
     """
+
     def _line(s: npt.ArrayLike) -> Coords:
         s = np.asarray(s)
         return Coords(
@@ -295,6 +280,7 @@ class Quad:
     sufficiently general to be useful, in any case.
 
     """
+
     north: Curve
     south: Curve
     in_plane: Optional[
@@ -304,8 +290,7 @@ class Quad:
     NUM_CORNERS: ClassVar[int] = 4
 
     def __iter__(self) -> Iterable[Curve]:
-        """Iterate over the two curves defining the edges of the quadrilateral.
-        """
+        """Iterate over the two curves defining the edges of the quadrilateral."""
         yield self.north
         yield self.south
 
@@ -361,9 +346,7 @@ class Quad:
             return cls._cached_quad(curve2, curve1, in_plane, field)
 
     def corners(self) -> Coords:
-        """Returns the points corresponding to the corners of the quadrilateral.
-        
-        """
+        """Returns the points corresponding to the corners of the quadrilateral."""
         north_corners = self.north.control_points(1)
         south_corners = self.south.control_points(1)
         return Coords(
@@ -397,7 +380,7 @@ class Quad:
     def offset(self, offset: float) -> Quad:
         """Returns a quad which is identical except that it is shifted
         by the specified offset in the x3 direction.
-        
+
         """
         return Quad(
             self.north.offset(offset),
@@ -441,6 +424,7 @@ class Hex:
     This requires more extensive testing.
 
     """
+
     north: Quad
     south: Quad
     east: Quad
@@ -448,8 +432,7 @@ class Hex:
     NUM_CORNERS: ClassVar[int] = 8
 
     def __iter__(self) -> Iterable[Quad]:
-        """Iterate over the four quads defining the faces of the hexahedron.
-        """
+        """Iterate over the four quads defining the faces of the hexahedron."""
         yield self.north
         yield self.east
         yield self.south
@@ -511,7 +494,7 @@ class Hex:
     def offset(self, offset: float) -> Hex:
         """Returns a hex which is identical except that it is shifted
         by the specified offset in the x3 direction.
-        
+
         """
         return Hex(
             self.north.offset(offset),
@@ -551,6 +534,7 @@ class MeshLayer(Generic[E, B]):
     there will be a non-conformal interface between each of them.
 
     """
+
     reference_elements: Sequence[E]
     bounds: Sequence[frozenset[B]]
     offset: Optional[float] = None
@@ -566,16 +550,12 @@ class MeshLayer(Generic[E, B]):
         )
 
     def __len__(self) -> int:
-        """Returns the number of elements in this layer.
-
-        """
+        """Returns the number of elements in this layer."""
         return len(self.reference_elements) * self.subdivisions
 
     @cached_property
     def element_type(self) -> Type[E]:
-        """Returns the type object for the elements of the mesh layer.
-
-        """
+        """Returns the type object for the elements of the mesh layer."""
         return type(next(iter(self.reference_elements)))
 
     def quads(self) -> Iterable[Quad]:
@@ -588,9 +568,7 @@ class MeshLayer(Generic[E, B]):
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
             return cast(Iterable[Quad], self)
         else:
-            return itertools.chain.from_iterable(
-                map(iter, cast(Iterable[Hex], self))
-            )
+            return itertools.chain.from_iterable(map(iter, cast(Iterable[Hex], self)))
 
     def boundaries(self) -> Iterator[frozenset[B]]:
         """Iterates over the boundary regions in this layer. This
@@ -690,6 +668,7 @@ class GenericMesh(Generic[E, B]):
     constrained to the valid combinations.
 
     """
+
     reference_layer: MeshLayer[E, B]
     offsets: npt.NDArray
 
@@ -709,15 +688,11 @@ class GenericMesh(Generic[E, B]):
         )
 
     def __iter__(self) -> Iterator[E]:
-        """Iterate through all of the elements contained in this mesh.
-
-        """
+        """Iterate through all of the elements contained in this mesh."""
         return itertools.chain.from_iterable(map(iter, self.layers()))
 
     def __len__(self) -> int:
-        """Returns the number of elements in this mesh.
-
-        """
+        """Returns the number of elements in this mesh."""
         return len(self.reference_layer) * self.offsets.size
 
 
