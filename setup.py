@@ -39,7 +39,6 @@ setuptools.setup(
         "scipy",
         "hypnotoad",
         "NekPy",
-        "vtk",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
