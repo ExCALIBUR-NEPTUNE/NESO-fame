@@ -12,8 +12,10 @@ You can try generating a simple 2D mesh by running::
    The python executable you call must be one that can find NekPy on
    the PYTHONPATH.
 
-This will create a nonconformal, field-aligned mesh. You can then
-convert the Nektar++ mesh file to the VTK format to make it suitable for visualisation::
+This will create a nonconformal mesh aligned to straight field lines
+angled at 2 degrees relative to the x-axis. You can then convert the
+Nektar++ mesh file to the VTK format to make it suitable for
+visualisation::
 
   FieldConvert test_geometry.xml test_geometry.vtu:vtu:highorder
 

@@ -1,5 +1,4 @@
 import numpy as np
-import numpy.typing as npt
 
 from neso_fame import (
     field_aligned_2d,
@@ -7,17 +6,19 @@ from neso_fame import (
     CoordinateSystem,
     write_nektar,
 )
-from neso_fame.fields import curved_field
+from neso_fame.fields import straight_field
 
 
-num_nodes = 10
+num_nodes = 11
 m = field_aligned_2d(
     SliceCoords(
-        np.linspace(0, 1, num_nodes), np.zeros(num_nodes), CoordinateSystem.Cartesian
+        np.linspace(-100.0, 0.0, num_nodes),
+        np.zeros(num_nodes),
+        CoordinateSystem.Cartesian2D,
     ),
-    # straight_field(np.pi/6),
-    curved_field(0.2),
-    (0.0, 0.5 * np.pi),
-    10,
+    straight_field(np.pi / 90),
+    (0.0, 100.0),
+    num_nodes - 1,
+    subdivisions=1,
 )
 write_nektar(m, 2, "test_geometry.xml")

@@ -1,5 +1,4 @@
 import numpy as np
-import numpy.typing as npt
 
 from neso_fame import (
     field_aligned_2d,
@@ -10,14 +9,16 @@ from neso_fame import (
 from neso_fame.fields import straight_field
 
 
-num_nodes = 4
+num_nodes = 11
 m = field_aligned_2d(
     SliceCoords(
-        np.linspace(0, 1, num_nodes), np.zeros(num_nodes), CoordinateSystem.Cartesian
+        np.linspace(-1e2, 0, num_nodes),
+        np.zeros(num_nodes),
+        CoordinateSystem.Cartesian2D,
     ),
-    straight_field(0.0),
-    (0.0, 0.5 * np.pi),
+    straight_field(np.pi / 90),
+    (0.0, 100.0),
     1,
-    subdivisions=4,
+    subdivisions=num_nodes - 1,
 )
-write_nektar(m, 2, "test_conformal_geometry.xml", False)
+write_nektar(m, 1, "test_conformal_geometry.xml", False)
