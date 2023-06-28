@@ -344,16 +344,15 @@ def nektar_mesh(
 
     Danger
     ------
-    .. warning::
-        Be very careful if calling this function more than once in the
-        same session. The IDs of the geometry objects are only set
-        when creating the MeshGraph in this function and calling it a
-        second time with some of the same elements could result in the
-        ID being changed. You must take particular care because
-        geometry elements are cached. Always write out (or otherwise
-        finish with) a MeshGraph object before calling this method
-        again. The safest way to do this is not to call this function
-        direclty but instead use `write_nektar`.
+    Be very careful if calling this function more than once in the
+    same session. The IDs of the geometry objects are only set
+    when creating the MeshGraph in this function and calling it a
+    second time with some of the same elements could result in the
+    ID being changed. You must take particular care because
+    geometry elements are cached. Always write out (or otherwise
+    finish with) a MeshGraph object before calling this method
+    again. The safest way to do this is not to call this function
+    direclty but instead use `write_nektar`.
 
     """
     meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)

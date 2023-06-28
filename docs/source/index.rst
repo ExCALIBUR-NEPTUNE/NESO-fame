@@ -6,6 +6,10 @@
 Welcome to NESO-fame's documentation!
 =====================================
 
+The Field-Aligned Mesh Extrusion (fame) tool generates meshes for
+Tokamaks with elements aligned with magnetic field lines. Currently
+this work is highly experimental.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
