@@ -568,7 +568,9 @@ class MeshLayer(Generic[E, B]):
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
             return iter(self)
         else:
-            return itertools.chain.from_iterable(map(iter, cast(MeshLayer[Hex, Quad], self)))
+            return itertools.chain.from_iterable(
+                map(iter, cast(MeshLayer[Hex, Quad], self))
+            )
 
     def boundaries(self) -> Iterator[frozenset[B]]:
         """Iterates over the boundary regions in this layer. This
