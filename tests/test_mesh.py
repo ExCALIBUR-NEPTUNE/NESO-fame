@@ -782,7 +782,7 @@ def test_mesh_layer_far_faces(
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
     element_corners = frozenset(
-        itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
+        itertools.chain.from_iterable(map(lambda x: get_corners(x).iter_points(), layer))
     )
     near_face_corners = frozenset(
         itertools.chain.from_iterable(

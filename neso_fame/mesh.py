@@ -46,7 +46,7 @@ COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
         x1 * np.sin(x3),
         x2,
     ),
-    CoordinateSystem.Cartesian2D: lambda x1, _, x3: (x3, -x1, 0.0),
+    CoordinateSystem.Cartesian2D: lambda x1, _, x3: (x3, -x1, np.asarray(0.0)),
 }
 
 
@@ -114,9 +114,9 @@ class Coord:
         """Convert the point to Cartesian coordinates."""
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](*self)
         return Coord(
-            x1,
-            x2,
-            x3,
+            float(x1),
+            float(x2),
+            float(x3),
             CoordinateSystem.Cartesian,
         )
 
@@ -289,7 +289,7 @@ class Quad:
     field: FieldTrace
     NUM_CORNERS: ClassVar[int] = 4
 
-    def __iter__(self) -> Iterable[Curve]:
+    def __iter__(self) -> Iterator[Curve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
         yield self.north
         yield self.south
@@ -431,7 +431,7 @@ class Hex:
     west: Quad
     NUM_CORNERS: ClassVar[int] = 8
 
-    def __iter__(self) -> Iterable[Quad]:
+    def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
         yield self.north
         yield self.east
@@ -558,7 +558,7 @@ class MeshLayer(Generic[E, B]):
         """Returns the type object for the elements of the mesh layer."""
         return type(next(iter(self.reference_elements)))
 
-    def quads(self) -> Iterable[Quad]:
+    def quads(self) -> Iterator[Quad]:
         """Iterates over teh `Quad` objects in the mesh. If the mesh
         is made up of quads then this is the same as iterating over
         the elements. Otherwise, it iterates over the quads defining
@@ -566,9 +566,9 @@ class MeshLayer(Generic[E, B]):
 
         """
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
-            return cast(Iterable[Quad], self)
+            return iter(self)
         else:
-            return itertools.chain.from_iterable(map(iter, cast(Iterable[Hex], self)))
+            return itertools.chain.from_iterable(map(iter, cast(MeshLayer[Hex, Quad], self)))
 
     def boundaries(self) -> Iterator[frozenset[B]]:
         """Iterates over the boundary regions in this layer. This

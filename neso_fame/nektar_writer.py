@@ -420,7 +420,7 @@ def nektar_mesh(
 
     n = elements.num_layers()
 
-    near_faces = enumerate(elements.near_faces(), n)
+    near_faces: Iterator[tuple[int, SD.Composite]] = enumerate(elements.near_faces(), n)
     first_near = next(near_faces)
     near_faces = itertools.chain(near_faces, [first_near])
     far_faces = enumerate(elements.far_faces(), 2 * n)

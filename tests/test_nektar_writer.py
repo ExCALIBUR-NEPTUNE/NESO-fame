@@ -64,7 +64,8 @@ def comparable_coord(c: Coord) -> ComparablePoint:
 
 
 def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
-    return tuple(round(p, 8) for p in geom.GetCoordinates())
+    coords = geom.GetCoordinates()
+    return (round(coords[0], 8), round(coords[1], 8), round(coords[2], 8))
 
 
 def comparable_curve(curve: Curve, order: int) -> ComparableGeometry:

@@ -3,9 +3,8 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 mypy_path = ["./typings"]
-modules = ["example_mesh"]
+modules = ["example_mesh", "example_conformal"]
 packages = ["neso_fame", "tests"]
-warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
 module = ["scipy.*"]
