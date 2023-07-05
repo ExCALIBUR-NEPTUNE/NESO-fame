@@ -22,7 +22,6 @@ from NekPy import SpatialDomains as SD
 import numpy as np
 from pytest import approx, mark
 
-#from . import mesh_strategies
 from .conftest import linear_field_line, non_nans
 from neso_fame import nektar_writer
 from neso_fame.fields import straight_field
