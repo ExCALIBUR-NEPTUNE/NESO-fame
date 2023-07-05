@@ -1,6 +1,6 @@
 # Perform some basic linting to for syntax errors and undefined names, then run the test suite.
 
-name: Python package
+name: Unit and integration tests
 
 on:
   push:
@@ -31,4 +31,4 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
     - name: Test with pytest
       run: |
-        pytest
+        pytest --hypothesis-profile ci
