@@ -17,7 +17,7 @@ import pytest
 
 from neso_fame import mesh
 
-from .mesh_strategies import (
+from .conftest import (
     non_nans,
     coordinate_systems,
     linear_field_trace,
@@ -28,7 +28,6 @@ from .mesh_strategies import (
     quad_mesh_layer_no_divisions,
     whole_numbers,
 )
-from tests import mesh_strategies
 
 
 @given(non_nans(), non_nans(), coordinate_systems)

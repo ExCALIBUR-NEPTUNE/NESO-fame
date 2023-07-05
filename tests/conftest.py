@@ -1,5 +1,6 @@
 import itertools
 
+from hypothesis import settings, Verbosity
 from hypothesis.extra.numpy import (
     array_shapes,
     arrays,
@@ -25,6 +26,10 @@ import numpy as np
 import numpy.typing as npt
 
 from neso_fame import mesh
+
+settings.register_profile("ci", max_examples=400, deadline=None)
+settings.register_profile("debug", max_examples=10, verbosity=Verbosity.verbose, report_multiple_bugs=False)
+settings.register_profile("dev", max_examples=10)
 
 non_nans = lambda: floats(allow_nan=False)
 arbitrary_arrays = lambda: arrays(floating_dtypes(), array_shapes())

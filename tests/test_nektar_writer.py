@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Callable, cast, Iterator, Type, TypeVar, TypeGuard, Union
 import xml.etree.ElementTree as ET
 
-from hypothesis import given, settings
+from hypothesis import given, settings, reproduce_failure
 from hypothesis.strategies import (
     booleans,
     builds,
@@ -22,7 +22,8 @@ from NekPy import SpatialDomains as SD
 import numpy as np
 from pytest import approx, mark
 
-from . import mesh_strategies
+#from . import mesh_strategies
+from .conftest import linear_field_line, non_nans
 from neso_fame import nektar_writer
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
@@ -149,7 +150,7 @@ def test_nektar_curve(curve: Curve, order: int, layer: int) -> None:
 
 def test_circular_nektar_curve() -> None:
     curve = Curve(
-        mesh_strategies.linear_field_line(
+        linear_field_line(
             0.0, 0.2, np.pi, 1.0, 0.0, np.pi / 2, CoordinateSystem.Cylindrical
         )
     )
@@ -344,9 +345,9 @@ def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
             SD.PointGeom,
             just(2),
             integers(-256, 256),
-            mesh_strategies.non_nans(),
-            mesh_strategies.non_nans(),
-            mesh_strategies.non_nans(),
+            non_nans(),
+            non_nans(),
+            non_nans(),
         ),
         max_size=5,
     ).map(lambda points: SD.Composite(cast(list[SD.Geometry], points))),
@@ -716,6 +717,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert cast(str, right.get("BOUNDARY")).strip() == f"C[{east_comp}]"
 
 
+@settings(deadline=None)
 @given(from_type(GenericMesh), integers(2, 4))
 def test_write_nektar_curves(mesh: GenericMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:

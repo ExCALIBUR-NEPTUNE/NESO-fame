@@ -1,4 +1,3 @@
-from operator import methodcaller
 import numpy as np
 
 from neso_fame import generators
