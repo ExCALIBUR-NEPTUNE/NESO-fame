@@ -15,15 +15,16 @@ jobs:
     strategy:
       fail-fast: false
     container:
-      image: cmacmackin/neso-fame:latest
+      image: cmacmackin/nekpy:latest
     steps:
     - uses: actions/checkout@v3
     - name: Update PATH
       run: echo "/opt/view/bin" >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
+        python3 -m pip install --upgrade pip
+        python3 -m pip install flake8 pytest hypothesis
+        python3 -m pip install .
     - name: Check for syntax and undefined names
       run: |
         # stop the build if there are Python syntax errors or undefined names
