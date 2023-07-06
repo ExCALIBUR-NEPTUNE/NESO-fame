@@ -108,6 +108,10 @@ def field_aligned_2d(
     QuadMesh
         A 2D field-aligned, non-conformal grid
 
+    Group
+    -----
+    generator
+
     """
     num_nodes = len(lower_dim_mesh)
 

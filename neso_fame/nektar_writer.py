@@ -43,6 +43,10 @@ class NektarLayer2D(NektarLayerCommon):
     """Represents the Nektar++ objects present in a single layer of
     a 2D mesh.
 
+    Group
+    -----
+    collection
+
     """
 
     elements: frozenset[SD.Geometry2D]
@@ -53,6 +57,10 @@ class NektarLayer2D(NektarLayerCommon):
 class NektarLayer3D(NektarLayerCommon):
     """Represents the Nektar++ objects present in a single layer of
     a 3D mesh.
+
+    Group
+    -----
+    collection
 
     """
 
@@ -68,6 +76,10 @@ NektarLayer = NektarLayer2D | NektarLayer3D
 class NektarElements:
     """Represents all of the Nektar++ objects that make up a mesh, but
     not yet assembled into a MeshGraph objects.
+
+    Group
+    -----
+    collection
 
     """
 
@@ -153,6 +165,9 @@ def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
     in the given layer. Caching is used to ensure that, given the same
     location and layer, the object will always be the same.
 
+    Group
+    -----
+    factory
     """
     pos = position.to_cartesian()
     return _nektar_point(round(pos.x1, 8), round(pos.x2, 8), round(pos.x3, 8), layer_id)
@@ -178,6 +193,9 @@ def nektar_curve(
     done based on the locations of the control points of the curve,
     rather than the identity of the function defining the curve.
 
+    Group
+    -----
+    factory
     """
     points = tuple(
         nektar_point(coord, layer_id)
@@ -205,6 +223,9 @@ def nektar_edge(
     points of the curve, rather than the identity of the function
     defining the curve.
 
+    Group
+    -----
+    factory
     """
     if order > 1:
         nek_curve, termini = nektar_curve(curve, order, layer_id)
@@ -230,6 +251,9 @@ def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements
     same objects. Caching is done based on the location of the control
     points of the quad argument, not the identity of the quad object.
 
+    Group
+    -----
+    factory
     """
     if quad.in_plane is not None:
         raise NotImplementedError("Not yet dealing with Quads as faces.")
@@ -261,6 +285,10 @@ def _combine_quad_items(
 def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
     """Creates Nektar++ objects needed to represent the given mesh
     layer to the given order.
+
+    Group
+    -----
+    factory
 
     """
     # FIXME: Currently inherantly 2D
@@ -296,6 +324,9 @@ def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
     """Creates a collection of Nektar++ objects representing the given
     mesh.
 
+    Group
+    -----
+    public nektar
     """
     return NektarElements(
         [
@@ -306,7 +337,13 @@ def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
 
 
 def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:
-    """Creates Nektar++ CompositeMap objects containing a single composite."""
+    """Creates Nektar++ CompositeMap objects containing a single composite.
+
+    Group
+    -----
+    factory
+
+    """
     comp_map = SD.CompositeMap()
     comp_map[comp_id] = composite
     return comp_map
@@ -350,6 +387,10 @@ def nektar_mesh(
     finish with) a MeshGraph object before calling this method
     again. The safest way to do this is not to call this function
     direclty but instead use `write_nektar`.
+
+    Group
+    -----
+    public nektar
 
     """
     meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)
@@ -463,6 +504,10 @@ def write_nektar(
         If write_movement is True, whether the last layer joins
         back up with the first, requiring an interface to be
         defined between the two.
+
+    Group
+    -----
+    public nektar
 
     """
     nek_elements = nektar_elements(mesh, order)

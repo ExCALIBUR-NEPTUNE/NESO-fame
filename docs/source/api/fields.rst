@@ -1,5 +1,6 @@
-Fields Module
-=============
+`fields` Module
+===============
 
-.. automodule:: neso_fame.fields
-   :members:
+.. py:module:: neso_fame.fields
+
+.. python-apigen-group:: field

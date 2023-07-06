@@ -16,7 +16,7 @@ this work is highly experimental.
 
    installation
    usage
-   api/index
+   api
 
 
 Indices and tables

@@ -1,5 +1,6 @@
-Generators Module
-=================
+`generators` Module
+===================
 
-.. automodule:: neso_fame.generators
-   :members:
+.. py:module:: neso_fame.generators
+
+.. python-apigen-group:: generator

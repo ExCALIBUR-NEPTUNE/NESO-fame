@@ -13,6 +13,8 @@
 import os
 import sys
 
+sys.path.insert(0, os.path.abspath('../..'))
+
 # -- Project information -----------------------------------------------------
 
 project = "NESO-fame"
@@ -25,7 +27,13 @@ author = "Chris MacMackin"
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.napoleon"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx_immaterial",
+    'sphinx.ext.intersphinx',
+    "sphinx_immaterial.apidoc.python.apigen",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -41,7 +49,12 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "alabaster"
+html_theme = "sphinx_immaterial"
+html_theme_options = {
+    "site_url": "https://ExCALIBUR-NEPTUNE.github.io/NESO-fame/",
+    "repo_url": "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame",
+    "edit_uri": "blob/main/docs/source/",
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -53,5 +66,154 @@ autodoc_mock_imports = [
     "scipy",
     "NekPy",
 ]
-autodoc_typehints = "description"
-autoclass_content = "both"
+autodoc_type_aliases = {
+    'NormalisedFieldLine': 'neso_fame.mesh.NormalisedFieldLine',
+    'FieldTrace': 'neso_fame.mesh.NormalisedFieldLine',
+}
+
+#autodoc_typehints = "description"
+#autoclass_content = "class"
+
+# Define a custom inline Python syntax highlighting literal
+rst_prolog = """
+.. role:: python(code)
+   :language: python
+   :class: highlight
+"""
+
+# Sets the default role of `content` to :python:`content`, which uses the custom Python syntax highlighting inline literal
+default_role = "python"
+
+html_title = "NESO-fame"
+
+# Sphinx Immaterial theme options
+html_theme_options = {
+    "icon": {
+        "repo": "fontawesome/brands/github",
+    },
+    "site_url": "https://ExCALIBUR-NEPTUNE.github.io/NESO-fame",
+    "repo_url": "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame",
+    "repo_name": "ExCALIBUR-NEPTUNE/NESO-fame",
+    "repo_type": "github",
+    "edit_uri": "",
+    "globaltoc_collapse": False,
+    "features": [
+        # "navigation.expand",
+        "navigation.tabs",
+        # "toc.integrate",
+        # "navigation.sections",
+        # "navigation.instant",
+        # "header.autohide",
+        "navigation.top",
+        "navigation.tracking",
+        "toc.follow",
+        "toc.sticky",
+        "content.tabs.link",
+        "announce.dismiss",
+    ],
+    "palette": [
+        {
+            "media": "(prefers-color-scheme: light)",
+            "scheme": "default",
+            "toggle": {
+                "icon": "material/weather-night",
+                "name": "Switch to dark mode",
+            },
+        },
+        {
+            "media": "(prefers-color-scheme: dark)",
+            "scheme": "slate",
+            "toggle": {
+                "icon": "material/weather-sunny",
+                "name": "Switch to light mode",
+            },
+        },
+    ],
+}
+
+html_last_updated_fmt = ""
+html_use_index = True
+html_domain_indices = True
+
+
+# -- Extension configuration -------------------------------------------------
+
+# Create hyperlinks to other documentation
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    # "numpy": ("https://numpy.org/doc/stable/", None),
+}
+
+autodoc_default_options = {
+    "imported-members": False,
+    "members": True,
+    # "special-members": True,
+    # "inherited-members": "ndarray",
+    # "member-order": "groupwise",
+}
+autodoc_typehints = "signature"
+autodoc_typehints_description_target = "documented"
+autodoc_typehints_format = "short"
+autodoc_type_aliases = {
+#    "npt.ArrayLike": "numpy.typing.ArrayLike",
+    "QuadMesh": "neso_fame.mesh.QuadMesh",
+    "HexMesh": "neso_fame.mesh.HexMesh",
+    "Mesh": "neso_fame.mesh.Mesh",
+    "FieldTrace": "neso_fame.mesh.FieldTrace",
+    "NormalisedFieldLine": "neso_fame.mesh.NormalisedFieldLine",
+}
+
+# FIXME: Need to improve display of ArrayLike
+# FIXME: Stop producing documentation for imported symbols
+# FIXME: Possibly tweak the way/order things appear in class pages
+# FIXME: Include documentation for type aliases?
+# FIXME: Add documentation for attributes and type aliases
+
+
+# -- Sphinx Immaterial configs -------------------------------------------------
+
+# Python apigen configuration
+python_apigen_modules = {
+    "neso_fame.mesh": "api/mesh/",
+    "neso_fame.fields": "api/fields/",
+    "neso_fame.generators": "api/generators/",
+    "neso_fame.nektar_writer": "api/nektar_writer/",
+}
+python_apigen_default_groups = [
+    ("class:.*", "Classes"),
+    ("data:.*", "Variables"),
+    ("function:.*", "Functions"),
+    ("classmethod:.*", "Class methods"),
+    ("method:.*", "Methods"),
+    (r"method:.*\.[A-Z][A-Za-z,_]*", "Constructors"),
+    (r"method:.*\.__[A-Za-z,_]*__", "Special methods"),
+    (r"method:.*\.__(init|new)__", "Constructors"),
+    (r"method:.*\.__(str|repr)__", "String representation"),
+    ("property:.*", "Properties"),
+    (r".*:.*\.is_[a-z,_]*", "Attributes"),
+]
+python_apigen_default_order = [
+    ("class:.*", 10),
+    ("data:.*", 11),
+    ("function:.*", 12),
+    ("classmethod:.*", 40),
+    ("method:.*", 50),
+    (r"method:.*\.[A-Z][A-Za-z,_]*", 20),
+    (r"method:.*\.__[A-Za-z,_]*__", 28),
+    (r"method:.*\.__(init|new)__", 20),
+    (r"method:.*\.__(str|repr)__", 30),
+    ("property:.*", 60),
+    (r".*:.*\.is_[a-z,_]*", 70),
+]
+python_apigen_order_tiebreaker = "alphabetical"
+python_apigen_case_insensitive_filesystem = False
+python_apigen_show_base_classes = True
+
+# Python domain directive configuration
+python_type_aliases = autodoc_type_aliases
+python_module_names_to_strip_from_xrefs = ["collections.abc"]
+
+# General API configuration
+object_description_options = [
+    ("py:.*", dict(include_rubrics_in_toc=True)),
+]

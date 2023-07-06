@@ -35,6 +35,10 @@ def straight_field(angle=0.0) -> "FieldTrace":
     slanted at `angle` above the direction of extrusion into the first
     coordinate direction.
 
+    Group
+    -----
+    field
+
     """
 
     def trace(
@@ -63,6 +67,11 @@ def curved_field(weight=0.0) -> "FieldTrace":
     Warning
     -------
     The distance calculation for this is wrong.
+
+    Group
+    -----
+    field
+
     """
 
     def trace(

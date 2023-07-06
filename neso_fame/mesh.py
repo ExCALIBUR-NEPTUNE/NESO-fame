@@ -27,7 +27,13 @@ from scipy.interpolate import interp1d
 
 
 class CoordinateSystem(Enum):
-    """Represent the type of coordinate system being used."""
+    """Represent the type of coordinate system being used.
+
+    Group
+    -----
+    coordinates
+
+    """
 
     Cartesian = 0
     Cylindrical = 1
@@ -55,6 +61,10 @@ class SliceCoord:
     """Representation of a point in a poloidal slice (or
     analogous).
 
+    Group
+    -----
+    coordinates
+
     """
 
     x1: float
@@ -71,6 +81,10 @@ class SliceCoord:
 class SliceCoords:
     """Representation of a collection of points in a poloidal slice (or
     analogous).
+
+    Group
+    -----
+    coordinates
 
     """
 
@@ -103,7 +117,13 @@ class SliceCoords:
 
 @dataclass(frozen=True)
 class Coord:
-    """Represents a point in 3D space."""
+    """Represents a point in 3D space.
+
+    Group
+    -----
+    coordinates
+    
+    """
 
     x1: float
     x2: float
@@ -129,7 +149,13 @@ class Coord:
 
 @dataclass
 class Coords:
-    """Represents a collection of points in 3D space."""
+    """Represents a collection of points in 3D space.
+
+    Group
+    -----
+    coordinates
+
+    """
 
     x1: npt.NDArray
     x2: npt.NDArray
@@ -206,6 +232,10 @@ class Curve:
     along the curve from the start to the position represented by s is
     directly proportional to s.
 
+    Group
+    -----
+    elements
+
     """
 
     function: NormalisedFieldLine
@@ -278,6 +308,10 @@ class Quad:
     quadrilateral may curve into a third dimension, but this has not
     yet been used in the implementation. It probably will not be
     sufficiently general to be useful, in any case.
+
+    Group
+    -----
+    elements
 
     """
 
@@ -423,6 +457,10 @@ class Hex:
     -------
     This requires more extensive testing.
 
+    Group
+    -----
+    elements
+
     """
 
     north: Quad
@@ -532,6 +570,10 @@ class MeshLayer(Generic[E, B]):
     region of the mesh where the elements are conformal and aligned
     with the magnetic field. A mesh may contain multiple layers, but
     there will be a non-conformal interface between each of them.
+
+    Group
+    -----
+    mesh
 
     """
 
@@ -669,6 +711,10 @@ class GenericMesh(Generic[E, B]):
     use `QuadMesh`, `HexMesh`, or `Mesh` instead, as these are
     constrained to the valid combinations.
 
+    Group
+    -----
+    mesh
+
     """
 
     reference_layer: MeshLayer[E, B]
@@ -737,6 +783,10 @@ def normalise_field_line(
     resolution
         The number of locations used along the field line used to
         interpolate distances.
+
+    Group
+    -----
+    field line
 
     """
     x3 = np.linspace(x3_min, x3_max, resolution)
