@@ -71,19 +71,6 @@ autodoc_type_aliases = {
     'FieldTrace': 'neso_fame.mesh.NormalisedFieldLine',
 }
 
-#autodoc_typehints = "description"
-#autoclass_content = "class"
-
-# Define a custom inline Python syntax highlighting literal
-rst_prolog = """
-.. role:: python(code)
-   :language: python
-   :class: highlight
-"""
-
-# Sets the default role of `content` to :python:`content`, which uses the custom Python syntax highlighting inline literal
-default_role = "python"
-
 html_title = "NESO-fame"
 
 # Sphinx Immaterial theme options
@@ -94,8 +81,7 @@ html_theme_options = {
     "site_url": "https://ExCALIBUR-NEPTUNE.github.io/NESO-fame",
     "repo_url": "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame",
     "repo_name": "ExCALIBUR-NEPTUNE/NESO-fame",
-    "repo_type": "github",
-    "edit_uri": "",
+    "edit_uri": "blob/main/docs/source",
     "globaltoc_collapse": False,
     "features": [
         # "navigation.expand",
@@ -144,27 +130,19 @@ intersphinx_mapping = {
     # "numpy": ("https://numpy.org/doc/stable/", None),
 }
 
-autodoc_default_options = {
-    "imported-members": False,
-    "members": True,
-    # "special-members": True,
-    # "inherited-members": "ndarray",
-    # "member-order": "groupwise",
-}
 autodoc_typehints = "signature"
 autodoc_typehints_description_target = "documented"
-autodoc_typehints_format = "short"
+#autodoc_typehints_format = "short"
 autodoc_type_aliases = {
 #    "npt.ArrayLike": "numpy.typing.ArrayLike",
-    "QuadMesh": "neso_fame.mesh.QuadMesh",
-    "HexMesh": "neso_fame.mesh.HexMesh",
-    "Mesh": "neso_fame.mesh.Mesh",
+    # "QuadMesh": "neso_fame.mesh.QuadMesh",
+    # "HexMesh": "neso_fame.mesh.HexMesh",
+    # "Mesh": "neso_fame.mesh.Mesh",
     "FieldTrace": "neso_fame.mesh.FieldTrace",
     "NormalisedFieldLine": "neso_fame.mesh.NormalisedFieldLine",
 }
 
 # FIXME: Need to improve display of ArrayLike
-# FIXME: Stop producing documentation for imported symbols
 # FIXME: Possibly tweak the way/order things appear in class pages
 # FIXME: Include documentation for type aliases?
 # FIXME: Add documentation for attributes and type aliases
@@ -188,7 +166,6 @@ python_apigen_default_groups = [
     (r"method:.*\.[A-Z][A-Za-z,_]*", "Constructors"),
     (r"method:.*\.__[A-Za-z,_]*__", "Special methods"),
     (r"method:.*\.__(init|new)__", "Constructors"),
-    (r"method:.*\.__(str|repr)__", "String representation"),
     ("property:.*", "Properties"),
     (r".*:.*\.is_[a-z,_]*", "Attributes"),
 ]
@@ -201,19 +178,48 @@ python_apigen_default_order = [
     (r"method:.*\.[A-Z][A-Za-z,_]*", 20),
     (r"method:.*\.__[A-Za-z,_]*__", 28),
     (r"method:.*\.__(init|new)__", 20),
-    (r"method:.*\.__(str|repr)__", 30),
     ("property:.*", 60),
     (r".*:.*\.is_[a-z,_]*", 70),
 ]
-python_apigen_order_tiebreaker = "alphabetical"
+#python_apigen_order_tiebreaker = "alphabetical"
 python_apigen_case_insensitive_filesystem = False
 python_apigen_show_base_classes = True
+python_transform_type_annotations_pep604 = True
 
 # Python domain directive configuration
 python_type_aliases = autodoc_type_aliases
-python_module_names_to_strip_from_xrefs = ["collections.abc"]
+python_module_names_to_strip_from_xrefs = ["collections.abc"] + list(python_apigen_modules)
 
 # General API configuration
 object_description_options = [
     ("py:.*", dict(include_rubrics_in_toc=True)),
 ]
+
+
+current_module = None
+filtered_methods = {"__setattr__", "__delattr__"}
+
+
+def autodoc_skip_member(app, what, name, obj, skip, options):
+    """
+    Instruct autodoc to skip imported members
+    """
+    global current_module
+    if name == "__name__":
+        current_module = obj
+
+    if skip:
+        # Continue skipping things Sphinx already wants to skip
+        return skip
+
+    if name in filtered_methods:
+        return True
+
+    if hasattr(obj, "__module__"):
+        return obj.__module__ != current_module
+
+    return skip
+
+
+def setup(app):
+    app.connect("autodoc-skip-member", autodoc_skip_member)

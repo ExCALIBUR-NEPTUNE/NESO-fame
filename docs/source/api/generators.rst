@@ -1,5 +1,5 @@
-`generators` Module
-===================
+'`generators'` Module
+=====================
 
 .. py:module:: neso_fame.generators
 

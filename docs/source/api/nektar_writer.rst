@@ -1,5 +1,5 @@
-`nektar_writer` Module
-======================
+``nektar_writer`` Module
+========================
 
 .. py:module:: neso_fame.nektar_writer
 

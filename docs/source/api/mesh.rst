@@ -1,5 +1,5 @@
-`mesh` Module
-=============
+``mesh`` Module
+===============
 
 .. py:module:: neso_fame.mesh
 

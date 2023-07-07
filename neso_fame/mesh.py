@@ -12,7 +12,6 @@ import itertools
 from typing import (
     Callable,
     cast,
-    ClassVar,
     Generic,
     Optional,
     overload,
@@ -211,7 +210,7 @@ NormalisedFieldLine = Callable[[npt.ArrayLike], Coords]
 T = TypeVar("T")
 
 
-class ElementLike(Protocol):
+class _ElementLike(Protocol):
     """Protocal defining the methods that can be used to manipulate
     mesh components. Exists for internal type-checking.
 
@@ -276,7 +275,7 @@ class Curve:
         return self.function(s)
 
 
-def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
+def _line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
     """Creates a function representing a straight line between the two
     specified points.
     """
@@ -321,7 +320,6 @@ class Quad:
         Curve
     ]  # FIXME: Don't think this is adequate to describe curved quads
     field: FieldTrace
-    NUM_CORNERS: ClassVar[int] = 4
 
     def __iter__(self) -> Iterator[Curve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
@@ -335,7 +333,7 @@ class Quad:
 
         """
         return Curve(
-            line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
+            _line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
         )
 
     @cached_property
@@ -345,7 +343,7 @@ class Quad:
 
         """
         return Curve(
-            line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
+            _line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
         )
 
     @classmethod
@@ -467,7 +465,6 @@ class Hex:
     south: Quad
     east: Quad
     west: Quad
-    NUM_CORNERS: ClassVar[int] = 8
 
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
@@ -484,12 +481,12 @@ class Hex:
 
         """
         north = Curve(
-            line_from_points(
+            _line_from_points(
                 self.north.north(0.0).to_coord(), self.north.south(0.0).to_coord()
             )
         )
         south = Curve(
-            line_from_points(
+            _line_from_points(
                 self.south.north(0.0).to_coord(), self.south.south(0.0).to_coord()
             )
         )
@@ -503,12 +500,12 @@ class Hex:
 
         """
         north = Curve(
-            line_from_points(
+            _line_from_points(
                 self.north.north(1.0).to_coord(), self.north.south(1.0).to_coord()
             )
         )
         south = Curve(
-            line_from_points(
+            _line_from_points(
                 self.south.north(1.0).to_coord(), self.south.south(1.0).to_coord()
             )
         )
@@ -674,8 +671,8 @@ class MeshLayer(Generic[E, B]):
 
     @staticmethod
     def _iterate_elements(
-        elements: Iterable[ElementLike], offset: Optional[float], subdivisions: int
-    ) -> Iterator[ElementLike]:
+        elements: Iterable[_ElementLike], offset: Optional[float], subdivisions: int
+    ) -> Iterator[_ElementLike]:
         """Convenience method used by other iteration methods. It
         handles offsets and subdivisions appropriately.
 

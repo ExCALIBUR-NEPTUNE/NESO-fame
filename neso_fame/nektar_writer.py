@@ -25,7 +25,7 @@ NektarQuadGeomElements = tuple[
 
 
 @dataclass(frozen=True)
-class NektarLayerCommon:
+class _NektarLayerCommon:
     """Base type for NektarLayer objects, containing attributes common
     to both 2D and 3D meshes.
 
@@ -39,7 +39,7 @@ class NektarLayerCommon:
 
 
 @dataclass(frozen=True)
-class NektarLayer2D(NektarLayerCommon):
+class NektarLayer2D(_NektarLayerCommon):
     """Represents the Nektar++ objects present in a single layer of
     a 2D mesh.
 
@@ -54,7 +54,7 @@ class NektarLayer2D(NektarLayerCommon):
 
 
 @dataclass(frozen=True)
-class NektarLayer3D(NektarLayerCommon):
+class NektarLayer3D(_NektarLayerCommon):
     """Represents the Nektar++ objects present in a single layer of
     a 3D mesh.
 

@@ -1,5 +1,5 @@
-`fields` Module
-===============
+``fields`` Module
+=================
 
 .. py:module:: neso_fame.fields
 

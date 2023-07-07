@@ -12,16 +12,15 @@ this work is highly experimental.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Tutorial
+   :hidden:
 
    installation
    usage
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference
+   :hidden:
+
    api
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
