@@ -35,6 +35,10 @@ def straight_field(angle=0.0) -> "FieldTrace":
     slanted at `angle` above the direction of extrusion into the first
     coordinate direction.
 
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.FieldTrace`
+
     Group
     -----
     field
@@ -67,6 +71,10 @@ def curved_field(weight=0.0) -> "FieldTrace":
     Warning
     -------
     The distance calculation for this is wrong.
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.FieldTrace`
 
     Group
     -----

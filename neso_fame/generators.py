@@ -105,7 +105,7 @@ def field_aligned_2d(
 
     Returns
     -------
-    QuadMesh
+    :obj:`~neso_fame.mesh.QuadMesh`
         A 2D field-aligned, non-conformal grid
 
     Group

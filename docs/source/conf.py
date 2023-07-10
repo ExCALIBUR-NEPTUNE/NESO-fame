@@ -61,16 +61,6 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-autodoc_mock_imports = [
-    "numpy",
-    "scipy",
-    "NekPy",
-]
-autodoc_type_aliases = {
-    'NormalisedFieldLine': 'neso_fame.mesh.NormalisedFieldLine',
-    'FieldTrace': 'neso_fame.mesh.NormalisedFieldLine',
-}
-
 html_title = "NESO-fame"
 
 # Sphinx Immaterial theme options
@@ -127,35 +117,34 @@ html_domain_indices = True
 # Create hyperlinks to other documentation
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    # "numpy": ("https://numpy.org/doc/stable/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
 }
 
 autodoc_typehints = "signature"
-autodoc_typehints_description_target = "documented"
+#autodoc_typehints_description_target = "documented"
 #autodoc_typehints_format = "short"
 autodoc_type_aliases = {
-#    "npt.ArrayLike": "numpy.typing.ArrayLike",
-    # "QuadMesh": "neso_fame.mesh.QuadMesh",
-    # "HexMesh": "neso_fame.mesh.HexMesh",
-    # "Mesh": "neso_fame.mesh.Mesh",
+    "np.typing.NDArray": "numpy.typing.NDArray",
+    "npt.NDArray": "numpy.typing.NDArray",
+    "npt.ArrayLike": "numpy.typing.ArrayLike",
+    "QuadMesh": "neso_fame.mesh.QuadMesh",
+    "HexMesh": "neso_fame.mesh.HexMesh",
+    "Mesh": "neso_fame.mesh.Mesh",
     "FieldTrace": "neso_fame.mesh.FieldTrace",
     "NormalisedFieldLine": "neso_fame.mesh.NormalisedFieldLine",
+    "NektarLayer": "neso_fame.nektar_writer.NektarLayer",
 }
 
 # FIXME: Need to improve display of ArrayLike
-# FIXME: Possibly tweak the way/order things appear in class pages
-# FIXME: Include documentation for type aliases?
-# FIXME: Add documentation for attributes and type aliases
-
 
 # -- Sphinx Immaterial configs -------------------------------------------------
 
 # Python apigen configuration
 python_apigen_modules = {
-    "neso_fame.mesh": "api/mesh/",
-    "neso_fame.fields": "api/fields/",
-    "neso_fame.generators": "api/generators/",
-    "neso_fame.nektar_writer": "api/nektar_writer/",
+    "neso_fame.mesh": "api/autogen/mesh/",
+    "neso_fame.fields": "api/autogen/fields/",
+    "neso_fame.generators": "api/autogen/generators/",
+    "neso_fame.nektar_writer": "api/autogen/nektar_writer/",
 }
 python_apigen_default_groups = [
     ("class:.*", "Classes"),
@@ -167,7 +156,6 @@ python_apigen_default_groups = [
     (r"method:.*\.__[A-Za-z,_]*__", "Special methods"),
     (r"method:.*\.__(init|new)__", "Constructors"),
     ("property:.*", "Properties"),
-    (r".*:.*\.is_[a-z,_]*", "Attributes"),
 ]
 python_apigen_default_order = [
     ("class:.*", 10),
@@ -179,16 +167,14 @@ python_apigen_default_order = [
     (r"method:.*\.__[A-Za-z,_]*__", 28),
     (r"method:.*\.__(init|new)__", 20),
     ("property:.*", 60),
-    (r".*:.*\.is_[a-z,_]*", 70),
 ]
-#python_apigen_order_tiebreaker = "alphabetical"
 python_apigen_case_insensitive_filesystem = False
 python_apigen_show_base_classes = True
 python_transform_type_annotations_pep604 = True
 
 # Python domain directive configuration
 python_type_aliases = autodoc_type_aliases
-python_module_names_to_strip_from_xrefs = ["collections.abc"] + list(python_apigen_modules)
+python_module_names_to_strip_from_xrefs = ["collections.abc", "NekPy.SpatialDomains._SpatialDomains"] + list(python_apigen_modules)
 
 # General API configuration
 object_description_options = [
@@ -197,7 +183,7 @@ object_description_options = [
 
 
 current_module = None
-filtered_methods = {"__setattr__", "__delattr__"}
+filtered_docs = {"__setattr__", "__delattr__", "Connectivity", "NektarQuadGeomElements"}
 
 
 def autodoc_skip_member(app, what, name, obj, skip, options):
@@ -212,8 +198,12 @@ def autodoc_skip_member(app, what, name, obj, skip, options):
         # Continue skipping things Sphinx already wants to skip
         return skip
 
-    if name in filtered_methods:
+    if name in filtered_docs:
         return True
+
+    if getattr(obj, "__name__", name) != name:
+        # Heuristic for type aliases
+        return False
 
     if hasattr(obj, "__module__"):
         return obj.__module__ != current_module
@@ -221,5 +211,29 @@ def autodoc_skip_member(app, what, name, obj, skip, options):
     return skip
 
 
+def autodoc_process_signature(app, what, name, obj, options, signature, return_annotation):
+    signature = modify_type_hints(signature)
+    return_annotation = modify_type_hints(return_annotation)
+    return signature, return_annotation
+
+
+def modify_type_hints(signature):
+    """
+    Fix shortening numpy type annotations in string annotations created with
+    `from __future__ import annotations` that Sphinx can't process before Python
+    3.10.
+
+    See https://github.com/jbms/sphinx-immaterial/issues/161
+    """
+    if signature:
+        # if "numpy" in signature or "np" in signature:
+        #     print(signature)
+        if "ndarray" in signature:
+            print(signature)
+        #signature = signature.replace("np", "~numpy")
+    return signature
+
+
 def setup(app):
     app.connect("autodoc-skip-member", autodoc_skip_member)
+    #app.connect("autodoc-process-signature", autodoc_process_signature)

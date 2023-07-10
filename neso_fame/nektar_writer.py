@@ -23,7 +23,6 @@ NektarQuadGeomElements = tuple[
     frozenset[SD.PointGeom],
 ]
 
-
 @dataclass(frozen=True)
 class _NektarLayerCommon:
     """Base type for NektarLayer objects, containing attributes common
@@ -32,10 +31,15 @@ class _NektarLayerCommon:
     """
 
     points: frozenset[SD.PointGeom]
+    """The Nektar++ point geometry objects contained in this layer."""
     segments: frozenset[SD.SegGeom]
+    """The Nektar++ segment geometry (edge) objects contained in this layer."""
     layer: SD.Composite
+    """The Nektar++ composite object representing this layer."""
     near_face: SD.Composite
+    """The Nektar++ composite object representing the near face of this layer."""
     far_face: SD.Composite
+    """The Nektar++ composite object representing the far face of this layer."""
 
 
 @dataclass(frozen=True)
@@ -50,7 +54,10 @@ class NektarLayer2D(_NektarLayerCommon):
     """
 
     elements: frozenset[SD.Geometry2D]
+    """The Nektar++ quad geometry elements for this layer."""
     bounds: Sequence[frozenset[SD.SegGeom]]
+    """An ordered sequence of sets of edges, where set represents a
+    particular boundary region."""
 
 
 @dataclass(frozen=True)
@@ -65,11 +72,24 @@ class NektarLayer3D(_NektarLayerCommon):
     """
 
     faces: frozenset[SD.Geometry2D]
+    """The Nektar++ quad geometry (face) objects contained in this layer."""
     elements: frozenset[SD.Geometry3D]
+    """The Nektar++ hex geometry elements for this layer"""
     bounds: Sequence[frozenset[SD.Geometry2D]]
+    """An ordered sequence of sets of faces, where set represents a
+    particular boundary region."""
 
 
 NektarLayer = NektarLayer2D | NektarLayer3D
+"""Type representing a layer of either a 2D or 3D Nektar++ mesh.
+
+Group
+-----
+collection
+
+
+.. rubric:: Alias
+"""
 
 
 @dataclass

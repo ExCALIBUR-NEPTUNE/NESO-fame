@@ -67,8 +67,11 @@ class SliceCoord:
     """
 
     x1: float
+    """Coordinate in first dimension"""
     x2: float
+    """Coordinate in second dimension"""
     system: CoordinateSystem
+    """The type of coordinates being used"""
 
     def __iter__(self) -> Iterator[float]:
         """Iterate over the coordinates of the point."""
@@ -88,8 +91,11 @@ class SliceCoords:
     """
 
     x1: npt.NDArray
+    """Coordinates in first dimension"""
     x2: npt.NDArray
+    """Coordinates in second dimension"""
     system: CoordinateSystem
+    """The type of coordinates being used"""
 
     def iter_points(self) -> Iterator[SliceCoord]:
         """Iterate over the points held in this object."""
@@ -125,9 +131,13 @@ class Coord:
     """
 
     x1: float
+    """Coordinate in first dimension"""
     x2: float
+    """Coordinate in second dimension"""
     x3: float
+    """Coordinate in third dimension"""
     system: CoordinateSystem
+    """The type of coordinates being used"""
 
     def to_cartesian(self) -> "Coord":
         """Convert the point to Cartesian coordinates."""
@@ -157,9 +167,13 @@ class Coords:
     """
 
     x1: npt.NDArray
+    """Coordinates in first dimension"""
     x2: npt.NDArray
+    """Coordinates in second dimension"""
     x3: npt.NDArray
+    """Coordinates in third dimension"""
     system: CoordinateSystem
+    """The type of coordinates being used"""
 
     def iter_points(self) -> Iterator[Coord]:
         """Iterate over the points held in this object."""
@@ -204,8 +218,53 @@ class Coords:
 
 
 FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]
-NormalisedFieldLine = Callable[[npt.ArrayLike], Coords]
+"""A function describing a field line.
 
+Group
+-----
+field line
+
+Parameters
+----------
+start : SliceCoord
+    The position of the field-line in the x1-x2 plane at x3 = 0.
+locations : :obj:`numpy.typing.ArrayLike`
+    x3 coordinates at which to calculate the position of the field line
+
+Returns
+-------
+tuple[:class:`~neso_fame.mesh.SliceCoord`, :obj:`numpy.typing.NDArray`]
+    The first element is the x1 and x2 coordinates of the field line at
+    the provided x3 positions. The second is an array with the distance
+    traveersed along the field line to those points.
+
+
+.. rubric:: Alias
+
+"""
+
+NormalisedFieldLine = Callable[[npt.ArrayLike], Coords]
+"""A function describing a segment of a field line.
+
+Parameters
+----------
+s : :obj:`numpy.typing.ArrayLike`
+    An argument between 0 and 1, where 0 corresponds to the start of the
+    field line and 1 to the end.
+
+Returns
+-------
+Coords
+    The locations on the field line. The distance of the point from the
+    start of the field line is directly proportional to ``s``.
+
+Group
+-----
+field line
+
+
+.. rubric:: Alias
+"""
 
 T = TypeVar("T")
 
@@ -225,11 +284,12 @@ class _ElementLike(Protocol):
 
 @dataclass(frozen=True)
 class Curve:
-    """Represents a curve in 3D space. A curve is defined by a
-    function which takes a single argument, 0 <= s <= 1, and returns
-    coordinates for the location on that curve in space. The distance
-    along the curve from the start to the position represented by s is
-    directly proportional to s.
+    """Represents a curve in 3D space.
+
+    A curve is defined by a function which takes a single argument, 0
+    <= s <= 1, and returns coordinates for the location on that curve
+    in space. The distance along the curve from the start to the
+    position represented by s is directly proportional to s.
 
     Group
     -----
@@ -238,9 +298,11 @@ class Curve:
     """
 
     function: NormalisedFieldLine
+    """The function defining the shape of this curve"""
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
-        """Convenience function so that a Curve is itself a NormalisedFieldLine"""
+        """Convenience function so that a Curve is itself a
+        :obj:`~neso_fame.mesh.NormalisedFieldLine`"""
         return self.function(s)
 
     def offset(self, offset: float) -> "Curve":
@@ -294,8 +356,9 @@ def _line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
 
 @dataclass(frozen=True)
 class Quad:
-    """Representation of a four-sided polygon (quadrilateral). It is
-    represented by two curves representing opposite edges. The
+    """Representation of a four-sided polygon (quadrilateral).
+
+    This is represented by two curves representing opposite edges. The
     remaining edges are created by connecting the corresponding
     termini of the bounding lines. It also contains information on the
     magnetic field along which the curves defining the figure were
@@ -315,11 +378,14 @@ class Quad:
     """
 
     north: Curve
+    """Curve defining one edge of the quadrilateral"""
     south: Curve
+    """Curve defining the other edge of the quadrilateral"""
     in_plane: Optional[
         Curve
     ]  # FIXME: Don't think this is adequate to describe curved quads
     field: FieldTrace
+    """The underlying magnetic field to which the quadrilateral is aligned"""
 
     def __iter__(self) -> Iterator[Curve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
@@ -446,10 +512,11 @@ class Quad:
 
 @dataclass(frozen=True)
 class Hex:
-    """Representation of a six-sided solid (hexahedron). It is
-    represented by four quads making up its faces. The remaining two
-    faces are made up of the edges of these quads at s=0 and s=1 and
-    are normal to the x3-direction.
+    """Representation of a six-sided solid (hexahedron).
+
+    This is represented by four quads making up its faces. The
+    remaining two faces are made up of the edges of these quads at s=0
+    and s=1 and are normal to the x3-direction.
 
     Caution
     -------
@@ -462,9 +529,13 @@ class Hex:
     """
 
     north: Quad
+    """A shape defining one edge of the hexahedron"""
     south: Quad
+    """A shape defining one edge of the hexahedron"""
     east: Quad
+    """A shape defining one edge of the hexahedron"""
     west: Quad
+    """A shape defining one edge of the hexahedron"""
 
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
@@ -563,10 +634,12 @@ B = TypeVar("B", Curve, Quad)
 
 @dataclass(frozen=True)
 class MeshLayer(Generic[E, B]):
-    """Representation of a single "layer" of the mesh. A layer is a
-    region of the mesh where the elements are conformal and aligned
-    with the magnetic field. A mesh may contain multiple layers, but
-    there will be a non-conformal interface between each of them.
+    """Representation of a single "layer" of the mesh.
+
+    A layer is a region of the mesh where the elements are conformal
+    and aligned with the magnetic field. A mesh may contain multiple
+    layers, but there will be a non-conformal interface between each
+    of them.
 
     Group
     -----
@@ -575,9 +648,22 @@ class MeshLayer(Generic[E, B]):
     """
 
     reference_elements: Sequence[E]
+    """A colelction of the :class:`~neso_fame.mesh.Quad` or
+    :class:`~neso_fame.mesh.Hex` elements making up the layer (without
+    any offset or subdivision)."""
     bounds: Sequence[frozenset[B]]
+    """An ordered collection of sets of :class:`~neso_fame.mesh.Curve`
+    or :class:`~neso_fame.mesh.Quad` objects (faces or edges,
+    repsectively). Each set describes a particular boundary regions of
+    the layer. The near and far faces of the layer are not included in
+    these."""
     offset: Optional[float] = None
+    """The ammount by which the x3-coordinate of the elements and
+    boundaries should be changed from those in
+    :data:`~neso_fame.mesh.MeshLayer.reference_elements`."""
     subdivisions: int = 1
+    """The number of elements deep the layer should be in the
+    x3-direction."""
 
     def __iter__(self) -> Iterator[E]:
         """Iterate over all of hte elements (`Quad` or `Hex` objects)
@@ -693,20 +779,24 @@ class MeshLayer(Generic[E, B]):
 
 @dataclass(frozen=True)
 class GenericMesh(Generic[E, B]):
-    """Class representing a complete mesh. It is defined by a
-    representative layer and an array of offsets. Physically, these
-    correspond to a mesh made up of a series of identical layers, with
-    nonconformal interfaces, each offset by a certain ammount along
-    the x3-direction.
+    """Class representing a complete mesh.
+
+    The mesh is defined by a representative layer and an array of
+    offsets. Physically, these correspond to a mesh made up of a
+    series of identical layers, with nonconformal interfaces, each
+    offset by a certain ammount along the x3-direction.
 
     Note
     ----
     This class is generic in both the element and boundary types, but
-    only certain combinations of these make sense in practice: `Quad`
-    elements and `Curve` boundaries; or `Hex` elements and `Quad`
-    boundaries. GenericMesh should not be used for type annotations;
-    use `QuadMesh`, `HexMesh`, or `Mesh` instead, as these are
-    constrained to the valid combinations.
+    only certain combinations of these make sense in practice:
+    :class:`~neso_fame.mesh.Quad` elements and
+    :class:`~neso_fame.mesh.Curve` boundaries; or
+    :class:`~neso_fame.mesh.Hex` elements and
+    :class:`~neso_fame.mesh.Quad` boundaries. GenericMesh should not
+    be used for type annotations; use :obj:`~neso_fame.mesh.QuadMesh`,
+    :obj:`~neso_fame.mesh.HexMesh`, or :obj:`~neso_fame.mesh.Mesh`
+    instead, as these are constrained to the valid combinations.
 
     Group
     -----
@@ -715,7 +805,10 @@ class GenericMesh(Generic[E, B]):
     """
 
     reference_layer: MeshLayer[E, B]
+    """A layer from which all of the constituant layers of the mesh
+    object will be produced."""
     offsets: npt.NDArray
+    """The x3 offset for each layer of the mesh."""
 
     def layers(self) -> Iterable[MeshLayer[E, B]]:
         """Iterate through the `MeshLayer` objects which make up this
@@ -742,8 +835,37 @@ class GenericMesh(Generic[E, B]):
 
 
 QuadMesh = GenericMesh[Quad, Curve]
+"""
+Mesh made up of `Quad` elements.
+
+Group
+-----
+mesh
+"""
 HexMesh = GenericMesh[Hex, Quad]
+"""
+Mesh made up of `Hex` elements.
+
+Group
+-----
+mesh
+
+
+.. rubric:: Alias
+
+"""
 Mesh = QuadMesh | HexMesh
+"""
+Valid types of mesh, to be used for type annotations.
+
+Group
+-----
+mesh
+
+
+.. rubric:: Alias
+
+"""
 
 
 def normalise_field_line(
@@ -754,11 +876,7 @@ def normalise_field_line(
     resolution=10,
 ) -> NormalisedFieldLine:
     """Takes a function defining a magnetic field and returns a new
-    function tracing a field line within it. The returned function
-    take an argument ``s`` between 0 and 1 and returns a coordinate
-    along the field line. The distance of the point from the start of
-    the field line is directly proportional to ``s``. This function is
-    vectorised, so can be called with an array-like argument.
+    function tracing a field line within it.
 
     Parameters
     ----------
@@ -780,6 +898,15 @@ def normalise_field_line(
     resolution
         The number of locations used along the field line used to
         interpolate distances.
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.NormalisedFieldLine`
+        A function taking an argument ``s`` between 0 and 1 and returning
+        a coordinate along the field line. The distance of the point from
+        the start of the field line is directly proportional to
+        ``s``. This function is vectorised, so can be called with an
+        array-like argument.
 
     Group
     -----

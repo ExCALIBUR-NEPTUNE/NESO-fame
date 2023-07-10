@@ -70,8 +70,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
-docs/source/api/**
-!docs/source/api/*.rst
+docs/source/api/autogen/**
 
 # PyBuilder
 .pybuilder/
