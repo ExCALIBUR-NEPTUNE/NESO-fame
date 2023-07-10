@@ -13,7 +13,7 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('../..'))
+sys.path.insert(0, os.path.abspath("../.."))
 
 # -- Project information -----------------------------------------------------
 
@@ -31,7 +31,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx_immaterial",
-    'sphinx.ext.intersphinx',
+    "sphinx.ext.intersphinx",
     "sphinx_immaterial.apidoc.python.apigen",
 ]
 
@@ -121,8 +121,8 @@ intersphinx_mapping = {
 }
 
 autodoc_typehints = "signature"
-#autodoc_typehints_description_target = "documented"
-#autodoc_typehints_format = "short"
+# autodoc_typehints_description_target = "documented"
+# autodoc_typehints_format = "short"
 autodoc_type_aliases = {
     "np.typing.NDArray": "numpy.typing.NDArray",
     "npt.NDArray": "numpy.typing.NDArray",
@@ -174,7 +174,10 @@ python_transform_type_annotations_pep604 = True
 
 # Python domain directive configuration
 python_type_aliases = autodoc_type_aliases
-python_module_names_to_strip_from_xrefs = ["collections.abc", "NekPy.SpatialDomains._SpatialDomains"] + list(python_apigen_modules)
+python_module_names_to_strip_from_xrefs = [
+    "collections.abc",
+    "NekPy.SpatialDomains._SpatialDomains",
+] + list(python_apigen_modules)
 
 # General API configuration
 object_description_options = [
@@ -211,7 +214,9 @@ def autodoc_skip_member(app, what, name, obj, skip, options):
     return skip
 
 
-def autodoc_process_signature(app, what, name, obj, options, signature, return_annotation):
+def autodoc_process_signature(
+    app, what, name, obj, options, signature, return_annotation
+):
     signature = modify_type_hints(signature)
     return_annotation = modify_type_hints(return_annotation)
     return signature, return_annotation
@@ -230,10 +235,10 @@ def modify_type_hints(signature):
         #     print(signature)
         if "ndarray" in signature:
             print(signature)
-        #signature = signature.replace("np", "~numpy")
+        # signature = signature.replace("np", "~numpy")
     return signature
 
 
 def setup(app):
     app.connect("autodoc-skip-member", autodoc_skip_member)
-    #app.connect("autodoc-process-signature", autodoc_process_signature)
+    # app.connect("autodoc-process-signature", autodoc_process_signature)
