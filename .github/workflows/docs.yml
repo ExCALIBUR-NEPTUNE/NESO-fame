@@ -1,0 +1,33 @@
+name: Build Docs
+on: 
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: cmacmackin/nekpy:latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Update PATH
+        run: echo "/opt/view/bin" >> $GITHUB_PATH
+      - name: Cache pip-installed packages
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/python3.10/dist-packages/
+      - name: Install dependencies
+        run: |
+          python3 -m pip install .
+          python3 -m pip install -r docs/requirements.txt # for building the docs
+          python3 -m pip install ghp-import # only required by this yaml for publishing the docs 
+      - name: Build Website
+        working-directory: ./docs/
+        run: |
+          make html
+      - name: Run ghp-import
+        run: |
+          ghp-import -n -p -f docs/build/html
