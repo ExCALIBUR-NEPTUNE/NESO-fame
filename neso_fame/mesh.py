@@ -127,7 +127,7 @@ class Coord:
     Group
     -----
     coordinates
-    
+
     """
 
     x1: float

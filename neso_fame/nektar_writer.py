@@ -23,6 +23,7 @@ NektarQuadGeomElements = tuple[
     frozenset[SD.PointGeom],
 ]
 
+
 @dataclass(frozen=True)
 class _NektarLayerCommon:
     """Base type for NektarLayer objects, containing attributes common
