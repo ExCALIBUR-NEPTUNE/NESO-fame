@@ -6,7 +6,7 @@ on:
     tags:
       - v*
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     container:
       image: cmacmackin/nekpy:latest
@@ -18,7 +18,9 @@ jobs:
       - name: Cache pip-installed packages
         uses: actions/cache@v3
         with:
-          path: /usr/local/bin/python3.10/dist-packages/
+          path: |
+            /usr/local/bin/python3.10/dist-packages/
+            ~/.cache/sphinx_immaterial/
           key: ${{ runner.os }}-${{ hashFiles('setup.py', 'docs/requirements.txt') }}
       - name: Install dependencies
         run: |
@@ -29,6 +31,12 @@ jobs:
         working-directory: ./docs/
         run: |
           make html
-      - name: Run ghp-import
-        run: |
-          ghp-import -n -p -f docs/build/html
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: './docs/build/html/'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
