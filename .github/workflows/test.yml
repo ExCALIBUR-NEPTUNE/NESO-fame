@@ -1,6 +1,6 @@
 # Perform some basic linting to for syntax errors and undefined names, then run the test suite.
 
-name: Unit and integration tests
+name: Tests
 
 on:
   push:
