@@ -10,25 +10,28 @@ on:
 
 jobs:
   test:
-
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
     container:
       image: cmacmackin/nekpy:latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Update PATH
-      run: echo "/opt/view/bin" >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install flake8 pytest hypothesis
-        python3 -m pip install .
-    - name: Check for syntax and undefined names
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    - name: Test with pytest
-      run: |
-        pytest --hypothesis-profile ci
+      - uses: actions/checkout@v3
+      - name: Update PATH
+        run: echo "/opt/view/bin" >> $GITHUB_PATH
+      - name: Cache pip-installed packages
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/python3.10/dist-packages/
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install flake8 pytest hypothesis
+          python3 -m pip install .
+      - name: Check for syntax and undefined names
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Test with pytest
+        run: |
+          pytest --hypothesis-profile ci
