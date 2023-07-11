@@ -34,9 +34,9 @@ class CoordinateSystem(Enum):
 
     """
 
-    Cartesian = 0
-    Cylindrical = 1
-    Cartesian2D = 2
+    CARTESIAN = 0
+    CYLINDRICAL = 1
+    CARTESIAN2D = 2
 
 
 CartesianTransform = Callable[
@@ -45,13 +45,13 @@ CartesianTransform = Callable[
 ]
 
 COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
-    CoordinateSystem.Cartesian: lambda x1, x2, x3: (x1, x2, x3),
-    CoordinateSystem.Cylindrical: lambda x1, x2, x3: (
+    CoordinateSystem.CARTESIAN: lambda x1, x2, x3: (x1, x2, x3),
+    CoordinateSystem.CYLINDRICAL: lambda x1, x2, x3: (
         x1 * np.cos(x3),
         x1 * np.sin(x3),
         x2,
     ),
-    CoordinateSystem.Cartesian2D: lambda x1, _, x3: (x3, -x1, np.asarray(0.0)),
+    CoordinateSystem.CARTESIAN2D: lambda x1, _, x3: (x3, -x1, np.asarray(0.0)),
 }
 
 
@@ -146,7 +146,7 @@ class Coord:
             float(x1),
             float(x2),
             float(x3),
-            CoordinateSystem.Cartesian,
+            CoordinateSystem.CARTESIAN,
         )
 
     def __iter__(self) -> Iterator[float]:
@@ -194,7 +194,7 @@ class Coords:
             x1,
             x2,
             x3,
-            CoordinateSystem.Cartesian,
+            CoordinateSystem.CARTESIAN,
         )
 
     def __iter__(self) -> Iterator[npt.NDArray]:
@@ -440,8 +440,7 @@ class Quad:
         curve1 and curve2 arguments."""
         if hash(curve1) < hash(curve2):
             return cls._cached_quad(curve1, curve2, in_plane, field)
-        else:
-            return cls._cached_quad(curve2, curve1, in_plane, field)
+        return cls._cached_quad(curve2, curve1, in_plane, field)
 
     def corners(self) -> Coords:
         """Returns the points corresponding to the corners of the quadrilateral."""
@@ -471,10 +470,9 @@ class Quad:
                 np.linspace(north_samples.x3, south_samples.x3, order + 1),
                 north_samples.system,
             )
-        else:
-            raise NotImplementedError(
-                "Can not yet handle Quads where all four edges are curved"
-            )
+        raise NotImplementedError(
+            "Can not yet handle Quads where all four edges are curved"
+        )
 
     def offset(self, offset: float) -> Quad:
         """Returns a quad which is identical except that it is shifted

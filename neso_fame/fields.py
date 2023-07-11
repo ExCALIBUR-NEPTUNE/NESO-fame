@@ -21,12 +21,11 @@ def _cylindrical_distance(x1_start, angle, x3):
     c0 = np.sqrt(a**2 + b**2)
     if np.abs(angle) < 1e-8:
         return a * x3
-    else:
-        return (
-            c * d / (2 * b)
-            + 0.5 * b * np.log(c + d)
-            - (c0 * a / (2 * b) + 0.5 * b * np.log(c0 + a))
-        )
+    return (
+        c * d / (2 * b)
+        + 0.5 * b * np.log(c + d)
+        - (c0 * a / (2 * b) + 0.5 * b * np.log(c0 + a))
+    )
 
 
 def straight_field(angle=0.0) -> "FieldTrace":
@@ -52,7 +51,7 @@ def straight_field(angle=0.0) -> "FieldTrace":
         x2 = np.asarray(start.x2)
         return SliceCoords(x1, x2, start.system), _cylindrical_distance(
             start.x1, angle, perpendicular_coord
-        ) if start.system == CoordinateSystem.Cylindrical else np.asarray(
+        ) if start.system == CoordinateSystem.CYLINDRICAL else np.asarray(
             perpendicular_coord
         ) / np.cos(
             angle

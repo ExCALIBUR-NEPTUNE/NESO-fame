@@ -14,7 +14,7 @@ m = field_aligned_2d(
     SliceCoords(
         np.linspace(-100.0, 0.0, num_nodes),
         np.zeros(num_nodes),
-        CoordinateSystem.Cartesian2D,
+        CoordinateSystem.CARTESIAN2D,
     ),
     straight_field(np.pi / 90),
     (0.0, 100.0),

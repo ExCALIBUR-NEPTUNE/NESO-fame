@@ -14,7 +14,7 @@ def test_simple_grid() -> None:
             5,
         ),
         np.zeros(5),
-        CoordinateSystem.Cartesian,
+        CoordinateSystem.CARTESIAN,
     )
     field = straight_field()
     x3 = (0.0, 2.0)
@@ -78,7 +78,7 @@ def test_angled_grid_conforming_bounds() -> None:
             m,
         ),
         np.zeros(m),
-        CoordinateSystem.Cartesian,
+        CoordinateSystem.CARTESIAN,
     )
     field = straight_field(angle)
     x3 = (-2.0, 1.0)
@@ -151,7 +151,7 @@ def test_angled_grid_jagged_bounds() -> None:
             m,
         ),
         np.zeros(m),
-        CoordinateSystem.Cartesian,
+        CoordinateSystem.CARTESIAN,
     )
     field = straight_field(angle)
     x3 = (-2.0, 1.0)
@@ -216,7 +216,7 @@ def test_subdivided_grid() -> None:
             5,
         ),
         np.zeros(5),
-        CoordinateSystem.Cartesian,
+        CoordinateSystem.CARTESIAN,
     )
     field = straight_field()
     x3 = (0.0, 2.0)

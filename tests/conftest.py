@@ -103,13 +103,13 @@ register_type_strategy(
 def linear_field_trace(
     a1: float, a2: float, a3: float, c: mesh.CoordinateSystem
 ) -> mesh.FieldTrace:
-    a1p = a1 / a3 if c == mesh.CoordinateSystem.Cartesian else 0.0
+    a1p = a1 / a3 if c == mesh.CoordinateSystem.CARTESIAN else 0.0
     a2p = a2 / a3
 
     def cartesian_func(
         start: mesh.SliceCoord, x3: npt.ArrayLike
     ) -> tuple[mesh.SliceCoords, npt.NDArray]:
-        if c == mesh.CoordinateSystem.Cartesian:
+        if c == mesh.CoordinateSystem.CARTESIAN:
             s = np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3)
         else:
             s = np.sqrt(a1p * a1p + a2p * a2p + start.x1 * start.x1) * np.asarray(x3)
@@ -135,7 +135,7 @@ def linear_field_line(
     c: mesh.CoordinateSystem,
 ) -> mesh.NormalisedFieldLine:
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
-        a = a1 if c == mesh.CoordinateSystem.Cartesian else 0.0
+        a = a1 if c == mesh.CoordinateSystem.CARTESIAN else 0.0
         return mesh.Coords(
             a * np.asarray(x) + b1 - 0.5 * a,
             a2 * np.asarray(x) + b2 - 0.5 * a2,

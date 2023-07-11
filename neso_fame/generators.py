@@ -123,7 +123,7 @@ def field_aligned_2d(
 
     curves = [
         _boundary_curve(coord, dx3)
-        if (i == 0 or i == num_nodes - 1) and conform_to_bounds
+        if i in (0, num_nodes - 1) and conform_to_bounds
         else Curve(
             normalise_field_line(
                 field_line,
@@ -136,10 +136,6 @@ def field_aligned_2d(
         for i, coord in enumerate(lower_dim_mesh.iter_points())
     ]
 
-    # FIXME: Pretty sure I could represent this more efficiently as
-    # pairs of node positions. Approach used here was when I expected
-    # to be filtering edges and needed to be able to look up adjoining
-    # nodes efficiently.
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 

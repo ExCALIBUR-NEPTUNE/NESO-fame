@@ -150,18 +150,18 @@ def test_nektar_curve(curve: Curve, order: int, layer: int) -> None:
 def test_circular_nektar_curve() -> None:
     curve = Curve(
         linear_field_line(
-            0.0, 0.2, np.pi, 1.0, 0.0, np.pi / 2, CoordinateSystem.Cylindrical
+            0.0, 0.2, np.pi, 1.0, 0.0, np.pi / 2, CoordinateSystem.CYLINDRICAL
         )
     )
     nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 0)
     assert_points_eq(
-        nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.Cartesian)
+        nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.CARTESIAN)
     )
     assert_points_eq(
-        nek_curve.points[1], Coord(0.0, 1.0, 0.0, CoordinateSystem.Cartesian)
+        nek_curve.points[1], Coord(0.0, 1.0, 0.0, CoordinateSystem.CARTESIAN)
     )
     assert_points_eq(
-        nek_curve.points[2], Coord(-1.0, 0.0, 0.1, CoordinateSystem.Cartesian)
+        nek_curve.points[2], Coord(-1.0, 0.0, 0.1, CoordinateSystem.CARTESIAN)
     )
 
 
@@ -569,7 +569,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
                 np.array(1.0),
                 np.array(0.0),
                 np.asarray(x),
-                CoordinateSystem.Cartesian,
+                CoordinateSystem.CARTESIAN,
             )
         ),
         Curve(
@@ -577,7 +577,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
                 np.array(0.0),
                 np.array(0.0),
                 np.asarray(x),
-                CoordinateSystem.Cartesian,
+                CoordinateSystem.CARTESIAN,
             )
         ),
         None,
