@@ -533,7 +533,8 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     assert np.all(cp.x1 >= x1_min)
     assert np.all(cp.x2 >= x2_min)
     assert np.all(cp.x3 >= x3_min)
-    # TODO: Check these are equally spaced along trace (easy in x3 direction, harder in others)
+    # TODO: Check these are equally spaced along trace (easy in x3 direction,
+    #       harder in others)
     # TODO: Write a check for some known values
     pass
 
@@ -575,25 +576,43 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
     for p, q in zip(prev, quad_corners):
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]])
 
+# FIXME: Commented out until a more intelligent type strategy is created
+#        for Hexes
 
 # @given(from_type(mesh.Hex))
 # def test_hex_near_edge(t: mesh.Hex) -> None:
-#     expected = frozenset({t.north.north(0.).to_coord(), t.north.south(0.).to_coord(), t.south.north(0.).to_coord(), t.south.south(0.).to_coord()})
+#     expected = frozenset(
+#         {
+#             t.north.north(0.0).to_coord(),
+#             t.north.south(0.0).to_coord(),
+#             t.south.north(0.0).to_coord(),
+#             t.south.south(0.0).to_coord(),
+#         }
+#     )
 #     actual = frozenset(t.near.corners().iter_points())
-#     assert expected  == actual
+#     assert expected == actual
 
 
 # @given(from_type(mesh.Hex))
 # def test_hex_far_edge(t: mesh.Hex) -> None:
-#     expected = frozenset({t.north.north(1.).to_coord(), t.north.south(1.).to_coord(), t.south.north(1.).to_coord(), t.south.south(1.).to_coord()})
+#     expected = frozenset(
+#         {
+#             t.north.north(1.0).to_coord(),
+#             t.north.south(1.0).to_coord(),
+#             t.south.north(1.0).to_coord(),
+#             t.south.south(1.0).to_coord(),
+#         }
+#     )
 #     actual = frozenset(t.far.corners().iter_points())
-#     assert expected  == actual
+#     assert expected == actual
 
 
 # @given(from_type(mesh.Hex))
 # def test_hex_near_far_corners(t: mesh.Hex) -> None:
 #     expected = frozenset(t.corners().iter_points())
-#     actual = frozenset(t.near.corners().iter_points()) | frozenset(t.far.corners().iter_points())
+#     actual = frozenset(t.near.corners().iter_points()) | frozenset(
+#         t.far.corners().iter_points()
+#     )
 #     assert expected == actual
 
 

@@ -33,8 +33,15 @@ settings.register_profile(
 )
 settings.register_profile("dev", max_examples=10)
 
-non_nans = lambda: floats(allow_nan=False)
-arbitrary_arrays = lambda: arrays(floating_dtypes(), array_shapes())
+
+def non_nans():
+    return floats(allow_nan=False)
+
+
+def arbitrary_arrays():
+    return arrays(floating_dtypes(), array_shapes())
+
+
 whole_numbers = integers(-1000, 1000).map(float)
 nonnegative_numbers = integers(1, 1000).map(float)
 non_zero = whole_numbers.filter(lambda x: x != 0.0)

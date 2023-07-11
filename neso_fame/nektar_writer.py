@@ -122,7 +122,7 @@ class NektarElements:
         return itertools.chain.from_iterable(
             map(
                 attrgetter("faces"),
-                filter(lambda l: isinstance(l, NektarLayer3D), self._layers),
+                filter(lambda layer: isinstance(layer, NektarLayer3D), self._layers),
             )
         )
 

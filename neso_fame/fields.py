@@ -8,7 +8,6 @@ import numpy.typing as npt
 from neso_fame.mesh import (
     FieldTrace,
     CoordinateSystem,
-    CoordinateSystem,
     SliceCoord,
     SliceCoords,
 )

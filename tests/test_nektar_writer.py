@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Callable, cast, Iterator, Type, TypeVar, TypeGuard, Union
 import xml.etree.ElementTree as ET
 
-from hypothesis import given, settings, reproduce_failure
+from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
     builds,
@@ -87,9 +87,9 @@ def comparable_quad(quad: Quad) -> ComparableGeometry:
 
 
 def comparable_geometry(geom: SD.Geometry | SD.Curve) -> ComparableGeometry:
-    """Convert geometry elements into sets of points. This allows for convenient comparison.
+    """Convert geometry elements into sets of points. This allows for
+    convenient comparison.
 
-    TODO: Should it also provide sets of edges, etc.?
     """
     if isinstance(geom, SD.PointGeom):
         return comparable_nektar_point(geom)
@@ -206,7 +206,9 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     # returned. I think there is something wrong with the
     # implementation within Nektar++.
     #
-    # assert corners == frozenset(nek_quad.GetVertex(i).GetCoordinates() for i in range(4))
+    # assert corners == frozenset(
+    #     nek_quad.GetVertex(i).GetCoordinates() for i in range(4)
+    # )
     assert corners == frozenset(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )

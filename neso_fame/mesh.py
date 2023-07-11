@@ -461,7 +461,8 @@ class Quad:
         """
         if self.in_plane is None:
             # FIXME: Is this strictly correct?
-            # FIXME: can I be confident that the start and end will be exactly as specified?
+            # FIXME: can I be confident that the start and end will be exactly
+            #        as specified?
             north_samples = self.north.control_points(order)
             south_samples = self.south.control_points(order)
             return Coords(
@@ -727,13 +728,18 @@ class MeshLayer(Generic[E, B]):
             self._iterate_elements(self.reference_elements, self.offset, 1),
         )
 
-    # FIXME: This won't be bit-wise identical to to the last subdivision. Can I access those objects instead, somehow?
     def far_faces(self) -> Iterator[B]:
         """Iterates over the far faces of the elements in the
         layer. If the layer is subdivided (i.e., is more than one
         element deep in the x3-direction) then only the far faces of
         the last subdivision will be returned. This constitutes one
         of the boundaries normal to the x3-direction.
+
+        Note
+        ----
+        This won't necessarily be bit-wise identical to the last
+        subdivision. However, as round coordinates to 8 decimal places
+        when creating Nektar++ objects, it won't matter.
 
         """
         return map(
