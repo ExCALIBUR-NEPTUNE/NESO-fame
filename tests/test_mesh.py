@@ -576,6 +576,7 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
     for p, q in zip(prev, quad_corners):
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]])
 
+
 # FIXME: Commented out until a more intelligent type strategy is created
 #        for Hexes
 
