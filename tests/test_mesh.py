@@ -2,29 +2,22 @@ import itertools
 from typing import Type
 from unittest.mock import MagicMock
 
-from hypothesis import given
-from hypothesis.strategies import (
-    builds,
-    from_type,
-    integers,
-    lists,
-    one_of,
-    shared,
-)
 import numpy as np
 import numpy.typing as npt
 import pytest
+from hypothesis import given
+from hypothesis.strategies import builds, from_type, integers, lists, one_of, shared
 
 from neso_fame import mesh
 
 from .conftest import (
-    non_nans,
+    _quad_mesh_elements,
     coordinate_systems,
     linear_field_trace,
     mesh_arguments,
     mutually_broadcastable_arrays,
+    non_nans,
     non_zero,
-    _quad_mesh_elements,
     quad_mesh_layer_no_divisions,
     whole_numbers,
 )

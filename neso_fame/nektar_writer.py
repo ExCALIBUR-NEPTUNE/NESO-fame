@@ -2,9 +2,9 @@
 
 """
 
+import itertools
 from dataclasses import dataclass
 from functools import cache, reduce
-import itertools
 from operator import attrgetter, or_
 from typing import Iterator, Sequence
 
@@ -12,7 +12,6 @@ import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 
 from .mesh import Coord, Curve, MeshLayer, Quad, QuadMesh
-
 
 UNSET_ID = -1
 

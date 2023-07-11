@@ -31,11 +31,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install mypy hypothesis pytest numpy scipy
     - name: Check typing information using MyPy
-      run: |
-        mypy
+      run: mypy
 
   black:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - uses: psf/black@stable
+
+  isort:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: isort/isort-action@v1

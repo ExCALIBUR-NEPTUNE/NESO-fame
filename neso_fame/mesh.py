@@ -4,21 +4,12 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
-import itertools
-from typing import (
-    Callable,
-    cast,
-    Generic,
-    Optional,
-    overload,
-    Protocol,
-    Type,
-    TypeVar,
-)
+from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
 
 import numpy as np
 import numpy.typing as npt

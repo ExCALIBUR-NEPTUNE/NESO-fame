@@ -9,3 +9,6 @@ packages = ["neso_fame", "tests"]
 [[tool.mypy.overrides]]
 module = ["scipy.*"]
 ignore_missing_imports = true
+
+[tool.isort]
+profile = "black"

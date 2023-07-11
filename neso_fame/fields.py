@@ -5,12 +5,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from neso_fame.mesh import (
-    FieldTrace,
-    CoordinateSystem,
-    SliceCoord,
-    SliceCoords,
-)
+from neso_fame.mesh import CoordinateSystem, FieldTrace, SliceCoord, SliceCoords
 
 
 def _cylindrical_distance(x1_start, angle, x3):

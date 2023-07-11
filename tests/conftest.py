@@ -1,14 +1,17 @@
 import itertools
 
-from hypothesis import settings, Verbosity
+import numpy as np
+import numpy.typing as npt
+from hypothesis import Verbosity, settings
 from hypothesis.extra.numpy import (
+    BroadcastableShapes,
     array_shapes,
     arrays,
-    BroadcastableShapes,
     floating_dtypes,
     mutually_broadcastable_shapes,
 )
 from hypothesis.strategies import (
+    SearchStrategy,
     builds,
     floats,
     from_type,
@@ -18,12 +21,9 @@ from hypothesis.strategies import (
     one_of,
     register_type_strategy,
     sampled_from,
-    SearchStrategy,
     shared,
     tuples,
 )
-import numpy as np
-import numpy.typing as npt
 
 from neso_fame import mesh
 

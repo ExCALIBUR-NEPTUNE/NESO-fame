@@ -1,5 +1,6 @@
 from __future__ import annotations
-from collections.abc import Sequence, MutableSequence
+
+from collections.abc import MutableSequence, Sequence
 from enum import Enum
 from typing import Generic, Iterator, Optional, TypeVar, overload
 

@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import itertools
+from collections.abc import Sequence
 from typing import Optional
 
 import numpy as np
@@ -13,14 +13,14 @@ import numpy as np
 from .mesh import (
     Coords,
     Curve,
-    Quad,
     FieldTrace,
     GenericMesh,
     MeshLayer,
+    Quad,
     QuadMesh,
-    normalise_field_line,
     SliceCoord,
     SliceCoords,
+    normalise_field_line,
 )
 
 Connectivity = Sequence[tuple[int, int]]

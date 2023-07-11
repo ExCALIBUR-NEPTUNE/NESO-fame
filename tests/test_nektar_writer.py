@@ -1,12 +1,13 @@
-from collections.abc import Iterable
-from functools import reduce
 import itertools
 import operator
 import pathlib
-from tempfile import TemporaryDirectory
-from typing import Callable, cast, Iterator, Type, TypeVar, TypeGuard, Union
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
+from functools import reduce
+from tempfile import TemporaryDirectory
+from typing import Callable, Iterator, Type, TypeGuard, TypeVar, Union, cast
 
+import numpy as np
 from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
@@ -19,23 +20,23 @@ from hypothesis.strategies import (
 )
 from NekPy import LibUtilities as LU
 from NekPy import SpatialDomains as SD
-import numpy as np
 from pytest import approx, mark
 
-from .conftest import linear_field_line, non_nans
 from neso_fame import nektar_writer
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     Coord,
+    CoordinateSystem,
     Coords,
     Curve,
-    CoordinateSystem,
     GenericMesh,
+    Hex,
     MeshLayer,
     Quad,
     QuadMesh,
-    Hex,
 )
+
+from .conftest import linear_field_line, non_nans
 
 
 def both_nan(a: float, b: float) -> bool:

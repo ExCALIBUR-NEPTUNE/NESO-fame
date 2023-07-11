@@ -1,13 +1,7 @@
 import numpy as np
 
-from neso_fame import (
-    field_aligned_2d,
-    SliceCoords,
-    CoordinateSystem,
-    write_nektar,
-)
+from neso_fame import CoordinateSystem, SliceCoords, field_aligned_2d, write_nektar
 from neso_fame.fields import straight_field
-
 
 num_nodes = 11
 m = field_aligned_2d(
