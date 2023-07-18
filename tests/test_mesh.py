@@ -519,7 +519,7 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     assert len(cp) == (n + 1) ** 2
     assert cp.x1.ndim == 2
     assert cp.x2.ndim == 2
-    assert cp.x2.ndim == 2
+    assert cp.x3.ndim == 2
     assert np.all(cp.x1 <= x1_max)
     assert np.all(cp.x2 <= x2_max)
     assert np.all(cp.x3 <= x3_max)
@@ -530,6 +530,39 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     #       harder in others)
     # TODO: Write a check for some known values
     pass
+
+
+@given(from_type(mesh.Quad), integers(2, 5))
+def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
+    cp = q.control_points(n)
+    # Check spacing in the direction along the bounding field lines
+    if q.in_plane:
+        start_curve = q.in_plane
+    else:
+        start_curve = mesh.Curve(
+            mesh._line_from_points(q.north(0.5).to_coord(), q.south(0.5).to_coord())
+        )  # FIXME: This only works for nicely-behaved fields.
+    start_points = start_curve.control_points(n)
+    distances = np.vectorize(
+        lambda x1, x2, x3: q.field(mesh.SliceCoord(x1, x2, start_points.system), x3)[1]
+    )(start_points.x1, start_points.x2, cp.x3 - start_points.x3)
+    d_diff = distances[1:, :] - distances[:-1, :]
+    for i in range(n + 1):
+        np.testing.assert_allclose(d_diff[0, i], d_diff[:, i])
+    # Check spacing in the perpendicular direction
+    # Note: The way this test works won't hold true with a completely
+    # general curved quad, but holds for the simple examples we
+    # generate here.
+    dx1 = cp.x1[:, 1:] - cp.x1[:, :-1]
+    dx2 = cp.x2[:, 1:] - cp.x2[:, :-1]
+    dx3 = cp.x3[:, 1:] - cp.x3[:, :-1]
+    ds_squared = dx1 * dx1 + dx2 * dx2 + dx3 * dx3
+    for i in range(n + 1):
+        np.testing.assert_allclose(ds_squared[i, 0], ds_squared[i])
+
+
+# TODO: Test control points for quads where relative spacing of field
+# lines changes with x3
 
 
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))

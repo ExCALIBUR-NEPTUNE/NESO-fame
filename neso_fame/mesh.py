@@ -372,9 +372,9 @@ class Quad:
     """Curve defining one edge of the quadrilateral"""
     south: Curve
     """Curve defining the other edge of the quadrilateral"""
-    in_plane: Optional[
-        Curve
-    ]  # FIXME: Don't think this is adequate to describe curved quads
+    in_plane: Optional[Curve]
+    """Desribes the shape of the quad in 3D space, at the x3 from
+    which the bounding curves were projected along the field lines."""
     field: FieldTrace
     """The underlying magnetic field to which the quadrilateral is aligned"""
 
