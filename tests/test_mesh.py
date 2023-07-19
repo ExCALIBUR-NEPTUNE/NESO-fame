@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from hypothesis import given
-from hypothesis.strategies import builds, from_type, integers, lists, one_of, shared
+from hypothesis.strategies import builds, floats, from_type, integers, lists, one_of, sampled_from, shared, tuples
 
 from neso_fame import mesh
 
@@ -32,6 +32,13 @@ def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
     with pytest.raises(StopIteration):
         next(coord_iter)
 
+@given(from_type(mesh.SliceCoord), integers(4, 10), sampled_from((1, -1)))
+def test_slice_coord_round(coord: mesh.SliceCoord, places: int, sign: int) -> None:
+    offset = sign * 10**-(places + 1)
+    coord2 = mesh.SliceCoord(coord.x1 + offset, coord.x2 + offset, coord.system)
+    assert coord != coord2
+    assert coord.round(places) == coord2.round(places)
+    assert coord.round(places + 1) != coord2.round(places + 1)
 
 @pytest.mark.parametrize(
     "x1,x2,expected",
@@ -135,6 +142,19 @@ def test_slice_coords_bad_getitem(
         _ = coords[index]
 
 
+@given(from_type(mesh.SliceCoords), integers(4, 10), sampled_from((1, -1)))
+def test_slice_coords_round(coord: mesh.SliceCoords, places: int, sign: int) -> None:
+    offset = sign * 10**-(places + 1)
+    coord2 = mesh.SliceCoords(coord.x1 + offset, coord.x2 + offset, coord.system)
+
+    def coords_equal(lhs: mesh.SliceCoords, rhs: mesh.SliceCoords) -> bool:
+        return bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2)) and lhs.system == rhs.system
+
+    assert not coords_equal(coord, coord2)
+    assert coords_equal(coord.round(places), coord2.round(places))
+    assert not coords_equal(coord.round(places + 1), coord2.round(places + 1))
+
+
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> None:
     coord = mesh.Coord(x1, x2, x3, c)
@@ -145,6 +165,14 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
     with pytest.raises(StopIteration):
         next(coord_iter)
 
+
+@given(from_type(mesh.Coord), integers(4, 10), sampled_from((1, -1)))
+def test_coord_round(coord: mesh.Coord, places: int, sign: int) -> None:
+    offset = sign * 10**-(places + 1)
+    coord2 = mesh.Coord(coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system)
+    assert coord != coord2
+    assert coord.round(places) == coord2.round(places)
+    assert coord.round(places + 1) != coord2.round(places + 1)
 
 @pytest.mark.parametrize(
     "x1,x2,x3,expected",
@@ -348,6 +376,19 @@ def test_coords_to_cartesian() -> None:
     np.testing.assert_allclose(coords.x1, [1.0, 0.0, -2.0], atol=1e-12)
     np.testing.assert_allclose(coords.x2, [0.0, 1.5, 0.0], atol=1e-12)
     np.testing.assert_allclose(coords.x3, [1.0, 0.5, 0.0], atol=1e-12)
+
+
+@given(from_type(mesh.Coords), integers(4, 10), sampled_from((1, -1)))
+def test_coords_round(coord: mesh.Coords, places: int, sign: int) -> None:
+    offset = sign * 10**-(places + 1)
+    coord2 = mesh.Coords(coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system)
+
+    def coords_equal(lhs: mesh.Coords, rhs: mesh.Coords) -> bool:
+        return bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2) and np.all(lhs.x3 == rhs.x3)) and lhs.system == rhs.system
+
+    assert not coords_equal(coord, coord2)
+    assert coords_equal(coord.round(places), coord2.round(places))
+    assert not coords_equal(coord.round(places + 1), coord2.round(places + 1))
 
 
 def test_curve_call() -> None:

@@ -61,7 +61,7 @@ def mutually_broadcastable_from(
     def shape_to_array(shapes):
         return tuples(
             *(
-                arrays(np.float64, just(s), elements={"allow_nan": False})
+                arrays(np.float64, just(s), elements=whole_numbers)
                 for s in shapes.input_shapes
             )
         )
@@ -74,6 +74,16 @@ register_type_strategy(
     builds(
         lambda xs, c: mesh.SliceCoords(xs[0], xs[1], c),
         mutually_broadcastable_arrays(2),
+        sampled_from(mesh.CoordinateSystem),
+    ),
+)
+
+register_type_strategy(
+    mesh.SliceCoord,
+    builds(
+        mesh.SliceCoord,
+        whole_numbers,
+        whole_numbers,
         sampled_from(mesh.CoordinateSystem),
     ),
 )
