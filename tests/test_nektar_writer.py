@@ -151,7 +151,7 @@ def test_nektar_curve(curve: Curve, order: int, layer: int) -> None:
 def test_circular_nektar_curve() -> None:
     curve = Curve(
         linear_field_line(
-            0.0, 0.2, np.pi, 1.0, 0.0, np.pi / 2, CoordinateSystem.CYLINDRICAL
+            0.0, 0.2, np.pi, 1.0, 0.0, np.pi / 2, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
         )
     )
     nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 0)
