@@ -109,24 +109,29 @@ register_type_strategy(
     ),
 )
 
+CARTESIAN_SYSTEMS = {mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN2D}
+
 
 def linear_field_trace(
-    a1: float, a2: float, a3: float, c: mesh.CoordinateSystem
+        a1: float, a2: float, a3: float, c: mesh.CoordinateSystem, skew: float, centre: tuple[float, float]
 ) -> mesh.FieldTrace:
-    a1p = a1 / a3 if c == mesh.CoordinateSystem.CARTESIAN else 0.0
-    a2p = a2 / a3
+    a1p = a1 / a3 if c in CARTESIAN_SYSTEMS else 0.0
+    a2p = a2 / a3 if c != mesh.CoordinateSystem.CARTESIAN2D else 0.0
 
     def cartesian_func(
         start: mesh.SliceCoord, x3: npt.ArrayLike
     ) -> tuple[mesh.SliceCoords, npt.NDArray]:
-        if c == mesh.CoordinateSystem.CARTESIAN:
-            s = np.sqrt(a1p * a1p + a2p * a2p + 1) * np.asarray(x3)
+        offset = np.sqrt((start.x1 - centre[0])**2 + (start.x2 - centre[1])**2)
+        b1 = a1p * (1 + skew * offset)
+        b2 = a2p * (1 + skew * offset)
+        if c in CARTESIAN_SYSTEMS:
+            s = np.sqrt(b1 * b1 + b2 * b2 + 1) * np.asarray(x3)
         else:
-            s = np.sqrt(a1p * a1p + a2p * a2p + start.x1 * start.x1) * np.asarray(x3)
+            s = np.sqrt(b1 * b1 + b2 * b2 + start.x1 * start.x1) * np.asarray(x3)
         return (
             mesh.SliceCoords(
-                a1p * np.asarray(x3) + start.x1,
-                a2p * np.asarray(x3) + start.x2,
+                b1 * np.asarray(x3) + start.x1,
+                b2 * np.asarray(x3) + start.x2,
                 start.system,
             ),
             s,
@@ -143,12 +148,14 @@ def linear_field_line(
     b2: float,
     b3: float,
     c: mesh.CoordinateSystem,
+    skew: float, centre: tuple[float, float]
 ) -> mesh.NormalisedFieldLine:
+    offset = np.sqrt((b1 - centre[0])**2 + (b2 - centre[1])**2)
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
-        a = a1 if c == mesh.CoordinateSystem.CARTESIAN else 0.0
+        a = a1 if c in CARTESIAN_SYSTEMS else 0.0
         return mesh.Coords(
-            a * np.asarray(x) + b1 - 0.5 * a,
-            a2 * np.asarray(x) + b2 - 0.5 * a2,
+            a * (1 + skew * offset) * np.asarray(x) + b1 - 0.5 * a,
+            a2 * (1 + skew * offset) * np.asarray(x) + b2 - 0.5 * a2,
             a3 * np.asarray(x) + b3 - 0.5 * a3,
             c,
         )
@@ -162,10 +169,12 @@ def flat_quad(
     a3: float,
     starts: tuple[tuple[float, float, float], tuple[float, float, float]],
     c: mesh.CoordinateSystem,
+    skew: float,
 ) -> mesh.Quad:
-    trace = linear_field_trace(a1, a2, a3, c)
-    north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c))
-    south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c))
+    centre = (starts[0][0] + (starts[0][0] - starts[1][0]) / 2, starts[0][1] + (starts[0][1] - starts[1][1]) / 2)
+    trace = linear_field_trace(a1, a2, a3, c, skew, centre)
+    north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c, skew, centre))
+    south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c, skew, centre))
     return mesh.Quad(north, south, None, trace)
 
 
@@ -177,12 +186,12 @@ def _quad_mesh_elements(
     num_quads: int,
     c: mesh.CoordinateSystem,
 ) -> list[mesh.Quad]:
-    trace = linear_field_trace(a1, a2, a3, c)
+    trace = linear_field_trace(a1, a2, a3, c, 0, (0, 0))
     starts = np.linspace(limits[0], limits[1], num_quads + 1)
     return [
         mesh.Quad(c1, c2, None, trace)
         for c1, c2 in itertools.pairwise(
-            mesh.Curve(linear_field_line(a1, a2, a3, s[0], s[1], s[2], c))
+            mesh.Curve(linear_field_line(a1, a2, a3, s[0], s[1], s[2], c, 0, (0, 0)))
             for s in starts
         )
     ]
@@ -214,6 +223,8 @@ register_type_strategy(
         whole_numbers,
         whole_numbers,
         coordinate_systems,
+        just(0.),
+        just((0., 0.)),
     ).map(mesh.Curve),
 )
 register_type_strategy(
@@ -228,6 +239,7 @@ register_type_strategy(
             tuples(whole_numbers, whole_numbers, whole_numbers),
         ).filter(lambda x: x[0][0:2] != x[1][0:2]),
         coordinate_systems,
+        floats(-2., 2.)
     ).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4),
 )
 

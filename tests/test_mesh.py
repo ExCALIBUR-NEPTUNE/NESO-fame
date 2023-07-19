@@ -1,4 +1,5 @@
 import itertools
+from operator import methodcaller
 from typing import Type
 from unittest.mock import MagicMock
 
@@ -528,16 +529,18 @@ def test_quad_near_edge(q: mesh.Quad) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_far_edge(q: mesh.Quad) -> None:
-    expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
-    actual = frozenset(q.far([0.0, 1.0]).iter_points())
+    rounder = methodcaller("round")
+    expected = frozenset(map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()}))
+    actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points()))
     assert expected == actual
 
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    expected = frozenset(q.corners().iter_points())
-    actual = frozenset(q.far([0.0, 1.0]).iter_points()) | frozenset(
-        q.near([0.0, 1.0]).iter_points()
+    rounder = methodcaller("round")
+    expected = frozenset(map(rounder, q.corners().iter_points()))
+    actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points())) | frozenset(
+        map(rounder, q.near([0.0, 1.0]).iter_points())
     )
     assert expected == actual
 
@@ -953,7 +956,7 @@ shared_coords = shared(coordinate_systems, key=0)
 
 
 @given(
-    builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, shared_coords),
+    builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, shared_coords, floats(-0.1, 0.1), tuples(whole_numbers, whole_numbers)),
     builds(mesh.SliceCoord, non_zero, whole_numbers, shared_coords),
     whole_numbers,
     non_zero,
