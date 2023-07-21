@@ -118,7 +118,9 @@ class SliceCoords:
     def round(self, places=8) -> SliceCoords:
         """Returns an object with coordinate values rounded to the
         desired number of decimal places."""
-        return SliceCoords(np.round(self.x1, places), np.round(self.x2, places), self.system)
+        return SliceCoords(
+            np.round(self.x1, places), np.round(self.x2, places), self.system
+        )
 
 
 @dataclass(frozen=True)
@@ -159,7 +161,12 @@ class Coord:
     def round(self, places=8) -> Coord:
         """Returns an object with coordinate values rounded to the
         desired number of decimal places."""
-        return Coord(round(self.x1, places), round(self.x2, places), round(self.x3, places), self.system)
+        return Coord(
+            round(self.x1, places),
+            round(self.x2, places),
+            round(self.x3, places),
+            self.system,
+        )
 
 
 @dataclass
@@ -225,7 +232,12 @@ class Coords:
     def round(self, places=8) -> Coords:
         """Returns an object with coordinate values rounded to the
         desired number of decimal places."""
-        return Coords(np.round(self.x1, places), np.round(self.x2, places), np.round(self.x3, places), self.system)
+        return Coords(
+            np.round(self.x1, places),
+            np.round(self.x2, places),
+            np.round(self.x3, places),
+            self.system,
+        )
 
 
 FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]

@@ -7,7 +7,19 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from hypothesis import given
-from hypothesis.strategies import booleans, builds, composite, floats, from_type, integers, lists, one_of, sampled_from, shared, tuples
+from hypothesis.strategies import (
+    booleans,
+    builds,
+    composite,
+    floats,
+    from_type,
+    integers,
+    lists,
+    one_of,
+    sampled_from,
+    shared,
+    tuples,
+)
 
 from neso_fame import mesh
 
@@ -37,13 +49,15 @@ def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
     with pytest.raises(StopIteration):
         next(coord_iter)
 
+
 @given(from_type(mesh.SliceCoord), integers(4, 10), sampled_from((1, -1)))
 def test_slice_coord_round(coord: mesh.SliceCoord, places: int, sign: int) -> None:
-    offset = sign * 10**-(places + 1)
+    offset = sign * 10 ** -(places + 1)
     coord2 = mesh.SliceCoord(coord.x1 + offset, coord.x2 + offset, coord.system)
     assert coord != coord2
     assert coord.round(places) == coord2.round(places)
     assert coord.round(places + 1) != coord2.round(places + 1)
+
 
 @pytest.mark.parametrize(
     "x1,x2,expected",
@@ -149,11 +163,14 @@ def test_slice_coords_bad_getitem(
 
 @given(from_type(mesh.SliceCoords), integers(4, 10), sampled_from((1, -1)))
 def test_slice_coords_round(coord: mesh.SliceCoords, places: int, sign: int) -> None:
-    offset = sign * 10**-(places + 1)
+    offset = sign * 10 ** -(places + 1)
     coord2 = mesh.SliceCoords(coord.x1 + offset, coord.x2 + offset, coord.system)
 
     def coords_equal(lhs: mesh.SliceCoords, rhs: mesh.SliceCoords) -> bool:
-        return bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2)) and lhs.system == rhs.system
+        return (
+            bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2))
+            and lhs.system == rhs.system
+        )
 
     assert not coords_equal(coord, coord2)
     assert coords_equal(coord.round(places), coord2.round(places))
@@ -173,11 +190,14 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
 
 @given(from_type(mesh.Coord), integers(4, 10), sampled_from((1, -1)))
 def test_coord_round(coord: mesh.Coord, places: int, sign: int) -> None:
-    offset = sign * 10**-(places + 1)
-    coord2 = mesh.Coord(coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system)
+    offset = sign * 10 ** -(places + 1)
+    coord2 = mesh.Coord(
+        coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system
+    )
     assert coord != coord2
     assert coord.round(places) == coord2.round(places)
     assert coord.round(places + 1) != coord2.round(places + 1)
+
 
 @pytest.mark.parametrize(
     "x1,x2,x3,expected",
@@ -385,11 +405,20 @@ def test_coords_to_cartesian() -> None:
 
 @given(from_type(mesh.Coords), integers(4, 10), sampled_from((1, -1)))
 def test_coords_round(coord: mesh.Coords, places: int, sign: int) -> None:
-    offset = sign * 10**-(places + 1)
-    coord2 = mesh.Coords(coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system)
+    offset = sign * 10 ** -(places + 1)
+    coord2 = mesh.Coords(
+        coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system
+    )
 
     def coords_equal(lhs: mesh.Coords, rhs: mesh.Coords) -> bool:
-        return bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2) and np.all(lhs.x3 == rhs.x3)) and lhs.system == rhs.system
+        return (
+            bool(
+                np.all(lhs.x1 == rhs.x1)
+                and np.all(lhs.x2 == rhs.x2)
+                and np.all(lhs.x3 == rhs.x3)
+            )
+            and lhs.system == rhs.system
+        )
 
     assert not coords_equal(coord, coord2)
     assert coords_equal(coord.round(places), coord2.round(places))
@@ -527,7 +556,9 @@ def test_quad_from_unordered_curves(original: mesh.Quad) -> None:
 @given(from_type(mesh.Quad))
 def test_quad_near_edge(q: mesh.Quad) -> None:
     rounder = methodcaller("round", 7)
-    expected = frozenset(map(rounder, {q.north(0.0).to_coord(), q.south(0.0).to_coord()}))
+    expected = frozenset(
+        map(rounder, {q.north(0.0).to_coord(), q.south(0.0).to_coord()})
+    )
     actual = frozenset(map(rounder, q.near([0.0, 1.0]).iter_points()))
     assert expected == actual
 
@@ -535,7 +566,9 @@ def test_quad_near_edge(q: mesh.Quad) -> None:
 @given(from_type(mesh.Quad))
 def test_quad_far_edge(q: mesh.Quad) -> None:
     rounder = methodcaller("round", 7)
-    expected = frozenset(map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()}))
+    expected = frozenset(
+        map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()})
+    )
     actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points()))
     assert expected == actual
 
@@ -590,7 +623,11 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     start_points = start_curve.control_points(n)
     distances = np.vectorize(
         lambda x1, x2, x3: q.field(mesh.SliceCoord(x1, x2, start_points.system), x3)[1]
-    )(start_points.x1.reshape(-1, 1), start_points.x2.reshape(-1, 1), cp.x3 - start_points.x3.reshape(-1, 1))
+    )(
+        start_points.x1.reshape(-1, 1),
+        start_points.x2.reshape(-1, 1),
+        cp.x3 - start_points.x3.reshape(-1, 1),
+    )
     d_diff = distances[:, 1:] - distances[:, :-1]
     for i in range(n + 1):
         np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-7, atol=1e-10)
@@ -603,7 +640,9 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     dx3 = cp.x3[1:, :] - cp.x3[:-1, :]
     ds_squared = dx1 * dx1 + dx2 * dx2 + dx3 * dx3
     for i in range(n + 1):
-        np.testing.assert_allclose(ds_squared[0, i], ds_squared[:, i], rtol=1e-7, atol=1e-10)
+        np.testing.assert_allclose(
+            ds_squared[0, i], ds_squared[:, i], rtol=1e-7, atol=1e-10
+        )
 
 
 # TODO: Test control points for quads where cross-field nodes don't
@@ -958,7 +997,15 @@ shared_coords = shared(coordinate_systems, key=0)
 
 
 @given(
-    builds(linear_field_trace, whole_numbers, whole_numbers, non_zero, shared_coords, floats(-0.1, 0.1), tuples(whole_numbers, whole_numbers)),
+    builds(
+        linear_field_trace,
+        whole_numbers,
+        whole_numbers,
+        non_zero,
+        shared_coords,
+        floats(-0.1, 0.1),
+        tuples(whole_numbers, whole_numbers),
+    ),
     builds(mesh.SliceCoord, non_zero, whole_numbers, shared_coords),
     whole_numbers,
     non_zero,
@@ -987,20 +1034,28 @@ def test_normalise_straight_field_line(
 
 centre = shared(whole_numbers, key=100)
 rad = shared(non_zero, key=101)
-x3_limit = shared(rad.flatmap(lambda r: floats(*sorted([0.01*r, 0.99*r]))), key=102)
+x3_limit = shared(rad.flatmap(lambda r: floats(*sorted([0.01 * r, 0.99 * r]))), key=102)
 x3_start = x3_limit.map(lambda x: -x)
 slope = shared(whole_numbers, key=103)
-x1_start = shared(tuples(centre, rad).map(sum), key=104)
+x1_start = shared(tuples(centre, rad).map(lambda x: x[0] + x[1]), key=104)
 x2_centre = shared(whole_numbers, key=105)
 cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
 
 
 @given(
     builds(cylindrical_field_trace, centre, slope),
-    builds(cylindrical_field_line, centre, x1_start, x2_centre, slope, tuples(x3_start, x3_limit), cartesian_coords),
+    builds(
+        cylindrical_field_line,
+        centre,
+        x1_start,
+        x2_centre,
+        slope,
+        tuples(x3_start, x3_limit),
+        cartesian_coords,
+    ),
     builds(mesh.SliceCoord, x1_start, x2_centre, cartesian_coords),
     x3_start,
-    x3_limit.map(lambda x: 2*x),
+    x3_limit.map(lambda x: 2 * x),
     integers(20, 40),
     integers(3, 6),
 )
@@ -1021,9 +1076,15 @@ def test_normalise_curved_field_line(
     checkpoints = np.linspace(0.0, 1.0, n)
     coords_normed = normalised(checkpoints)
     expected_coords = line(checkpoints)
-    np.testing.assert_allclose(coords_normed.x1, expected_coords.x1, atol=1e-7, rtol=1e-5)
-    np.testing.assert_allclose(coords_normed.x2, expected_coords.x2, atol=1e-7, rtol=1e-5)
-    np.testing.assert_allclose(coords_normed.x3, expected_coords.x3, atol=1e-7, rtol=1e-5)
+    np.testing.assert_allclose(
+        coords_normed.x1, expected_coords.x1, atol=1e-7, rtol=1e-5
+    )
+    np.testing.assert_allclose(
+        coords_normed.x2, expected_coords.x2, atol=1e-7, rtol=1e-5
+    )
+    np.testing.assert_allclose(
+        coords_normed.x3, expected_coords.x3, atol=1e-7, rtol=1e-5
+    )
     _, distances = trace(start, expected_coords.x3)
     spacing = distances[1:] - distances[:-1]
     np.testing.assert_allclose(spacing, spacing[0])

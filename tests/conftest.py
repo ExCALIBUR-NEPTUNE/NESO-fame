@@ -113,7 +113,12 @@ CARTESIAN_SYSTEMS = {mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CART
 
 
 def linear_field_trace(
-        a1: float, a2: float, a3: float, c: mesh.CoordinateSystem, skew: float, centre: tuple[float, float]
+    a1: float,
+    a2: float,
+    a3: float,
+    c: mesh.CoordinateSystem,
+    skew: float,
+    centre: tuple[float, float],
 ) -> mesh.FieldTrace:
     a1p = a1 / a3 if c in CARTESIAN_SYSTEMS else 0.0
     a2p = a2 / a3 if c != mesh.CoordinateSystem.CARTESIAN2D else 0.0
@@ -121,7 +126,7 @@ def linear_field_trace(
     def cartesian_func(
         start: mesh.SliceCoord, x3: npt.ArrayLike
     ) -> tuple[mesh.SliceCoords, npt.NDArray]:
-        offset = np.sqrt((start.x1 - centre[0])**2 + (start.x2 - centre[1])**2)
+        offset = np.sqrt((start.x1 - centre[0]) ** 2 + (start.x2 - centre[1]) ** 2)
         b1 = a1p * (1 + skew * offset)
         b2 = a2p * (1 + skew * offset)
         if c in CARTESIAN_SYSTEMS:
@@ -148,9 +153,11 @@ def linear_field_line(
     b2: float,
     b3: float,
     c: mesh.CoordinateSystem,
-    skew: float, centre: tuple[float, float]
+    skew: float,
+    centre: tuple[float, float],
 ) -> mesh.NormalisedFieldLine:
-    offset = np.sqrt((b1 - centre[0])**2 + (b2 - centre[1])**2)
+    offset = np.sqrt((b1 - centre[0]) ** 2 + (b2 - centre[1]) ** 2)
+
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
         a = a1 if c in CARTESIAN_SYSTEMS else 0.0
         return mesh.Coords(
@@ -171,7 +178,10 @@ def flat_quad(
     c: mesh.CoordinateSystem,
     skew: float,
 ) -> mesh.Quad:
-    centre = (starts[0][0] + (starts[0][0] - starts[1][0]) / 2, starts[0][1] + (starts[0][1] - starts[1][1]) / 2)
+    centre = (
+        starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
+        starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
+    )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
     north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c, skew, centre))
     south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c, skew, centre))
@@ -189,19 +199,28 @@ def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
         x1 = centre + sign * np.sqrt(rad * rad - x3 * x3)
         dtheta = np.arcsin(x3 / rad)
         x2 = np.asarray(start.x2) + x2_slope * dtheta
-        return mesh.SliceCoords(x1, x2, start.system), np.sqrt(1 + x2_slope*x2_slope) * dtheta * rad
+        return (
+            mesh.SliceCoords(x1, x2, start.system),
+            np.sqrt(1 + x2_slope * x2_slope) * dtheta * rad,
+        )
 
     return cylindrical_func
 
 
 def cylindrical_field_line(
-    centre: float, x1_start: float, x2_centre: float, x2_slope: float, x3_limits: tuple[float, float], system: mesh.CoordinateSystem
+    centre: float,
+    x1_start: float,
+    x2_centre: float,
+    x2_slope: float,
+    x3_limits: tuple[float, float],
+    system: mesh.CoordinateSystem,
 ) -> mesh.NormalisedFieldLine:
     assert system in CARTESIAN_SYSTEMS
     rad = x1_start - centre
     half_x3_sep = 0.5 * (x3_limits[1] - x3_limits[0])
     x3_centre = x3_limits[0] + half_x3_sep
     theta_max = 2 * np.arcsin(half_x3_sep / rad)
+
     def cylindrical_func(s: npt.ArrayLike) -> mesh.Coords:
         theta = theta_max * (np.asarray(s) - 0.5)
         x1 = centre + rad * np.cos(theta)
@@ -211,22 +230,55 @@ def cylindrical_field_line(
 
     return cylindrical_func
 
+
 # TODO: Check that cylindrical_field_trace and cylindrical_field_line match up?
 
-def curved_quad(centre: float, x1_start: tuple[float, float], x2_centre: float, x2_slope: float, x3_limits: tuple[float, float], system: mesh.CoordinateSystem) -> mesh.Quad:
-    north = mesh.Curve(cylindrical_field_line(centre, x1_start[0], x2_centre, x2_slope, x3_limits, system))
-    south = mesh.Curve(cylindrical_field_line(centre, x1_start[1], x2_centre, x2_slope, x3_limits, system))
+
+def curved_quad(
+    centre: float,
+    x1_start: tuple[float, float],
+    x2_centre: float,
+    x2_slope: float,
+    x3_limits: tuple[float, float],
+    system: mesh.CoordinateSystem,
+) -> mesh.Quad:
+    north = mesh.Curve(
+        cylindrical_field_line(
+            centre, x1_start[0], x2_centre, x2_slope, x3_limits, system
+        )
+    )
+    south = mesh.Curve(
+        cylindrical_field_line(
+            centre, x1_start[1], x2_centre, x2_slope, x3_limits, system
+        )
+    )
     trace = cylindrical_field_trace(centre, x2_slope)
     return mesh.Quad(north, south, None, trace)
 
-def wedge_quad(centre: float, x1_start: tuple[float, float], x2_centre: float, x2_slope: float, x3_limits: tuple[float, float], system: mesh.CoordinateSystem) -> mesh.Quad:
+
+def wedge_quad(
+    centre: float,
+    x1_start: tuple[float, float],
+    x2_centre: float,
+    x2_slope: float,
+    x3_limits: tuple[float, float],
+    system: mesh.CoordinateSystem,
+) -> mesh.Quad:
     x3_centre = 0.5 * (x3_limits[1] + x3_limits[0])
     x3_limits_south = (
         (x3_limits[0] - x3_centre) / (x1_start[0] - centre) * (x1_start[1] - centre),
-        (x3_limits[1] - x3_centre) / (x1_start[0] - centre) * (x1_start[1] - centre)
+        (x3_limits[1] - x3_centre) / (x1_start[0] - centre) * (x1_start[1] - centre),
     )
-    north = mesh.Curve(cylindrical_field_line(centre, x1_start[0], x2_centre, x2_slope, x3_limits, system))
-    south = mesh.Curve(cylindrical_field_line(centre, x1_start[1], x2_centre, x2_slope, x3_limits_south, system))
+    north = mesh.Curve(
+        cylindrical_field_line(
+            centre, x1_start[0], x2_centre, x2_slope, x3_limits, system
+        )
+    )
+    south = mesh.Curve(
+        cylindrical_field_line(
+            centre, x1_start[1], x2_centre, x2_slope, x3_limits_south, system
+        )
+    )
     trace = cylindrical_field_trace(centre, x2_slope)
     return mesh.Quad(north, south, None, trace)
 
@@ -250,7 +302,6 @@ def _quad_mesh_elements(
     ]
 
 
-
 def get_boundaries(mesh_sequence: list[mesh.Quad]) -> list[frozenset[mesh.Curve]]:
     return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
 
@@ -265,8 +316,9 @@ def _get_end_point(
     )
 
 
-
-def straight_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.Curve]:
+def straight_line_for_system(
+    system: mesh.CoordinateSystem,
+) -> SearchStrategy[mesh.Curve]:
     return builds(
         linear_field_line,
         whole_numbers,
@@ -276,26 +328,28 @@ def straight_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[me
         whole_numbers,
         whole_numbers,
         just(system),
-        just(0.),
-        just((0., 0.)),
-).map(mesh.Curve)
+        just(0.0),
+        just((0.0, 0.0)),
+    ).map(mesh.Curve)
+
 
 _centre = shared(whole_numbers, key=1)
-_rad = shared(whole_numbers.filter(lambda r: r != 0.), key=2)
+_rad = shared(whole_numbers.filter(lambda r: r != 0.0), key=2)
 _x3_start = shared(whole_numbers, key=3)
-_x3_end = tuples(_rad, floats(0.01, 2.), _x3_start).map(lambda x: x[2] + x[0] * x[1])
+_x3_end = tuples(_rad, floats(0.01, 2.0), _x3_start).map(lambda x: x[2] + x[0] * x[1])
 _x1_start = tuples(_centre, _rad).map(lambda x: x[0] + x[1])
+
 
 def curved_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.Curve]:
     return builds(
-    cylindrical_field_line,
-    _centre,
-    _x1_start,
-    whole_numbers,
-    whole_numbers,
-    tuples(_x3_start, _x3_end),
-    just(system),
-).map(mesh.Curve)
+        cylindrical_field_line,
+        _centre,
+        _x1_start,
+        whole_numbers,
+        whole_numbers,
+        tuples(_x3_start, _x3_end),
+        just(system),
+    ).map(mesh.Curve)
 
 
 coordinate_systems = sampled_from(mesh.CoordinateSystem)
@@ -317,9 +371,11 @@ linear_quad = builds(
         tuples(whole_numbers, whole_numbers, whole_numbers),
     ).filter(lambda x: x[0][0:2] != x[1][0:2]),
     coordinate_systems,
-    floats(-2., 2.)
+    floats(-2.0, 2.0),
 ).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
-_x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.)).map(lambda x: x[0] + x[1] * x[2])
+_x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
+    lambda x: x[0] + x[1] * x[2]
+)
 curve_edged_quad = builds(
     wedge_quad,
     _centre,
