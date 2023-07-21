@@ -7,14 +7,18 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from hypothesis import given
-from hypothesis.strategies import builds, floats, from_type, integers, lists, one_of, sampled_from, shared, tuples
+from hypothesis.strategies import booleans, builds, composite, floats, from_type, integers, lists, one_of, sampled_from, shared, tuples
 
 from neso_fame import mesh
 
 from .conftest import (
+    CARTESIAN_SYSTEMS,
     _quad_mesh_elements,
     coordinate_systems,
+    cylindrical_field_line,
+    cylindrical_field_trace,
     linear_field_trace,
+    linear_quad,
     mesh_arguments,
     mutually_broadcastable_arrays,
     non_nans,
@@ -522,14 +526,15 @@ def test_quad_from_unordered_curves(original: mesh.Quad) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_near_edge(q: mesh.Quad) -> None:
-    expected = frozenset({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
-    actual = frozenset(q.near([0.0, 1.0]).iter_points())
+    rounder = methodcaller("round", 7)
+    expected = frozenset(map(rounder, {q.north(0.0).to_coord(), q.south(0.0).to_coord()}))
+    actual = frozenset(map(rounder, q.near([0.0, 1.0]).iter_points()))
     assert expected == actual
 
 
 @given(from_type(mesh.Quad))
 def test_quad_far_edge(q: mesh.Quad) -> None:
-    rounder = methodcaller("round")
+    rounder = methodcaller("round", 7)
     expected = frozenset(map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()}))
     actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points()))
     assert expected == actual
@@ -537,7 +542,7 @@ def test_quad_far_edge(q: mesh.Quad) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    rounder = methodcaller("round")
+    rounder = methodcaller("round", 7)
     expected = frozenset(map(rounder, q.corners().iter_points()))
     actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points())) | frozenset(
         map(rounder, q.near([0.0, 1.0]).iter_points())
@@ -554,7 +559,7 @@ def test_quad_corners(q: mesh.Quad) -> None:
     assert corners[3] == next(q.south(1.0).iter_points())
 
 
-@given(from_type(mesh.Quad), integers(1, 5))
+@given(linear_quad, integers(1, 5))
 def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     corners = q.corners()
     x1_max, x2_max, x3_max = map(np.max, corners)
@@ -570,10 +575,6 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     assert np.all(cp.x1 >= x1_min)
     assert np.all(cp.x2 >= x2_min)
     assert np.all(cp.x3 >= x3_min)
-    # TODO: Check these are equally spaced along trace (easy in x3 direction,
-    #       harder in others)
-    # TODO: Write a check for some known values
-    pass
 
 
 @given(from_type(mesh.Quad), integers(2, 5))
@@ -589,24 +590,25 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     start_points = start_curve.control_points(n)
     distances = np.vectorize(
         lambda x1, x2, x3: q.field(mesh.SliceCoord(x1, x2, start_points.system), x3)[1]
-    )(start_points.x1, start_points.x2, cp.x3 - start_points.x3)
-    d_diff = distances[1:, :] - distances[:-1, :]
+    )(start_points.x1.reshape(-1, 1), start_points.x2.reshape(-1, 1), cp.x3 - start_points.x3.reshape(-1, 1))
+    d_diff = distances[:, 1:] - distances[:, :-1]
     for i in range(n + 1):
-        np.testing.assert_allclose(d_diff[0, i], d_diff[:, i])
+        np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-7, atol=1e-10)
     # Check spacing in the perpendicular direction
     # Note: The way this test works won't hold true with a completely
     # general curved quad, but holds for the simple examples we
     # generate here.
-    dx1 = cp.x1[:, 1:] - cp.x1[:, :-1]
-    dx2 = cp.x2[:, 1:] - cp.x2[:, :-1]
-    dx3 = cp.x3[:, 1:] - cp.x3[:, :-1]
+    dx1 = cp.x1[1:, :] - cp.x1[:-1, :]
+    dx2 = cp.x2[1:, :] - cp.x2[:-1, :]
+    dx3 = cp.x3[1:, :] - cp.x3[:-1, :]
     ds_squared = dx1 * dx1 + dx2 * dx2 + dx3 * dx3
     for i in range(n + 1):
-        np.testing.assert_allclose(ds_squared[i, 0], ds_squared[i])
+        np.testing.assert_allclose(ds_squared[0, i], ds_squared[:, i], rtol=1e-7, atol=1e-10)
 
 
-# TODO: Test control points for quads where relative spacing of field
-# lines changes with x3
+# TODO: Test control points for quads where cross-field nodes don't
+# all form straight lines (need to decide on appropriate behaviour
+# first)
 
 
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
@@ -963,7 +965,7 @@ shared_coords = shared(coordinate_systems, key=0)
     integers(2, 8),
     integers(3, 12),
 )
-def test_normalise_field_line(
+def test_normalise_straight_field_line(
     trace: mesh.FieldTrace,
     start: mesh.SliceCoord,
     x3_start: float,
@@ -971,7 +973,6 @@ def test_normalise_field_line(
     resolution: int,
     n: int,
 ) -> None:
-    print(trace(start, x3_start), trace(start, x3_start + dx3))
     normalised = mesh.normalise_field_line(
         trace, start, x3_start, x3_start + dx3, resolution
     )
@@ -982,3 +983,47 @@ def test_normalise_field_line(
     np.testing.assert_allclose(coords_trace.x2, coords_normed.x2, atol=1e-7)
     spacing = distances[1:] - distances[:-1]
     np.testing.assert_allclose(spacing, spacing[0], atol=1e-7)
+
+
+centre = shared(whole_numbers, key=100)
+rad = shared(non_zero, key=101)
+x3_limit = shared(rad.flatmap(lambda r: floats(*sorted([0.01*r, 0.99*r]))), key=102)
+x3_start = x3_limit.map(lambda x: -x)
+slope = shared(whole_numbers, key=103)
+x1_start = shared(tuples(centre, rad).map(sum), key=104)
+x2_centre = shared(whole_numbers, key=105)
+cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
+
+
+@given(
+    builds(cylindrical_field_trace, centre, slope),
+    builds(cylindrical_field_line, centre, x1_start, x2_centre, slope, tuples(x3_start, x3_limit), cartesian_coords),
+    builds(mesh.SliceCoord, x1_start, x2_centre, cartesian_coords),
+    x3_start,
+    x3_limit.map(lambda x: 2*x),
+    integers(20, 40),
+    integers(3, 6),
+)
+def test_normalise_curved_field_line(
+    trace: mesh.FieldTrace,
+    line: mesh.NormalisedFieldLine,
+    start: mesh.SliceCoord,
+    x3_start: float,
+    dx3: float,
+    resolution: int,
+    n: int,
+) -> None:
+    # Note: part of the motivation of this test is to ensure my
+    # functions to generate curved fields are self-consistent.
+    normalised = mesh.normalise_field_line(
+        trace, start, x3_start, x3_start + dx3, resolution
+    )
+    checkpoints = np.linspace(0.0, 1.0, n)
+    coords_normed = normalised(checkpoints)
+    expected_coords = line(checkpoints)
+    np.testing.assert_allclose(coords_normed.x1, expected_coords.x1, atol=1e-7, rtol=1e-5)
+    np.testing.assert_allclose(coords_normed.x2, expected_coords.x2, atol=1e-7, rtol=1e-5)
+    np.testing.assert_allclose(coords_normed.x3, expected_coords.x3, atol=1e-7, rtol=1e-5)
+    _, distances = trace(start, expected_coords.x3)
+    spacing = distances[1:] - distances[:-1]
+    np.testing.assert_allclose(spacing, spacing[0])
