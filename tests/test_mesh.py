@@ -8,9 +8,7 @@ import numpy.typing as npt
 import pytest
 from hypothesis import given
 from hypothesis.strategies import (
-    booleans,
     builds,
-    composite,
     floats,
     from_type,
     integers,
