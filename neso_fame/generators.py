@@ -9,18 +9,20 @@ from collections.abc import Sequence
 from typing import Optional
 
 import numpy as np
+import numpy.typing as npt
 
 from .mesh import (
     Coords,
     Curve,
     FieldTrace,
+    FieldTracer,
     GenericMesh,
     MeshLayer,
+    NormalisedFieldLine,
     Quad,
     QuadMesh,
     SliceCoord,
     SliceCoords,
-    normalise_field_line,
 )
 
 Connectivity = Sequence[tuple[int, int]]
@@ -34,19 +36,38 @@ def _ordered_connectivity(size: int) -> Connectivity:
     return list(itertools.pairwise(range(size)))
 
 
+BOUNDARY_TRACER = FieldTracer(
+    lambda start, x3: (SliceCoords(
+        np.full_like(x3, start.x1),
+        np.full_like(x3, start.x2),
+        start.system), np.asarray(x3)), 2
+)
+
 def _boundary_curve(start: SliceCoord, dx3: float) -> Curve:
     """Produces a curve with constant x1 and x2 coordinates set by
     ``start`` and which goes from ``-x3/2`` to ``x3/2``.
 
     """
-    return Curve(
-        lambda s: Coords(
-            np.full_like(s, start.x1),
-            np.full_like(s, start.x2),
-            dx3 * (np.asarray(s) - 0.5),
-            start.system,
+    return Curve(BOUNDARY_TRACER, start, (-0.5 * dx3, 0.5 * dx3))
+
+
+
+def _line_from_points(north: SliceCoord, south: SliceCoord) -> NormalisedFieldLine:
+    """Creates a function representing a straight line between the two
+    specified points.
+    """
+
+    def _line(s: npt.ArrayLike) -> Coords:
+        s = np.asarray(s)
+        return Coords(
+            north.x1 + (south.x1 - north.x1) * s,
+            north.x2 + (south.x2 - north.x2) * s,
+            np.asarray(0.),
+            north.system,
         )
-    )
+
+    return _line
+
 
 
 def field_aligned_2d(
@@ -120,18 +141,12 @@ def field_aligned_2d(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
+    tracer = FieldTracer(field_line, spatial_interp_resolution)
 
     curves = [
         _boundary_curve(coord, dx3)
         if i in (0, num_nodes - 1) and conform_to_bounds
-        else Curve(
-            normalise_field_line(
-                field_line,
-                coord,
-                -0.5 * dx3,
-                0.5 * dx3,
-                spatial_interp_resolution * subdivisions,
-            )
+        else Curve(tracer, coord, (-0.5 * dx3, 0.5 * dx3),
         )
         for i, coord in enumerate(lower_dim_mesh.iter_points())
     ]
@@ -139,7 +154,8 @@ def field_aligned_2d(
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 
-    quads = [Quad(curves[i], curves[j], None, field_line) for i, j in connectivity]
+    
+    quads = [Quad(_line_from_points(lower_dim_mesh[i], lower_dim_mesh[j]), tracer, (-0.5*dx3, 0.5*dx3)) for i, j in connectivity]
 
     return GenericMesh(
         MeshLayer(

@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
+from operator import methodcaller
 from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
 
 import numpy as np
@@ -320,9 +321,20 @@ class Curve:
 
     """
 
-    function: NormalisedFieldLine
-    """The function defining the shape of this curve"""
+    field: FieldTracer
+    """The underlying magnetic field to which the quadrilateral is aligned"""
+    start: SliceCoord
+    x3_limits: tuple[float, float]
+    """The start and end points of the quad in the x3-direction."""
+    subdivision: int = 0
+    num_divisions: int = 1
+    x3_offset: float = 0.
 
+    @cached_property
+    def function(self) -> NormalisedFieldLine:
+        func = self.field.get_normalised_subdivision(self.start, *self.x3_limits, self.subdivision, self.num_divisions)
+        return lambda s: func(s).offset(self.x3_offset)
+    
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Convenience function so that a Curve is itself a
         :obj:`~neso_fame.mesh.NormalisedFieldLine`"""
@@ -332,23 +344,17 @@ class Curve:
         """Returns a new `Curve` object which is identical except
         offset by the specified ammount in the x3-direction.
         """
-        return Curve(lambda s: self.function(s).offset(offset))
+        return Curve(self.field, self.start, self.x3_limits, self.subdivision, self.num_divisions, self.x3_offset + offset)
 
     def subdivide(self, num_divisions: int) -> Iterator[Curve]:
         """Returns an iterator of curves created by splitting this one
         up into equal-length segments.
         """
-
-        def subdivision(
-            func: NormalisedFieldLine, i: int, divs: int
-        ) -> NormalisedFieldLine:
-            return lambda s: func((i + np.asarray(s)) / divs)
-
         if num_divisions <= 1:
             yield self
         else:
             for i in range(num_divisions):
-                yield Curve(subdivision(self.function, i, num_divisions))
+                yield Curve(self.field, self.start, self.x3_limits, self.subdivision * num_divisions + i, self.num_divisions * num_divisions, self.x3_offset)
 
     @cache
     def control_points(self, order) -> Coords:
@@ -360,7 +366,7 @@ class Curve:
         return self.function(s)
 
 
-def _line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
+def line_from_points(north: Coord, south: Coord) -> NormalisedFieldLine:
     """Creates a function representing a straight line between the two
     specified points.
     """
@@ -400,70 +406,61 @@ class Quad:
 
     """
 
-    north: Curve
-    """Curve defining one edge of the quadrilateral"""
-    south: Curve
-    """Curve defining the other edge of the quadrilateral"""
-    in_plane: Optional[Curve]
-    """Desribes the shape of the quad in 3D space, at the x3 from
-    which the bounding curves were projected along the field lines."""
-    field: FieldTrace
+    # FIXME: This should be a different type of function which returns
+    # slice coords. Not sure I even need NormalisedFieldLine anymore.
+    shape: NormalisedFieldLine
+    """Desribes the shape of the quad in the poloidal plane from which it is projected.in 3D space. It can be either
+    
+    * A curve which connects the north and south bounding curves at
+      the x3 location from which the quad is projected.
+    * A tuple of the `s` arguments needed for `north` and `south`
+      (respectively) to get the point on those curves at that x3
+      location. In this case, a straight line will be drawn between
+      those two points.
+    """
+    field: FieldTracer
     """The underlying magnetic field to which the quadrilateral is aligned"""
+    x3_limits: tuple[float, float]
+    """The start and end points of the quad in the x3-direction."""
+    subdivision: int = 0
+    num_divisions: int = 1
+    x3_offset: float = 0.
 
     def __iter__(self) -> Iterator[Curve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
         yield self.north
         yield self.south
 
+    def _get_field_line(self, start: Coord) -> Curve:
+        return Curve(self.field, SliceCoord(start.x1, start.x2, start.system), self.x3_limits, self.subdivision, self.num_divisions, self.x3_offset)
+
     @cached_property
-    def near(self) -> Curve:
+    def north(self) -> Curve:
+        """Field-aligned curve which defines one edge of the quadrilateral."""
+        return self._get_field_line(self.shape(0.).to_coord())
+
+    @cached_property
+    def south(self) -> Curve:
+        """Field-aligned curve which defines one edge of the quadrilateral."""
+        return self._get_field_line(self.shape(1.).to_coord())
+
+    @cached_property
+    def near(self) -> NormalisedFieldLine:
         """Returns a curve connecting the starting points (s=0) of the
         curves defining the boundaries of the quadrilateral.
 
         """
-        return Curve(
-            _line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
-        )
+        # FIXME: Doesn't handle self.shape being something other than a straight line
+        return line_from_points(self.north(0.0).to_coord(), self.south(0.0).to_coord())
 
     @cached_property
-    def far(self) -> Curve:
+    def far(self) -> NormalisedFieldLine:
         """Returns a curve connecting the end-points (s=1) of the
         curves defining the boundaries of the quadrilateral.
 
         """
-        return Curve(
-            _line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
-        )
-
-    @classmethod
-    @cache
-    def _cached_quad(
-        cls,
-        north: Curve,
-        south: Curve,
-        in_plane: Optional[Curve],
-        field: FieldTrace,
-    ) -> Quad:
-        return cls(north, south, in_plane, field)
-
-    # FIXME: I don't think this is actually useful. Do I actually need
-    # things to be cached? Think this is a holdover from when I was
-    # filtering elements that fell outside the domain. Would be more
-    # convenient to know something about the order of the curve though
-    # (at least in the 2D case).
-    @classmethod
-    def from_unordered_curves(
-        cls,
-        curve1: Curve,
-        curve2: Curve,
-        in_plane: Optional[Curve],
-        field: FieldTrace,
-    ) -> Quad:
-        """Returns the same quad object, regardless of the order the
-        curve1 and curve2 arguments."""
-        if hash(curve1) < hash(curve2):
-            return cls._cached_quad(curve1, curve2, in_plane, field)
-        return cls._cached_quad(curve2, curve1, in_plane, field)
+        # FIXME: Doesn't handle self.shape being something other than a straight line
+        return line_from_points(self.north(1.0).to_coord(), self.south(1.0).to_coord())
 
     def corners(self) -> Coords:
         """Returns the points corresponding to the corners of the quadrilateral."""
@@ -481,33 +478,32 @@ class Quad:
         surface, in an array of dimensions [3, order + 1, order + 1].
 
         """
-        if self.in_plane is None:
-            # FIXME: Is this strictly correct?
-            # FIXME: can I be confident that the start and end will be exactly
-            #        as specified?
-            north_samples = self.north.control_points(order)
-            south_samples = self.south.control_points(order)
-            return Coords(
-                np.linspace(north_samples.x1, south_samples.x1, order + 1),
-                np.linspace(north_samples.x2, south_samples.x2, order + 1),
-                np.linspace(north_samples.x3, south_samples.x3, order + 1),
-                north_samples.system,
-            )
-        raise NotImplementedError(
-            "Can not yet handle Quads where all four edges are curved"
-        )
+        samples = np.linspace(0., 1., order + 1)
+        start_points = self.shape(samples)
+        x1 = np.empty((order + 1, order + 1))
+        x2 = np.empty((order + 1, order + 1))
+        x3 = np.empty((order + 1, order + 1))
+        for i, line in enumerate(map(self._get_field_line, start_points.iter_points())):
+            coords = line(samples)
+            x1[:, i] = coords.x1
+            x2[:, i] = coords.x2
+            x3[:, i] = coords.x3
+        return Coords(x1, x2, x3, coords.system)
+        # north_samples = self.north.control_points(order)
+        # south_samples = self.south.control_points(order)
+        # return Coords(
+        #     np.linspace(north_samples.x1, south_samples.x1, order + 1),
+        #     np.linspace(north_samples.x2, south_samples.x2, order + 1),
+        #     np.linspace(north_samples.x3, south_samples.x3, order + 1),
+        #     north_samples.system,
+        # )
 
     def offset(self, offset: float) -> Quad:
         """Returns a quad which is identical except that it is shifted
         by the specified offset in the x3 direction.
 
         """
-        return Quad(
-            self.north.offset(offset),
-            self.south.offset(offset),
-            self.in_plane.offset(offset) if self.in_plane is not None else None,
-            self.field,
-        )
+        return Quad(self.shape, self.field, self.x3_limits, self.subdivision, self.num_divisions, self.x3_offset + offset)
 
     def subdivide(self, num_divisions: int) -> Iterator[Quad]:
         """Returns an iterator of quad objects produced by splitting
@@ -519,17 +515,8 @@ class Quad:
         if num_divisions <= 1:
             yield self
         else:
-            for n, s in zip(
-                self.north.subdivide(num_divisions), self.south.subdivide(num_divisions)
-            ):
-                yield Quad(
-                    n,
-                    s,
-                    self.in_plane.offset(cast(float, 0.5 * (n(0.0).x3 + s(0.0).x3)))
-                    if self.in_plane is not None
-                    else None,
-                    self.field,
-                )
+            for i in range(num_divisions):
+                yield Quad(self.shape, self.field, self.x3_limits, self.subdivision * num_divisions + i, self.num_divisions * num_divisions, self.x3_offset)
 
 
 @dataclass(frozen=True)
@@ -574,12 +561,12 @@ class Hex:
 
         """
         north = Curve(
-            _line_from_points(
+            line_from_points(
                 self.north.north(0.0).to_coord(), self.north.south(0.0).to_coord()
             )
         )
         south = Curve(
-            _line_from_points(
+            line_from_points(
                 self.south.north(0.0).to_coord(), self.south.south(0.0).to_coord()
             )
         )
@@ -593,12 +580,12 @@ class Hex:
 
         """
         north = Curve(
-            _line_from_points(
+            line_from_points(
                 self.north.north(1.0).to_coord(), self.north.south(1.0).to_coord()
             )
         )
         south = Curve(
-            _line_from_points(
+            line_from_points(
                 self.south.north(1.0).to_coord(), self.south.south(1.0).to_coord()
             )
         )
@@ -954,3 +941,41 @@ def normalise_field_line(
         return Coords(locations[0], locations[1], locations[2], coord_system)
 
     return normalised_interpolator
+
+
+@dataclass(frozen=True)
+class FieldTracer:
+    trace: FieldTrace
+    resolution: int = 10
+
+    @staticmethod
+    def _make_interpolator(s: npt.NDArray, coords: npt.NDArray, order: str, system: CoordinateSystem) -> NormalisedFieldLine:
+        interp = interp1d((s - s[0]) / (s[-1] - s[0]), coords, order)
+        
+        def normalised_interpolator(s: npt.ArrayLike) -> Coords:
+            locations = interp(s)
+            return Coords(locations[0], locations[1], locations[2], system)
+
+        return normalised_interpolator
+
+    
+    @cache
+    def _normalise_and_subdivide(self, start: SliceCoord, x3_min: float,
+    x3_max: float, divisions: int) -> list[NormalisedFieldLine]:
+        x3 = np.linspace(x3_min, x3_max, (self.resolution - 1) * divisions + 1)
+        x1_x2_coords: SliceCoords
+        s: npt.NDArray
+        x1_x2_coords, s = self.trace(start, x3)
+        coordinates = np.stack([*x1_x2_coords, x3])
+        order = "cubic" if self.resolution > 3 else "quadratic" if self.resolution > 2 else "linear"
+
+        slices = (slice(i*(self.resolution-1), (i+1)*(self.resolution-1)+1) for i in range(divisions))
+        return [self._make_interpolator(s[sl], coordinates[:, sl], order, start.system) for sl in slices]
+
+    def get_normalised_subdivision(self, start: SliceCoord, x3_min: float,
+                                   x3_max: float, division: int, total_divisions: int) -> NormalisedFieldLine:
+        assert division < total_divisions, f"Can not request division {division} when only {total_divisions} are present"
+        assert total_divisions > 0, "Number of divisions must be positive"
+        assert division >= 0, "Division number must be non-negative"
+        segments = self._normalise_and_subdivide(start, x3_min, x3_max, total_divisions)
+        return segments[division]

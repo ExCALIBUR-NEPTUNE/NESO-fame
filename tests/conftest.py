@@ -1,4 +1,5 @@
 import itertools
+import operator
 
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +18,7 @@ from hypothesis.strategies import (
     from_type,
     integers,
     just,
+    lists,
     none,
     one_of,
     register_type_strategy,
@@ -42,8 +44,9 @@ def arbitrary_arrays():
     return arrays(floating_dtypes(), array_shapes())
 
 
-whole_numbers = integers(-1000, 1000).map(float)
-nonnegative_numbers = integers(1, 1000).map(float)
+WHOLE_NUM_MAX = 1000
+whole_numbers = integers(-WHOLE_NUM_MAX, WHOLE_NUM_MAX).map(float)
+nonnegative_numbers = integers(1, WHOLE_NUM_MAX).map(float)
 non_zero = whole_numbers.filter(lambda x: x != 0.0)
 
 
@@ -69,6 +72,16 @@ def mutually_broadcastable_from(
     return strategy.flatmap(shape_to_array)
 
 
+def slice_coord_for_system(
+    system: mesh.CoordinateSystem,
+) -> SearchStrategy[mesh.SliceCoord]:
+    return builds(
+        mesh.SliceCoord,
+        whole_numbers,
+        whole_numbers,
+        just(system),
+    )
+
 register_type_strategy(
     mesh.SliceCoords,
     builds(
@@ -80,12 +93,7 @@ register_type_strategy(
 
 register_type_strategy(
     mesh.SliceCoord,
-    builds(
-        mesh.SliceCoord,
-        whole_numbers,
-        whole_numbers,
-        sampled_from(mesh.CoordinateSystem),
-    ),
+    sampled_from(mesh.CoordinateSystem).flatmap(slice_coord_for_system),
 )
 
 register_type_strategy(
@@ -170,22 +178,31 @@ def linear_field_line(
     return linear_func
 
 
-def flat_quad(
+def trapezoidal_quad(
     a1: float,
     a2: float,
     a3: float,
-    starts: tuple[tuple[float, float, float], tuple[float, float, float]],
+    starts: tuple[tuple[float, float], tuple[float, float]],
     c: mesh.CoordinateSystem,
     skew: float,
+    resolution: int,
+    division: int,
+    num_divisions: int,
+    offset: float
 ) -> mesh.Quad:
     centre = (
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
+    def shape(s: npt.ArrayLike) -> mesh.Coords:
+        s = np.asarray(s)
+        return mesh.Coords(starts[0][0] + (starts[1][0] - starts[0][0])*s,
+                      starts[0][1] + (starts[1][1] - starts[0][1])*s,
+                      np.array(0.),
+                      c)
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
-    north = mesh.Curve(linear_field_line(a1, a2, a3, *starts[0], c, skew, centre))
-    south = mesh.Curve(linear_field_line(a1, a2, a3, *starts[1], c, skew, centre))
-    return mesh.Quad(north, south, None, trace)
+    x3_lims = (-0.5 * a3, 0.5 * a3)
+    return mesh.Quad(shape, mesh.FieldTracer(trace, resolution), x3_lims, division, num_divisions, offset)
 
 
 def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
@@ -231,9 +248,6 @@ def cylindrical_field_line(
     return cylindrical_func
 
 
-# TODO: Check that cylindrical_field_trace and cylindrical_field_line match up?
-
-
 def curved_quad(
     centre: float,
     x1_start: tuple[float, float],
@@ -241,64 +255,68 @@ def curved_quad(
     x2_slope: float,
     x3_limits: tuple[float, float],
     system: mesh.CoordinateSystem,
+    resolution: int,
+    division: int,
+    num_divisions: int,
+    offset: float
 ) -> mesh.Quad:
-    north = mesh.Curve(
-        cylindrical_field_line(
-            centre, x1_start[0], x2_centre, x2_slope, x3_limits, system
-        )
-    )
-    south = mesh.Curve(
-        cylindrical_field_line(
-            centre, x1_start[1], x2_centre, x2_slope, x3_limits, system
-        )
-    )
     trace = cylindrical_field_trace(centre, x2_slope)
-    return mesh.Quad(north, south, None, trace)
+    def shape(s: npt.ArrayLike) -> mesh.Coords:
+        s = np.asarray(s)
+        return mesh.Coords(x1_start[0] + (x1_start[1] - x1_start[0])*s,
+                      np.array(x2_centre),
+                      np.array(0.),
+                        system)
+    return mesh.Quad(shape, mesh.FieldTracer(trace, resolution), x3_limits, division, num_divisions, offset)
 
 
-def wedge_quad(
-    centre: float,
-    x1_start: tuple[float, float],
-    x2_centre: float,
-    x2_slope: float,
-    x3_limits: tuple[float, float],
-    system: mesh.CoordinateSystem,
-) -> mesh.Quad:
-    x3_centre = 0.5 * (x3_limits[1] + x3_limits[0])
-    x3_limits_south = (
-        (x3_limits[0] - x3_centre) / (x1_start[0] - centre) * (x1_start[1] - centre),
-        (x3_limits[1] - x3_centre) / (x1_start[0] - centre) * (x1_start[1] - centre),
-    )
-    north = mesh.Curve(
-        cylindrical_field_line(
-            centre, x1_start[0], x2_centre, x2_slope, x3_limits, system
-        )
-    )
-    south = mesh.Curve(
-        cylindrical_field_line(
-            centre, x1_start[1], x2_centre, x2_slope, x3_limits_south, system
-        )
-    )
-    trace = cylindrical_field_trace(centre, x2_slope)
-    return mesh.Quad(north, south, None, trace)
-
+def higher_dim_quad(q: mesh.Quad, angle: float) -> mesh.Quad:
+    # This assumes that dx3/ds is an even function about the starting
+    # x3 point from which the bounding field lines were projected.
+    north = q.north(0.5)
+    south = q.south(0.5)
+    np.testing.assert_allclose(north.x3, south.x3, atol=1e-10, rtol=1e-10)
+    x1_1 = float(north.x1)
+    x2_1 = float(north.x2)
+    x1_2 = float(south.x1)
+    x2_2 = float(south.x2)
+    dx1 = x1_1 - x1_2
+    dx2 = x2_1 - x2_2
+    r = (dx1*dx1 + dx2*dx2)/(2*dx1*np.cos(angle) + 2*dx2*np.sin(angle))
+    x1_c = x1_1 - r * np.cos(angle)
+    x2_c = x2_1 - r * np.sin(angle)
+    a = np.arctan2(x2_2 - x2_c, x1_2 - x1_c) - angle
+    def curve(s: npt.ArrayLike) -> mesh.Coords:
+        s = np.asarray(s)
+        return mesh.Coords(x1_c + r*np.cos(angle + a * s), x2_c + r*np.sin(angle + a*s), north.x3, north.system)
+    return mesh.Quad(curve, q.field, q.x3_limits, q.subdivision, q.num_divisions, q.x3_offset)
 
 def _quad_mesh_elements(
     a1: float,
     a2: float,
     a3: float,
-    limits: tuple[tuple[float, float, float], tuple[float, float, float]],
+    limits: tuple[tuple[float, float], tuple[float, float]],
     num_quads: int,
     c: mesh.CoordinateSystem,
+    resolution: int,
+    division: int,
+    num_divisions: int,
+    offset: float
 ) -> list[mesh.Quad]:
-    trace = linear_field_trace(a1, a2, a3, c, 0, (0, 0))
-    starts = np.linspace(limits[0], limits[1], num_quads + 1)
+    trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
+    def make_shape(starts: tuple[tuple[float, float], tuple[float, float]]) -> mesh.NormalisedFieldLine:
+        def shape(s: npt.ArrayLike) -> mesh.Coords:
+            s = np.asarray(s)
+            return mesh.Coords(starts[0][0] + (starts[1][0] - starts[0][0])*s,
+                               starts[0][1] + (starts[1][1] - starts[0][1])*s,
+                               np.array(0.),
+                               c)
+        return shape
+    points = np.linspace(limits[0], limits[1], num_quads + 1)
+    x3_lims = (-0.5 * a3, 0.5 * a3)
     return [
-        mesh.Quad(c1, c2, None, trace)
-        for c1, c2 in itertools.pairwise(
-            mesh.Curve(linear_field_line(a1, a2, a3, s[0], s[1], s[2], c, 0, (0, 0)))
-            for s in starts
-        )
+        mesh.Quad(shape, trace, x3_lims, division, num_divisions, offset)
+        for shape in map(make_shape, itertools.pairwise(points))
     ]
 
 
@@ -319,37 +337,46 @@ def _get_end_point(
 def straight_line_for_system(
     system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.Curve]:
-    return builds(
-        linear_field_line,
-        whole_numbers,
-        whole_numbers,
-        non_zero,
-        whole_numbers,
-        whole_numbers,
-        whole_numbers,
+    a1 = shared(whole_numbers, key=541)
+    a2 = shared(whole_numbers, key=542)
+    a3 = shared(non_zero, key=543)
+
+    trace = builds(
+        linear_field_trace,
+        a1, a2, a3,
         just(system),
         just(0.0),
         just((0.0, 0.0)),
-    ).map(mesh.Curve)
+    )   
+    return builds(
+        mesh.Curve,
+        builds(mesh.FieldTracer, trace, integers(2, 10)),
+        slice_coord_for_system(system),
+        lists(whole_numbers, min_size=2, max_size=2, unique=True).map(sorted).map(tuple),
+        _divisions,
+        _num_divisions,
+        whole_numbers,
+    )
 
 
 _centre = shared(whole_numbers, key=1)
-_rad = shared(whole_numbers.filter(lambda r: r != 0.0), key=2)
-_x3_start = shared(whole_numbers, key=3)
-_x3_end = tuples(_rad, floats(0.01, 2.0), _x3_start).map(lambda x: x[2] + x[0] * x[1])
+_rad = shared(non_zero, key=2)
+_x3_limits = lists(builds(operator.mul, _rad, non_zero.map(lambda x: x/WHOLE_NUM_MAX)), min_size=2, max_size=2, unique=True).map(tuple)
 _x1_start = tuples(_centre, _rad).map(lambda x: x[0] + x[1])
 
 
 def curved_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.Curve]:
+    trace = builds(cylindrical_field_trace, _centre, whole_numbers)
+    
     return builds(
-        cylindrical_field_line,
-        _centre,
-        _x1_start,
-        whole_numbers,
-        whole_numbers,
-        tuples(_x3_start, _x3_end),
-        just(system),
-    ).map(mesh.Curve)
+        mesh.Curve,
+        builds(mesh.FieldTracer, trace, integers(2, 10)),
+        builds(mesh.SliceCoord, builds(operator.add, _centre, _rad), whole_numbers, just(system)),
+        lists(_rad.map(abs).flatmap(lambda r: floats(-r, r)), min_size=2, max_size=2, unique=True).map(sorted).map(tuple),
+        _divisions,
+        _num_divisions,
+        whole_numbers
+    )
 
 
 coordinate_systems = sampled_from(mesh.CoordinateSystem)
@@ -361,42 +388,46 @@ register_type_strategy(
 )
 
 
+_num_divisions = shared(integers(1, 5), key=171)
+_divisions = _num_divisions.flatmap(lambda x: integers(0, x-1))
 linear_quad = builds(
-    flat_quad,
+    trapezoidal_quad,
     whole_numbers,
     whole_numbers,
     non_zero,
     tuples(
-        tuples(whole_numbers, whole_numbers, whole_numbers),
-        tuples(whole_numbers, whole_numbers, whole_numbers),
-    ).filter(lambda x: x[0][0:2] != x[1][0:2]),
+        tuples(non_zero, whole_numbers),
+        tuples(non_zero, whole_numbers),
+    ).filter(lambda x: x[0] != x[1]),
     coordinate_systems,
     floats(-2.0, 2.0),
+    integers(2, 5),
+    _divisions,
+    _num_divisions,
+    whole_numbers,
 ).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
 )
-curve_edged_quad = builds(
-    wedge_quad,
-    _centre,
-    tuples(_x1_start, _x1_start_south),
-    whole_numbers,
-    whole_numbers,
-    tuples(_x3_start, _x3_end),
-    sampled_from(list(CARTESIAN_SYSTEMS)),
-)
+# FIXME: Not controlling x3 limits adequately
 nonlinear_quad = builds(
     curved_quad,
     _centre,
     tuples(_x1_start, _x1_start_south),
     whole_numbers,
     whole_numbers,
-    tuples(_x3_start, _x3_end),
+    _x3_limits,
     sampled_from(list(CARTESIAN_SYSTEMS)),
+    integers(10, 20),
+    _divisions,
+    _num_divisions,
+    whole_numbers,
 )
+flat_quad = one_of(linear_quad)#, nonlinear_quad)
+quad_in_3d = builds(higher_dim_quad, flat_quad, floats(0., 2*np.pi))
 register_type_strategy(
     mesh.Quad,
-    one_of(linear_quad, curve_edged_quad),
+    flat_quad
 )
 
 
@@ -413,6 +444,10 @@ quad_mesh_elements = builds(
     starts_and_ends,
     integers(1, 4),
     coordinate_systems,
+    integers(2, 10),
+    _divisions,
+    _num_divisions,
+    whole_numbers,
 )
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
 mesh_arguments = one_of(quad_mesh_arguments)
