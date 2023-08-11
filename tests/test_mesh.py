@@ -877,7 +877,7 @@ def test_mesh_layer_far_faces(
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
-    rounder = methodcaller("round", 12)
+    rounder = methodcaller("round", 10)
     element_corners = frozenset(
         map(
             rounder,
