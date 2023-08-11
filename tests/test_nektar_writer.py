@@ -25,7 +25,6 @@ from pytest import approx, mark
 from neso_fame import nektar_writer
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
-    control_points,
     Coord,
     CoordinateSystem,
     Coords,
@@ -40,6 +39,7 @@ from neso_fame.mesh import (
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
+    control_points,
 )
 
 from .conftest import linear_field_line, linear_field_trace, non_nans
@@ -125,7 +125,7 @@ def comparable_composites(
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(from_type(Coord), integers())
 def test_nektar_point(coord: Coord, i: int) -> None:
-    nek_coord = nektar_writer.nektar_point(coord, i)
+    nek_coord = nektar_writer.nektar_point(coord, 3, i)
     assert nek_coord.GetGlobalID() == nektar_writer.UNSET_ID
     assert_points_eq(nek_coord, coord)
 
@@ -138,15 +138,16 @@ def test_nektar_point(coord: Coord, i: int) -> None:
     lists(integers(), min_size=2, max_size=2, unique=True),
 )
 def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
-    c1 = nektar_writer.nektar_point(coords[0], layers[0])
-    assert c1 is nektar_writer.nektar_point(coords[0], layers[0])
-    assert c1 is not nektar_writer.nektar_point(coords[1], layers[0])
-    assert c1 is not nektar_writer.nektar_point(coords[0], layers[1])
+    c1 = nektar_writer.nektar_point(coords[0], 3, layers[0])
+    assert c1 is nektar_writer.nektar_point(coords[0], 3, layers[0])
+    assert c1 is not nektar_writer.nektar_point(coords[1], 3, layers[0])
+    assert c1 is not nektar_writer.nektar_point(coords[0], 3, layers[1])
+    assert c1 is not nektar_writer.nektar_point(coords[0], 2, layers[0])
 
 
 @given(from_type(FieldAlignedCurve), integers(1, 10), integers())
 def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
-    nek_curve, (start, end) = nektar_writer.nektar_curve(curve, order, layer)
+    nek_curve, (start, end) = nektar_writer.nektar_curve(curve, order, 3, layer)
     assert nek_curve.curveID == nektar_writer.UNSET_ID
     assert nek_curve.ptype == LU.PointsType.PolyEvenlySpaced
     assert_nek_points_eq(nek_curve.points[0], start)
@@ -166,7 +167,7 @@ def test_circular_nektar_curve() -> None:
         np.pi,
         x3_offset=np.pi / 2,
     )
-    nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 0)
+    nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 3, 0)
     assert_points_eq(
         nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.CARTESIAN)
     )
@@ -180,7 +181,7 @@ def test_circular_nektar_curve() -> None:
 
 @given(from_type(FieldAlignedCurve), integers())
 def test_nektar_edge_first_order(curve: FieldAlignedCurve, layer: int) -> None:
-    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 1, layer)
+    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 1, 3, layer)
     assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     assert nek_edge.GetCurve() is None
     assert_nek_points_eq(nek_edge.GetVertex(0), start)
@@ -193,7 +194,7 @@ def test_nektar_edge_first_order(curve: FieldAlignedCurve, layer: int) -> None:
 def test_nektar_edge_higher_order(
     curve: FieldAlignedCurve, order: int, layer: int
 ) -> None:
-    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, order, layer)
+    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, order, 3, layer)
     assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     nek_curve = nek_edge.GetCurve()
     assert nek_curve is not None
@@ -210,7 +211,7 @@ def test_nektar_edge_higher_order(
 
 @given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
-    quads, segments, points = nektar_writer.nektar_quad(quad, order, layer)
+    quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
     corners = frozenset(p.GetCoordinates() for p in points)
     assert len(quads) == 1
     assert len(segments) == 4
@@ -327,7 +328,7 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 def test_nektar_layer_elements(
     mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve], order: int, layer: int
 ) -> None:
-    nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
+    nek_layer = nektar_writer.nektar_layer_elements(mesh, order, 2, layer)
     assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
     check_points(iter(mesh), iter(nek_layer.points))
     check_edges(mesh, iter(nek_layer.elements), iter(nek_layer.segments))
@@ -341,7 +342,7 @@ def test_nektar_layer_elements(
 # Check all elements present when converting a mesh
 @given(from_type(GenericMesh), integers(1, 4))
 def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
-    nek_mesh = nektar_writer.nektar_elements(mesh, order)
+    nek_mesh = nektar_writer.nektar_elements(mesh, order, 2)
     assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
     check_points(iter(mesh), nek_mesh.points())
     check_edges(
@@ -390,7 +391,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # generated using the nektar_elements() method?
 @settings(report_multiple_bugs=False)
 @given(
-    builds(nektar_writer.nektar_elements, from_type(GenericMesh), order),
+    builds(nektar_writer.nektar_elements, from_type(GenericMesh), order, just(2)),
     order,
     booleans(),
     booleans(),
@@ -413,7 +414,7 @@ def test_nektar_mesh(
                 return geom
         raise IndexError(f"Item with ID {i} not found in set {geoms}")
 
-    meshgraph = nektar_writer.nektar_mesh(elements, 2, 3, write_movement, periodic)
+    meshgraph = nektar_writer.nektar_mesh(elements, 2, 2, write_movement, periodic)
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
@@ -604,7 +605,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     )
 
     xml_file = tmp_path / "simple_mesh.xml"
-    nektar_writer.write_nektar(simple_mesh, 1, str(xml_file))
+    nektar_writer.write_nektar(simple_mesh, 1, str(xml_file), 2)
 
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -737,7 +738,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
 def test_write_nektar_curves(mesh: GenericMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
-        nektar_writer.write_nektar(mesh, order, str(xml_file), False)
+        nektar_writer.write_nektar(mesh, order, str(xml_file), 2, False)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()

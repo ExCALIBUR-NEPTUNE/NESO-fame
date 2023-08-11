@@ -2,6 +2,7 @@
 
 """
 
+from ctypes import ArgumentError
 import itertools
 from dataclasses import dataclass
 from functools import cache, reduce
@@ -12,15 +13,14 @@ import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 
 from .mesh import (
-    AcrossFieldCurve,
-    NormalisedCurve,
-    control_points,
     Coord,
-    FieldAlignedCurve,
+    Hex,
     MeshLayer,
+    NormalisedCurve,
     Quad,
     QuadMesh,
     StraightLineAcrossField,
+    control_points,
 )
 
 UNSET_ID = -1
@@ -186,11 +186,11 @@ class NektarElements:
 
 
 @cache
-def _nektar_point(x1: float, x2: float, x3: float, layer_id: int) -> SD.PointGeom:
-    return SD.PointGeom(2, UNSET_ID, x1, x2, x3)
+def _nektar_point(x1: float, x2: float, x3: float, spatial_dim: int, layer_id: int) -> SD.PointGeom:
+    return SD.PointGeom(spatial_dim, UNSET_ID, x1, x2, x3)
 
 
-def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
+def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Returns a Nektar++ PointGeom object at the specified position
     in the given layer. Caching is used to ensure that, given the same
     location and layer, the object will always be the same.
@@ -200,7 +200,7 @@ def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
     factory
     """
     pos = position.to_cartesian().round(8)
-    return _nektar_point(pos.x1, pos.x2, pos.x3, layer_id)
+    return _nektar_point(pos.x1, pos.x2, pos.x3, spatial_dim, layer_id)
 
 
 @cache
@@ -213,7 +213,7 @@ def _nektar_curve(
 
 
 def nektar_curve(
-    curve: NormalisedCurve, order: int, layer_id: int
+    curve: NormalisedCurve, order: int, spatial_dim: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     """Returns a Nektar++ Curve object and the PointGeom objects
     corresponding to the start and end of the given curve. The curve
@@ -228,7 +228,7 @@ def nektar_curve(
     factory
     """
     points = tuple(
-        nektar_point(coord, layer_id)
+        nektar_point(coord, spatial_dim, layer_id)
         for coord in control_points(curve, order).iter_points()
     )
     return _nektar_curve(points, layer_id)
@@ -242,7 +242,7 @@ def _nektar_edge(
 
 
 def nektar_edge(
-    curve: NormalisedCurve, order: int, layer_id: int
+        curve: NormalisedCurve, order: int, spatial_dim: int, layer_id: int
 ) -> tuple[SD.SegGeom, tuple[SD.PointGeom, SD.PointGeom]]:
     """Returns a Nektar++ SegGeom representing the curve in the
     specified layer, to the specified order. It also returns the
@@ -258,13 +258,13 @@ def nektar_edge(
     factory
     """
     if order > 1:
-        nek_curve, termini = nektar_curve(curve, order, layer_id)
+        nek_curve, termini = nektar_curve(curve, order, spatial_dim, layer_id)
     else:
         nek_curve = None
         end_points = control_points(curve, 1)
         termini = (
-            nektar_point(end_points[0], layer_id),
-            nektar_point(end_points[1], layer_id),
+            nektar_point(end_points[0], spatial_dim, layer_id),
+            nektar_point(end_points[1], spatial_dim, layer_id),
         )
     return (
         _nektar_edge(termini, nek_curve),
@@ -273,7 +273,7 @@ def nektar_edge(
 
 
 @cache
-def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements:
+def nektar_quad(quad: Quad, order: int, spatial_dim: int, layer_id: int) -> NektarQuadGeomElements:
     """Returns a Nektar++ QuadGeom objects (along with the SegGeom and
     PointGeom objects that make it up) representing the given quad, to
     the given order. Caching is used to ensure the same quad, in the
@@ -285,15 +285,15 @@ def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements
     -----
     factory
     """
-    if not isinstance(quad.shape, StraightLineAcrossField):
+    if spatial_dim > 2:
         raise NotImplementedError("Not yet dealing with Quads as faces.")
-    north, north_termini = nektar_edge(quad.north, order, layer_id)
-    south, south_termini = nektar_edge(quad.south, order, layer_id)
+    north, north_termini = nektar_edge(quad.north, order, spatial_dim, layer_id)
+    south, south_termini = nektar_edge(quad.south, order, spatial_dim, layer_id)
     edges = [
         north,
-        nektar_edge(quad.near, 1, layer_id)[0],
+        nektar_edge(quad.near, 1, spatial_dim, layer_id)[0],
         south,
-        nektar_edge(quad.far, 1, layer_id)[0],
+        nektar_edge(quad.far, 1, spatial_dim, layer_id)[0],
     ]
     return (
         frozenset({SD.QuadGeom(UNSET_ID, edges)}),
@@ -312,7 +312,7 @@ def _combine_quad_items(
     )
 
 
-def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> NektarLayer:
+def nektar_layer_elements(layer: MeshLayer, order: int, spatial_dim: int, layer_id: int) -> NektarLayer:
     """Creates Nektar++ objects needed to represent the given mesh
     layer to the given order.
 
@@ -326,16 +326,16 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     elems = list(layer)
     elements, edges, points = reduce(
         _combine_quad_items,
-        (nektar_quad(elem, order, layer_id) for elem in elems),
+        (nektar_quad(elem, order, spatial_dim, layer_id) for elem in elems),
     )
     layer_composite = SD.Composite(list(elements))
     near_face = SD.Composite(
-        [nektar_edge(f, 1, layer_id)[0] for f in layer.near_faces()]
+        [nektar_edge(f, 1, spatial_dim, layer_id)[0] for f in layer.near_faces()]
     )
-    far_face = SD.Composite([nektar_edge(f, 1, layer_id)[0] for f in layer.far_faces()])
+    far_face = SD.Composite([nektar_edge(f, 1, spatial_dim, layer_id)[0] for f in layer.far_faces()])
     bounds = list(
         map(
-            lambda x: frozenset(map(lambda y: nektar_edge(y, 1, layer_id)[0], x)),
+            lambda x: frozenset(map(lambda y: nektar_edge(y, 1, spatial_dim, layer_id)[0], x)),
             layer.boundaries(),
         )
     )
@@ -350,7 +350,7 @@ def nektar_layer_elements(layer: MeshLayer, order: int, layer_id: int) -> Nektar
     )
 
 
-def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
+def nektar_elements(mesh: QuadMesh, order: int, spatial_dim: int) -> NektarElements:
     """Creates a collection of Nektar++ objects representing the given
     mesh.
 
@@ -360,7 +360,7 @@ def nektar_elements(mesh: QuadMesh, order: int) -> NektarElements:
     """
     return NektarElements(
         [
-            nektar_layer_elements(layer, order, i)
+            nektar_layer_elements(layer, order, spatial_dim, i)
             for i, layer in enumerate(mesh.layers())
         ]
     )
@@ -512,6 +512,7 @@ def write_nektar(
     mesh: QuadMesh,
     order: int,
     filename: str,
+    spatial_dim: int = 3,
     write_movement=True,
     periodic_interfaces=True,
 ) -> None:
@@ -527,6 +528,8 @@ def write_nektar(
     filename
         The name of the file to write the mesh to. Should use the
         ``.xml`` extension.
+    spatial_dim
+        The dimension of the space in which the mesh elements sit.
     write_movement
         Whether to write information on non-conformal zones and
         interfaces.
@@ -540,7 +543,10 @@ def write_nektar(
     public nektar
 
     """
-    nek_elements = nektar_elements(mesh, order)
+    mesh_dim = 3 if isinstance(mesh.reference_layer.element_type, Hex) else 2
+    if spatial_dim < mesh_dim:
+        raise ArgumentError(f"Spatial dimension ({spatial_dim}) must be at least equal to mesh dimension ({mesh_dim})")
+    nek_elements = nektar_elements(mesh, order, spatial_dim)
     # FIXME: Need to be able to configure dimensiosn
-    nek_mesh = nektar_mesh(nek_elements, 2, 2, write_movement, periodic_interfaces)
+    nek_mesh = nektar_mesh(nek_elements, mesh_dim, spatial_dim, write_movement, periodic_interfaces)
     nek_mesh.Write(filename, True, SD.FieldMetaDataMap())
