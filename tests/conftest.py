@@ -452,14 +452,14 @@ nonlinear_quad = builds(
     whole_numbers,
     _dx3,
     sampled_from(list(CARTESIAN_SYSTEMS)),
-    integers(10, 20),
+    integers(40, 80),
     _divisions,
     _num_divisions,
     whole_numbers,
 )
-flat_quad = one_of(linear_quad)  # , nonlinear_quad)
+flat_quad = one_of(linear_quad, nonlinear_quad)
 quad_in_3d = builds(higher_dim_quad, flat_quad, floats(0.0, 2 * np.pi))
-register_type_strategy(mesh.Quad, flat_quad)
+register_type_strategy(mesh.Quad, one_of(flat_quad, quad_in_3d))
 
 
 starts_and_ends = tuples(
