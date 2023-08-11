@@ -454,7 +454,7 @@ def control_points(
 @dataclass(frozen=True)
 class StraightLineAcrossField:
     """A straight line that connects two points in the x1-x2 plane. It
-    is a :data:`neso_fame.mesh.AcrossFieldCurve`.
+    is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
 
     """
 
@@ -474,7 +474,7 @@ class StraightLineAcrossField:
 @dataclass(frozen=True)
 class StraightLine:
     """A straight line that connects two points. It
-    is a :data:`neso_fame.mesh.NormalisedCurve`.
+    is a :obj:`~neso_fame.mesh.NormalisedCurve`.
 
     """
 
@@ -1039,6 +1039,22 @@ def normalise_field_line(
 
 @dataclass(frozen=True)
 class FieldTracer:
+    """Manage the tracing of the field and production of normalised lines.
+
+    This class exists assist with subdivided quads. To get information
+    for the division at the end of a quad, it will be necessary to
+    integrate along a field line through all of the previous
+    divisions. This class handles caching of that information for
+    later use. Without it, we would need to build the intermediate
+    divisions all at once, which goes against the lazy approach to
+    evaluation used by FAME.
+
+    
+    Group
+    -----
+    field line
+
+    """
     trace: FieldTrace
     resolution: int = 10
 
@@ -1088,6 +1104,31 @@ class FieldTracer:
         division: int,
         total_divisions: int,
     ) -> NormalisedCurve:
+        """Normalises a field trace to return a function describing
+        the field line within a given division of a quad.
+
+        Parameters
+        ----------
+        start
+            The point on the x3=0 plane that the field line passes through.
+        x3_min
+            The lower x3 limit for the quad (before it has been subdivided)
+        x3_max
+            The upper x3 limit for the quad (before it has been subdivided)
+        division
+            The index of the subdivision of the quad to return a field line
+            sigment for
+        total_divisions
+            The total number of subdivisions this quad is split into along
+            the x3 direction
+
+        Returns
+        -------
+        :obj:`~neso_fame.mesh.NormalisedFieldLine`
+            The segment of the field line passing through `start` which is
+            within the specified subdivision of the quad.
+
+        """
         assert (
             division < total_divisions
         ), f"Can not request division {division} when only {total_divisions} available"
