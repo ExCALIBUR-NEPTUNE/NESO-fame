@@ -509,7 +509,8 @@ class Quad:
     """
 
     shape: AcrossFieldCurve
-    """Desribes the shape of the quad in the poloidal plane from which it is projected."""
+    """Desribes the shape of the quad in the poloidal plane from which it is
+    projected."""
     field: FieldTracer
     """The underlying magnetic field to which the quadrilateral is aligned"""
     dx3: float
@@ -1089,7 +1090,7 @@ class FieldTracer:
     ) -> NormalisedCurve:
         assert (
             division < total_divisions
-        ), f"Can not request division {division} when only {total_divisions} are present"
+        ), f"Can not request division {division} when only {total_divisions} available"
         assert total_divisions > 0, "Number of divisions must be positive"
         assert division >= 0, "Division number must be non-negative"
         segments = self._normalise_and_subdivide(start, x3_min, x3_max, total_divisions)
