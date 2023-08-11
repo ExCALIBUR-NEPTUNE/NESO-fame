@@ -82,6 +82,7 @@ def slice_coord_for_system(
         just(system),
     )
 
+
 register_type_strategy(
     mesh.SliceCoords,
     builds(
@@ -163,7 +164,7 @@ def linear_field_line(
     c: mesh.CoordinateSystem,
     skew: float,
     centre: tuple[float, float],
-) -> mesh.NormalisedFieldLine:
+) -> mesh.NormalisedCurve:
     offset = np.sqrt((b1 - centre[0]) ** 2 + (b2 - centre[1]) ** 2)
 
     def linear_func(x: npt.ArrayLike) -> mesh.Coords:
@@ -188,21 +189,25 @@ def trapezoidal_quad(
     resolution: int,
     division: int,
     num_divisions: int,
-    offset: float
+    offset: float,
 ) -> mesh.Quad:
     centre = (
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
-    def shape(s: npt.ArrayLike) -> mesh.Coords:
-        s = np.asarray(s)
-        return mesh.Coords(starts[0][0] + (starts[1][0] - starts[0][0])*s,
-                      starts[0][1] + (starts[1][1] - starts[0][1])*s,
-                      np.array(0.),
-                      c)
+    shape = mesh.StraightLineAcrossField(
+        mesh.SliceCoord(starts[0][0], starts[0][1], c),
+        mesh.SliceCoord(starts[1][0], starts[1][1], c),
+    )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
-    x3_lims = (-0.5 * a3, 0.5 * a3)
-    return mesh.Quad(shape, mesh.FieldTracer(trace, resolution), x3_lims, division, num_divisions, offset)
+    return mesh.Quad(
+        shape,
+        mesh.FieldTracer(trace, resolution),
+        a3,
+        division,
+        num_divisions,
+        offset,
+    )
 
 
 def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
@@ -231,7 +236,7 @@ def cylindrical_field_line(
     x2_slope: float,
     x3_limits: tuple[float, float],
     system: mesh.CoordinateSystem,
-) -> mesh.NormalisedFieldLine:
+) -> mesh.NormalisedCurve:
     assert system in CARTESIAN_SYSTEMS
     rad = x1_start - centre
     half_x3_sep = 0.5 * (x3_limits[1] - x3_limits[0])
@@ -253,21 +258,26 @@ def curved_quad(
     x1_start: tuple[float, float],
     x2_centre: float,
     x2_slope: float,
-    x3_limits: tuple[float, float],
+    dx3: float,
     system: mesh.CoordinateSystem,
     resolution: int,
     division: int,
     num_divisions: int,
-    offset: float
+    offset: float,
 ) -> mesh.Quad:
     trace = cylindrical_field_trace(centre, x2_slope)
-    def shape(s: npt.ArrayLike) -> mesh.Coords:
-        s = np.asarray(s)
-        return mesh.Coords(x1_start[0] + (x1_start[1] - x1_start[0])*s,
-                      np.array(x2_centre),
-                      np.array(0.),
-                        system)
-    return mesh.Quad(shape, mesh.FieldTracer(trace, resolution), x3_limits, division, num_divisions, offset)
+    shape = mesh.StraightLineAcrossField(
+        mesh.SliceCoord(x1_start[0], x2_centre, system),
+        mesh.SliceCoord(x1_start[1], x2_centre, system),
+    )
+    return mesh.Quad(
+        shape,
+        mesh.FieldTracer(trace, resolution),
+        dx3,
+        division,
+        num_divisions,
+        offset,
+    )
 
 
 def higher_dim_quad(q: mesh.Quad, angle: float) -> mesh.Quad:
@@ -282,14 +292,28 @@ def higher_dim_quad(q: mesh.Quad, angle: float) -> mesh.Quad:
     x2_2 = float(south.x2)
     dx1 = x1_1 - x1_2
     dx2 = x2_1 - x2_2
-    r = (dx1*dx1 + dx2*dx2)/(2*dx1*np.cos(angle) + 2*dx2*np.sin(angle))
+    r = (dx1 * dx1 + dx2 * dx2) / (2 * dx1 * np.cos(angle) + 2 * dx2 * np.sin(angle))
     x1_c = x1_1 - r * np.cos(angle)
     x2_c = x2_1 - r * np.sin(angle)
     a = np.arctan2(x2_2 - x2_c, x1_2 - x1_c) - angle
-    def curve(s: npt.ArrayLike) -> mesh.Coords:
+
+    def curve(s: npt.ArrayLike) -> mesh.SliceCoords:
         s = np.asarray(s)
-        return mesh.Coords(x1_c + r*np.cos(angle + a * s), x2_c + r*np.sin(angle + a*s), north.x3, north.system)
-    return mesh.Quad(curve, q.field, q.x3_limits, q.subdivision, q.num_divisions, q.x3_offset)
+        return mesh.SliceCoords(
+            x1_c + r * np.cos(angle + a * s),
+            x2_c + r * np.sin(angle + a * s),
+            north.system,
+        )
+
+    return mesh.Quad(
+        curve,
+        q.field,
+        q.dx3,
+        q.subdivision,
+        q.num_divisions,
+        q.x3_offset,
+    )
+
 
 def _quad_mesh_elements(
     a1: float,
@@ -301,26 +325,28 @@ def _quad_mesh_elements(
     resolution: int,
     division: int,
     num_divisions: int,
-    offset: float
+    offset: float,
 ) -> list[mesh.Quad]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
-    def make_shape(starts: tuple[tuple[float, float], tuple[float, float]]) -> mesh.NormalisedFieldLine:
-        def shape(s: npt.ArrayLike) -> mesh.Coords:
-            s = np.asarray(s)
-            return mesh.Coords(starts[0][0] + (starts[1][0] - starts[0][0])*s,
-                               starts[0][1] + (starts[1][1] - starts[0][1])*s,
-                               np.array(0.),
-                               c)
-        return shape
+
+    def make_shape(
+        starts: tuple[tuple[float, float], tuple[float, float]]
+    ) -> mesh.AcrossFieldCurve:
+        return mesh.StraightLineAcrossField(
+            mesh.SliceCoord(starts[0][0], starts[0][1], c),
+            mesh.SliceCoord(starts[1][0], starts[1][1], c),
+        )
+
     points = np.linspace(limits[0], limits[1], num_quads + 1)
-    x3_lims = (-0.5 * a3, 0.5 * a3)
     return [
-        mesh.Quad(shape, trace, x3_lims, division, num_divisions, offset)
+        mesh.Quad(shape, trace, a3, division, num_divisions, offset)
         for shape in map(make_shape, itertools.pairwise(points))
     ]
 
 
-def get_boundaries(mesh_sequence: list[mesh.Quad]) -> list[frozenset[mesh.Curve]]:
+def get_boundaries(
+    mesh_sequence: list[mesh.Quad],
+) -> list[frozenset[mesh.FieldAlignedCurve]]:
     return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
 
 
@@ -336,23 +362,25 @@ def _get_end_point(
 
 def straight_line_for_system(
     system: mesh.CoordinateSystem,
-) -> SearchStrategy[mesh.Curve]:
+) -> SearchStrategy[mesh.FieldAlignedCurve]:
     a1 = shared(whole_numbers, key=541)
     a2 = shared(whole_numbers, key=542)
     a3 = shared(non_zero, key=543)
 
     trace = builds(
         linear_field_trace,
-        a1, a2, a3,
+        a1,
+        a2,
+        a3,
         just(system),
         just(0.0),
         just((0.0, 0.0)),
-    )   
+    )
     return builds(
-        mesh.Curve,
+        mesh.FieldAlignedCurve,
         builds(mesh.FieldTracer, trace, integers(2, 10)),
         slice_coord_for_system(system),
-        lists(whole_numbers, min_size=2, max_size=2, unique=True).map(sorted).map(tuple),
+        non_zero,
         _divisions,
         _num_divisions,
         whole_numbers,
@@ -361,21 +389,28 @@ def straight_line_for_system(
 
 _centre = shared(whole_numbers, key=1)
 _rad = shared(non_zero, key=2)
-_x3_limits = lists(builds(operator.mul, _rad, non_zero.map(lambda x: x/WHOLE_NUM_MAX)), min_size=2, max_size=2, unique=True).map(tuple)
+_dx3 = builds(operator.mul, _rad, floats(0.01, 2.0))
 _x1_start = tuples(_centre, _rad).map(lambda x: x[0] + x[1])
 
 
-def curved_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.Curve]:
+def curved_line_for_system(
+    system: mesh.CoordinateSystem,
+) -> SearchStrategy[mesh.FieldAlignedCurve]:
     trace = builds(cylindrical_field_trace, _centre, whole_numbers)
-    
+
     return builds(
-        mesh.Curve,
+        mesh.FieldAlignedCurve,
         builds(mesh.FieldTracer, trace, integers(2, 10)),
-        builds(mesh.SliceCoord, builds(operator.add, _centre, _rad), whole_numbers, just(system)),
-        lists(_rad.map(abs).flatmap(lambda r: floats(-r, r)), min_size=2, max_size=2, unique=True).map(sorted).map(tuple),
+        builds(
+            mesh.SliceCoord,
+            builds(operator.add, _centre, _rad),
+            whole_numbers,
+            just(system),
+        ),
+        _rad.map(abs).flatmap(lambda r: floats(0, 2 * r)),  # type: ignore
         _divisions,
         _num_divisions,
-        whole_numbers
+        whole_numbers,
     )
 
 
@@ -383,13 +418,13 @@ coordinate_systems = sampled_from(mesh.CoordinateSystem)
 straight_line = coordinate_systems.flatmap(straight_line_for_system)
 curved_line = sampled_from(list(CARTESIAN_SYSTEMS)).flatmap(curved_line_for_system)
 register_type_strategy(
-    mesh.Curve,
+    mesh.FieldAlignedCurve,
     one_of(straight_line, curved_line),
 )
 
 
 _num_divisions = shared(integers(1, 5), key=171)
-_divisions = _num_divisions.flatmap(lambda x: integers(0, x-1))
+_divisions = _num_divisions.flatmap(lambda x: integers(0, x - 1))
 linear_quad = builds(
     trapezoidal_quad,
     whole_numbers,
@@ -416,19 +451,16 @@ nonlinear_quad = builds(
     tuples(_x1_start, _x1_start_south),
     whole_numbers,
     whole_numbers,
-    _x3_limits,
+    _dx3,
     sampled_from(list(CARTESIAN_SYSTEMS)),
     integers(10, 20),
     _divisions,
     _num_divisions,
     whole_numbers,
 )
-flat_quad = one_of(linear_quad)#, nonlinear_quad)
-quad_in_3d = builds(higher_dim_quad, flat_quad, floats(0., 2*np.pi))
-register_type_strategy(
-    mesh.Quad,
-    flat_quad
-)
+flat_quad = one_of(linear_quad)  # , nonlinear_quad)
+quad_in_3d = builds(higher_dim_quad, flat_quad, floats(0.0, 2 * np.pi))
+register_type_strategy(mesh.Quad, flat_quad)
 
 
 starts_and_ends = tuples(

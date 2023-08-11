@@ -1,6 +1,6 @@
 import itertools
 from operator import methodcaller
-from typing import Callable, Type
+from typing import cast, Callable, Type
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -423,8 +423,8 @@ def test_coords_round(coord: mesh.Coords, places: int, sign: int) -> None:
     assert not coords_equal(coord.round(places + 1), coord2.round(places + 1))
 
 
-@given(from_type(mesh.Curve), whole_numbers, floats(0., 1.))
-def test_curve_offset(curve: mesh.Curve, offset: float, arg: float) -> None:
+@given(from_type(mesh.FieldAlignedCurve), whole_numbers, floats(0.0, 1.0))
+def test_curve_offset(curve: mesh.FieldAlignedCurve, offset: float, arg: float) -> None:
     curve2 = curve.offset(offset)
     p1 = curve(arg)
     p2 = curve2(arg)
@@ -433,8 +433,8 @@ def test_curve_offset(curve: mesh.Curve, offset: float, arg: float) -> None:
     np.testing.assert_allclose(p1.x3, p2.x3 - offset)
 
 
-@given(from_type(mesh.Curve), integers(-50, 100))
-def test_curve_subdivision_len(curve: mesh.Curve, divisions: int) -> None:
+@given(from_type(mesh.FieldAlignedCurve), integers(-50, 100))
+def test_curve_subdivision_len(curve: mesh.FieldAlignedCurve, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = curve.subdivide(divisions)
     for _ in range(expected):
@@ -443,53 +443,73 @@ def test_curve_subdivision_len(curve: mesh.Curve, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.Curve), integers(-5, 100))
-def test_curve_subdivision(curve: mesh.Curve, divisions: int) -> None:
+@given(from_type(mesh.FieldAlignedCurve), integers(-5, 100))
+def test_curve_subdivision(curve: mesh.FieldAlignedCurve, divisions: int) -> None:
     divisions_iter = curve.subdivide(divisions)
     first = next(divisions_iter)
     coord = first(0.0)
-    for component, expected in zip(coord, curve(0.)):
+    for component, expected in zip(coord, curve(0.0)):
         np.testing.assert_allclose(component, expected)
     prev = first(1.0)
     for curve in divisions_iter:
         for c, p in zip(curve(0.0), prev):
             np.testing.assert_allclose(c, p)
         prev = curve(1.0)
-    for component, expected in zip(prev, curve(1.)):
+    for component, expected in zip(prev, curve(1.0)):
         np.testing.assert_allclose(component, expected)
 
 
-@given(from_type(mesh.Curve), integers(1, 10))
-def test_curve_control_points_cached(curve: mesh.Curve, order: int) -> None:
-    p1 = curve.control_points(order)
-    p2 = curve.control_points(order)
+@given(from_type(mesh.FieldAlignedCurve), integers(1, 10))
+def test_curve_control_points_cached(curve: mesh.FieldAlignedCurve, order: int) -> None:
+    p1 = mesh.control_points(curve, order)
+    p2 = mesh.control_points(curve, order)
     assert p1 is p2
 
 
-@given(from_type(mesh.Curve), integers(1, 10))
-def test_curve_control_points_size(curve: mesh.Curve, n: int) -> None:
-    assert len(curve.control_points(n)) == n + 1
+@given(from_type(mesh.FieldAlignedCurve), integers(1, 10))
+def test_curve_control_points_size(curve: mesh.FieldAlignedCurve, n: int) -> None:
+    assert len(mesh.control_points(curve, n)) == n + 1
 
 
 def test_curve_control_points_values() -> None:
     a = -2.0
     b = -0.5
-    curve = mesh.Curve(
+    curve = mesh.FieldAlignedCurve(
         mesh.FieldTracer(
-            lambda start, x: (mesh.SliceCoords(
-                np.asarray(x) * a,
-                np.asarray(x) * b,
-                mesh.CoordinateSystem.CARTESIAN,
-            ), np.sqrt(5.25) * np.asarray(x)),
-            5
+            lambda start, x: (
+                mesh.SliceCoords(
+                    np.asarray(x) * a,
+                    np.asarray(x) * b,
+                    mesh.CoordinateSystem.CARTESIAN,
+                ),
+                np.sqrt(5.25) * np.asarray(x),
+            ),
+            5,
         ),
-        mesh.SliceCoord(0., 0., mesh.CoordinateSystem.CARTESIAN),
-        (0., -1.)
+        mesh.SliceCoord(0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+        -1.0,
+        x3_offset=-0.5,
     )
-    x1, x2, x3 = curve.control_points(2)
-    np.testing.assert_allclose(x1, [0.0, 1.0, 2.0], atol=1e-12)
-    np.testing.assert_allclose(x2, [0.0, 0.25, 0.5], atol=1e-12)
+    x1, x2, x3 = mesh.control_points(curve, 2)
+    np.testing.assert_allclose(x1, [-1.0, 0.0, 1.0], atol=1e-12)
+    np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
+
+
+@given(from_type(mesh.Quad), floats(0.0, 1.0))
+def test_quad_north(q: mesh.Quad, s: float) -> None:
+    actual = q.north(s)
+    x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - q.x3_offset)[0]
+    np.testing.assert_allclose(actual.x1, x1)
+    np.testing.assert_allclose(actual.x2, x2)
+
+
+@given(from_type(mesh.Quad), floats(0.0, 1.0))
+def test_quad_south(q: mesh.Quad, s: float) -> None:
+    actual = q.south(s)
+    x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - q.x3_offset)[0]
+    np.testing.assert_allclose(actual.x1, x1)
+    np.testing.assert_allclose(actual.x2, x2)
 
 
 @given(from_type(mesh.Quad))
@@ -536,30 +556,32 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     corners = q.corners()
     x1_max, x2_max, x3_max = map(np.max, corners)
     x1_min, x2_min, x3_min = map(np.min, corners)
-    cp = q.control_points(n)
+    cp = mesh.control_points(q, n).round(12)
     assert len(cp) == (n + 1) ** 2
     assert cp.x1.ndim == 2
     assert cp.x2.ndim == 2
     assert cp.x3.ndim == 2
-    assert np.all(np.round(cp.x1, 12) <= round(x1_max, 12))
-    assert np.all(np.round(cp.x2, 12) <= round(x2_max, 12))
-    assert np.all(np.round(cp.x3, 12) <= round(x3_max, 12))
-    assert np.all(np.round(cp.x1, 12) >= round(x1_min, 12))
-    assert np.all(np.round(cp.x2, 12) >= round(x2_min, 12))
-    assert np.all(np.round(cp.x3, 12) >= round(x3_min, 12))
+    assert np.all(cp.x1 <= round(cast(float, x1_max), 12))
+    assert np.all(cp.x2 <= round(cast(float, x2_max), 12))
+    assert np.all(cp.x3 <= round(cast(float, x3_max), 12))
+    assert np.all(cp.x1 >= round(cast(float, x1_min), 12))
+    assert np.all(cp.x2 >= round(cast(float, x2_min), 12))
+    assert np.all(cp.x3 >= round(cast(float, x3_min), 12))
 
 
 @given(from_type(mesh.Quad), integers(2, 5))
 def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
-    cp = q.control_points(n)
+    cp = mesh.control_points(q, n)
     # Check spacing in the direction along the bounding field lines
-    start_points = q.shape(np.linspace(0., 1., n + 1))
+    start_points = q.shape(np.linspace(0.0, 1.0, n + 1))
     distances = np.vectorize(
-        lambda x1, x2, x3: q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[1]
+        lambda x1, x2, x3: q.field.trace(
+            mesh.SliceCoord(x1, x2, start_points.system), x3
+        )[1]
     )(
         start_points.x1.reshape(-1, 1),
         start_points.x2.reshape(-1, 1),
-        cp.x3 - start_points.x3.reshape(-1, 1),
+        cp.x3,
     )
     d_diff = distances[:, 1:] - distances[:, :-1]
     for i in range(n + 1):
@@ -585,8 +607,8 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
 def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
-    actual = q.offset(x).control_points(n)
-    expected = q.control_points(n).offset(x)
+    actual = mesh.control_points(q.offset(x), n)
+    expected = mesh.control_points(q, n).offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
     np.testing.assert_allclose(actual.x3, expected.x3, atol=1e-12)
@@ -724,11 +746,11 @@ def test_mesh_layer_elements_no_offset(
         assert actual_bound == expected_bound
 
 
-def get_corners(shape: mesh.Hex | mesh.Quad | mesh.NormalisedFieldLine) -> mesh.Coords:
-    if isinstance(shape, Callable):
-        return shape([0.0, 1.0])
-    else:
+def get_corners(shape: mesh.Hex | mesh.Quad | mesh.NormalisedCurve) -> mesh.Coords:
+    if isinstance(shape, (mesh.Hex, mesh.Quad)):
         return shape.corners()
+    else:
+        return shape([0.0, 1.0])
 
 
 @given(mesh_arguments, non_nans())
@@ -745,7 +767,7 @@ def test_mesh_layer_elements_with_offset(
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         for actual_elem, expected_elem in zip(actual_bound, expected_bound):
             actual_bound_corners = get_corners(actual_elem)
-            expected_bound_corners = get_corners(expected_elem.offset(offset))
+            expected_bound_corners = get_corners(expected_elem).offset(offset)
             np.testing.assert_allclose(
                 actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12
             )
@@ -811,15 +833,19 @@ def test_mesh_layer_near_faces(
     layer = mesh.MeshLayer(*args, offset, subdivisions)
     rounder = methodcaller("round", 12)
     expected = frozenset(
-        map(rounder,
+        map(
+            rounder,
             itertools.chain.from_iterable(
-                map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0]))
-            )
+                map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0])
+            ),
+        )
     )
     actual = frozenset(
-        map(rounder, itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
-        )
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+            ),
         )
     )
     assert expected == actual
@@ -834,37 +860,51 @@ def test_mesh_layer_far_faces(
     layer = mesh.MeshLayer(*args, offset, subdivisions)
     rounder = methodcaller("round", 12)
     expected = frozenset(
-        map(rounder,
-        itertools.chain.from_iterable(
-            map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
+            ),
         )
-    ))
-    actual = frozenset(map(rounder,
-        itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+    )
+    actual = frozenset(
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+            ),
         )
-    ))
+    )
     assert expected == actual
 
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
     rounder = methodcaller("round", 12)
-    element_corners = frozenset(map(rounder,
-        itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer)
+    element_corners = frozenset(
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), layer)
+            ),
         )
-    ))
-    near_face_corners = frozenset(map(rounder,
-        itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+    )
+    near_face_corners = frozenset(
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+            ),
         )
-    ))
-    far_face_corners = frozenset(map(rounder,
-        itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+    )
+    far_face_corners = frozenset(
+        map(
+            rounder,
+            itertools.chain.from_iterable(
+                map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+            ),
         )
-    ))
+    )
     assert near_face_corners < element_corners
     assert far_face_corners < element_corners
 
@@ -889,7 +929,7 @@ quad_mesh_elements = (
         10,
         0,
         1,
-        0.
+        0.0,
     ),
 )
 
@@ -909,7 +949,7 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
 
 @given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(
-    layer: mesh.MeshLayer[mesh.Quad, mesh.Curve]
+    layer: mesh.MeshLayer[mesh.Quad, mesh.FieldAlignedCurve, mesh.NormalisedCurve]
 ) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
@@ -1004,7 +1044,7 @@ cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
 )
 def test_normalise_curved_field_line(
     trace: mesh.FieldTrace,
-    line: mesh.NormalisedFieldLine,
+    line: mesh.NormalisedCurve,
     start: mesh.SliceCoord,
     x3_start: float,
     dx3: float,

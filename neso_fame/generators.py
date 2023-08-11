@@ -12,17 +12,17 @@ import numpy as np
 import numpy.typing as npt
 
 from .mesh import (
-    Coords,
-    Curve,
+    CoordinateSystem,
+    FieldAlignedCurve,
     FieldTrace,
     FieldTracer,
     GenericMesh,
     MeshLayer,
-    NormalisedFieldLine,
     Quad,
     QuadMesh,
     SliceCoord,
     SliceCoords,
+    StraightLineAcrossField,
 )
 
 Connectivity = Sequence[tuple[int, int]]
@@ -37,37 +37,84 @@ def _ordered_connectivity(size: int) -> Connectivity:
 
 
 BOUNDARY_TRACER = FieldTracer(
-    lambda start, x3: (SliceCoords(
-        np.full_like(x3, start.x1),
-        np.full_like(x3, start.x2),
-        start.system), np.asarray(x3)), 2
+    lambda start, x3: (
+        SliceCoords(
+            np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
+        ),
+        np.asarray(x3),
+    ),
+    2,
 )
 
-def _boundary_curve(start: SliceCoord, dx3: float) -> Curve:
+
+def _boundary_curve(start: SliceCoord, dx3: float) -> FieldAlignedCurve:
     """Produces a curve with constant x1 and x2 coordinates set by
     ``start`` and which goes from ``-x3/2`` to ``x3/2``.
 
     """
-    return Curve(BOUNDARY_TRACER, start, (-0.5 * dx3, 0.5 * dx3))
+    return FieldAlignedCurve(BOUNDARY_TRACER, start, dx3)
 
 
+def _boundary_tracer(
+    field: FieldTrace,
+    shape: StraightLineAcrossField,
+    north_bound: bool,
+    south_bound: bool,
+) -> FieldTrace:
+    """Creates a field trace that describes a quad which may conform
+    to its boundaries. Note that the distances will be approximate if
+    the field is nonlinear.
 
-def _line_from_points(north: SliceCoord, south: SliceCoord) -> NormalisedFieldLine:
-    """Creates a function representing a straight line between the two
-    specified points.
+    Parameters
+    ----------
+    field
+        The field that is being traced
+    shape
+        The function describing the shape of the quad where it
+        intersects with the x3=0 plane
+    north_bound
+        Whether the north edge of the quad conforms to the boundary
+    south_bound
+        Whether the south edge of the quad conforms to the boundary
+
     """
-
-    def _line(s: npt.ArrayLike) -> Coords:
-        s = np.asarray(s)
-        return Coords(
-            north.x1 + (south.x1 - north.x1) * s,
-            north.x2 + (south.x2 - north.x2) * s,
-            np.asarray(0.),
-            north.system,
+    if north_bound and south_bound:
+        return lambda start, x3: (
+            SliceCoords(np.asarray(start.x1), np.asarray(start.x2), start.system),
+            np.asarray(x3),
         )
 
-    return _line
+    if not north_bound and not south_bound:
+        return field
 
+    def get_position_on_shape(start: SliceCoord) -> float:
+        if abs(shape.south.x1 - shape.north.x1) > abs(shape.south.x2 - shape.north.x2):
+            return (start.x1 - shape.north.x1) / (shape.south.x1 - shape.north.x1)
+        else:
+            return (start.x2 - shape.north.x2) / (shape.south.x2 - shape.north.x2)
+
+    def func(start: SliceCoord, x3: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
+        factor = get_position_on_shape(start)
+        if north_bound:
+            reference = shape(0.0).to_coord()
+        else:
+            factor = 1 - factor
+            reference = shape(1.0).to_coord()
+        factor *= factor
+        position, distance = field(start, x3)
+        x3_factor = start.x1 if start.system is CoordinateSystem.CYLINDRICAL else 1.0
+        coord = SliceCoords(
+            position.x1 * factor + reference.x1 * (1 - factor),
+            position.x2 * factor + reference.x2 * (1 - factor),
+            position.system,
+        )
+        dist = np.sign(distance) * np.sqrt(
+            distance * distance * factor
+            + (1 - factor) * x3_factor * x3_factor * np.asarray(x3) ** 2
+        )
+        return coord, dist
+
+    return func
 
 
 def field_aligned_2d(
@@ -85,7 +132,7 @@ def field_aligned_2d(
     lines. Start with a 1D mesh defined in the poloidal plane. Edges
     are then traced along the field lines both backwards and forwards
     in the toroidal direction to form a single layer of field-aligned
-    elements. The field is assumed not to very in the toroidal
+    elements. The field is assumed not to vary in the toroidal
     direction, meaning this layer can be repeated. However, each layer
     will be non-conformal with the next.
 
@@ -143,19 +190,24 @@ def field_aligned_2d(
     )
     tracer = FieldTracer(field_line, spatial_interp_resolution)
 
-    curves = [
-        _boundary_curve(coord, dx3)
-        if i in (0, num_nodes - 1) and conform_to_bounds
-        else Curve(tracer, coord, (-0.5 * dx3, 0.5 * dx3),
-        )
-        for i, coord in enumerate(lower_dim_mesh.iter_points())
-    ]
-
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 
-    
-    quads = [Quad(_line_from_points(lower_dim_mesh[i], lower_dim_mesh[j]), tracer, (-0.5*dx3, 0.5*dx3)) for i, j in connectivity]
+    def make_quad(node1: int, node2: int) -> Quad:
+        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
+        north_bound = node1 in (0, num_nodes - 1) and conform_to_bounds
+        south_bound = node2 in (0, num_nodes - 1) and conform_to_bounds
+        local_tracer = (
+            FieldTracer(
+                _boundary_tracer(field_line, shape, north_bound, south_bound),
+                spatial_interp_resolution,
+            )
+            if north_bound or south_bound
+            else tracer
+        )
+        return Quad(shape, local_tracer, dx3)
+
+    quads = list(itertools.starmap(make_quad, connectivity))
 
     return GenericMesh(
         MeshLayer(

@@ -11,7 +11,17 @@ from typing import Iterator, Sequence
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 
-from .mesh import Coord, Curve, MeshLayer, Quad, QuadMesh
+from .mesh import (
+    AcrossFieldCurve,
+    NormalisedCurve,
+    control_points,
+    Coord,
+    FieldAlignedCurve,
+    MeshLayer,
+    Quad,
+    QuadMesh,
+    StraightLineAcrossField,
+)
 
 UNSET_ID = -1
 
@@ -189,8 +199,8 @@ def nektar_point(position: Coord, layer_id: int) -> SD.PointGeom:
     -----
     factory
     """
-    pos = position.to_cartesian()
-    return _nektar_point(round(pos.x1, 8), round(pos.x2, 8), round(pos.x3, 8), layer_id)
+    pos = position.to_cartesian().round(8)
+    return _nektar_point(pos.x1, pos.x2, pos.x3, layer_id)
 
 
 @cache
@@ -203,7 +213,7 @@ def _nektar_curve(
 
 
 def nektar_curve(
-    curve: Curve, order: int, layer_id: int
+    curve: NormalisedCurve, order: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     """Returns a Nektar++ Curve object and the PointGeom objects
     corresponding to the start and end of the given curve. The curve
@@ -219,7 +229,7 @@ def nektar_curve(
     """
     points = tuple(
         nektar_point(coord, layer_id)
-        for coord in curve.control_points(order).iter_points()
+        for coord in control_points(curve, order).iter_points()
     )
     return _nektar_curve(points, layer_id)
 
@@ -232,7 +242,7 @@ def _nektar_edge(
 
 
 def nektar_edge(
-    curve: Curve, order: int, layer_id: int
+    curve: NormalisedCurve, order: int, layer_id: int
 ) -> tuple[SD.SegGeom, tuple[SD.PointGeom, SD.PointGeom]]:
     """Returns a Nektar++ SegGeom representing the curve in the
     specified layer, to the specified order. It also returns the
@@ -251,7 +261,7 @@ def nektar_edge(
         nek_curve, termini = nektar_curve(curve, order, layer_id)
     else:
         nek_curve = None
-        end_points = curve.control_points(1)
+        end_points = control_points(curve, 1)
         termini = (
             nektar_point(end_points[0], layer_id),
             nektar_point(end_points[1], layer_id),
@@ -275,7 +285,7 @@ def nektar_quad(quad: Quad, order: int, layer_id: int) -> NektarQuadGeomElements
     -----
     factory
     """
-    if quad.in_plane is not None:
+    if not isinstance(quad.shape, StraightLineAcrossField):
         raise NotImplementedError("Not yet dealing with Quads as faces.")
     north, north_termini = nektar_edge(quad.north, order, layer_id)
     south, south_termini = nektar_edge(quad.south, order, layer_id)

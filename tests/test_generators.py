@@ -2,7 +2,7 @@ import numpy as np
 
 from neso_fame import generators
 from neso_fame.fields import straight_field
-from neso_fame.mesh import CoordinateSystem, SliceCoords
+from neso_fame.mesh import control_points, CoordinateSystem, SliceCoords
 
 
 # Test for simple grid
@@ -45,7 +45,7 @@ def test_simple_grid() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: x.north.control_points(1), layer),
+                    map(lambda x: control_points(x.north, 1), layer),
                 ),
             )
         )
@@ -54,15 +54,15 @@ def test_simple_grid() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: x.south.control_points(1), layer),
+                    map(lambda x: control_points(x.south, 1), layer),
                 ),
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[0])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[1])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -95,14 +95,14 @@ def test_angled_grid_conforming_bounds() -> None:
         for i, quad in enumerate(layer):
             x1_south_mid = starts.x1[i + 1]
             x1_north_mid = starts.x1[i]
-            south_points = quad.south.control_points(2)
+            south_points = control_points(quad.south, 2)
             if i == m - 2:
                 np.testing.assert_allclose(south_points.x1, x1_south_mid)
             else:
                 np.testing.assert_allclose(south_points.x1, x1_south_mid + x1_offsets)
             assert np.all(south_points.x2 == 0.0)
             np.testing.assert_allclose(south_points.x3, x3_positions)
-            north_points = quad.north.control_points(2)
+            north_points = control_points(quad.north, 2)
             if i == 0:
                 np.testing.assert_allclose(north_points.x1, x1_north_mid)
             else:
@@ -117,7 +117,7 @@ def test_angled_grid_conforming_bounds() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: x.north.control_points(1), layer),
+                    map(lambda x: control_points(x.north, 1), layer),
                 ),
             )
         )
@@ -126,15 +126,15 @@ def test_angled_grid_conforming_bounds() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: x.south.control_points(1), layer),
+                    map(lambda x: control_points(x.south, 1), layer),
                 ),
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[0])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[1])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -168,11 +168,11 @@ def test_angled_grid_jagged_bounds() -> None:
         for i, quad in enumerate(layer):
             x1_south_mid = starts.x1[i + 1]
             x1_north_mid = starts.x1[i]
-            south_points = quad.south.control_points(2)
+            south_points = control_points(quad.south, 2)
             np.testing.assert_allclose(south_points.x1, x1_south_mid + x1_offsets)
             assert np.all(south_points.x2 == 0.0)
             np.testing.assert_allclose(south_points.x3, x3_positions)
-            north_points = quad.north.control_points(2)
+            north_points = control_points(quad.north, 2)
             np.testing.assert_allclose(north_points.x1, x1_north_mid + x1_offsets)
             assert np.all(north_points.x2 == 0.0)
             np.testing.assert_allclose(north_points.x3, x3_positions)
@@ -184,7 +184,7 @@ def test_angled_grid_jagged_bounds() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.allclose(x.x1, starts.x1[0] + x1_offsets[[0, 2]]),
-                    map(lambda x: x.north.control_points(1), layer),
+                    map(lambda x: control_points(x.north, 1), layer),
                 ),
             )
         )
@@ -193,15 +193,15 @@ def test_angled_grid_jagged_bounds() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.allclose(x.x1, starts.x1[-1] + x1_offsets[[0, 2]]),
-                    map(lambda x: x.south.control_points(1), layer),
+                    map(lambda x: control_points(x.south, 1), layer),
                 ),
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[0])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[1])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -246,7 +246,7 @@ def test_subdivided_grid() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: x.north.control_points(1), layer),
+                    map(lambda x: control_points(x.north, 1), layer),
                 ),
             )
         )
@@ -255,15 +255,15 @@ def test_subdivided_grid() -> None:
                 lambda x: tuple(x.iter_points()),
                 filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: x.south.control_points(1), layer),
+                    map(lambda x: control_points(x.south, 1), layer),
                 ),
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[0])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(x.control_points(1).iter_points()), bounds[1])
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south

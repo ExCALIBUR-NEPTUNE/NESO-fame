@@ -25,18 +25,24 @@ from pytest import approx, mark
 from neso_fame import nektar_writer
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
+    control_points,
     Coord,
     CoordinateSystem,
     Coords,
-    Curve,
+    FieldAlignedCurve,
+    FieldTracer,
     GenericMesh,
     Hex,
     MeshLayer,
+    NormalisedCurve,
     Quad,
     QuadMesh,
+    SliceCoord,
+    SliceCoords,
+    StraightLineAcrossField,
 )
 
-from .conftest import linear_field_line, non_nans
+from .conftest import linear_field_line, linear_field_trace, non_nans
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -69,15 +75,15 @@ def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
     return (round(coords[0], 8), round(coords[1], 8), round(coords[2], 8))
 
 
-def comparable_curve(curve: Curve, order: int) -> ComparableGeometry:
+def comparable_curve(curve: FieldAlignedCurve, order: int) -> ComparableGeometry:
     return SD.Curve.__name__, frozenset(
-        map(comparable_coord, curve.control_points(order).to_cartesian().iter_points())
+        map(comparable_coord, control_points(curve, order).to_cartesian().iter_points())
     )
 
 
-def comparable_edge(curve: Curve) -> ComparableGeometry:
+def comparable_edge(curve: FieldAlignedCurve) -> ComparableGeometry:
     return SD.SegGeom.__name__, frozenset(
-        map(comparable_coord, curve.control_points(1).to_cartesian().iter_points())
+        map(comparable_coord, control_points(curve, 1).to_cartesian().iter_points())
     )
 
 
@@ -138,8 +144,8 @@ def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
     assert c1 is not nektar_writer.nektar_point(coords[0], layers[1])
 
 
-@given(from_type(Curve), integers(1, 10), integers())
-def test_nektar_curve(curve: Curve, order: int, layer: int) -> None:
+@given(from_type(FieldAlignedCurve), integers(1, 10), integers())
+def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
     nek_curve, (start, end) = nektar_writer.nektar_curve(curve, order, layer)
     assert nek_curve.curveID == nektar_writer.UNSET_ID
     assert nek_curve.ptype == LU.PointsType.PolyEvenlySpaced
@@ -149,18 +155,16 @@ def test_nektar_curve(curve: Curve, order: int, layer: int) -> None:
 
 
 def test_circular_nektar_curve() -> None:
-    curve = Curve(
-        linear_field_line(
-            0.0,
-            0.2,
-            np.pi,
-            1.0,
-            0.0,
-            np.pi / 2,
-            CoordinateSystem.CYLINDRICAL,
-            0,
-            (0, 0),
-        )
+    curve = FieldAlignedCurve(
+        FieldTracer(
+            linear_field_trace(
+                0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
+            ),
+            4,
+        ),
+        SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
+        np.pi,
+        x3_offset=np.pi / 2,
     )
     nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 0)
     assert_points_eq(
@@ -174,8 +178,8 @@ def test_circular_nektar_curve() -> None:
     )
 
 
-@given(from_type(Curve), integers())
-def test_nektar_edge_first_order(curve: Curve, layer: int) -> None:
+@given(from_type(FieldAlignedCurve), integers())
+def test_nektar_edge_first_order(curve: FieldAlignedCurve, layer: int) -> None:
     nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 1, layer)
     assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     assert nek_edge.GetCurve() is None
@@ -185,8 +189,10 @@ def test_nektar_edge_first_order(curve: Curve, layer: int) -> None:
     assert_points_eq(end, curve(1.0).to_coord())
 
 
-@given(from_type(Curve), integers(2, 12), integers())
-def test_nektar_edge_higher_order(curve: Curve, order: int, layer: int) -> None:
+@given(from_type(FieldAlignedCurve), integers(2, 12), integers())
+def test_nektar_edge_higher_order(
+    curve: FieldAlignedCurve, order: int, layer: int
+) -> None:
     nek_edge, (start, end) = nektar_writer.nektar_edge(curve, order, layer)
     assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     nek_curve = nek_edge.GetCurve()
@@ -241,7 +247,8 @@ def check_points(expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom])
 
 
 def check_edges(
-    mesh: MeshLayer[Quad, Curve] | GenericMesh[Quad, Curve],
+    mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve]
+    | GenericMesh[Quad, FieldAlignedCurve, NormalisedCurve],
     elements: Iterable[SD.Geometry2D],
     edges: Iterable[SD.SegGeom],
 ):
@@ -288,7 +295,7 @@ def check_edges(
     )
 
 
-def check_face_composites(expected: Iterable[Curve], actual: SD.Composite):
+def check_face_composites(expected: Iterable[NormalisedCurve], actual: SD.Composite):
     expected_faces = frozenset(
         (
             SD.SegGeom.__name__,
@@ -318,7 +325,7 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 # Tet meshes. Will probably be best to split into two separate tests.
 @given(from_type(MeshLayer), integers(1, 12), integers())
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, Curve], order: int, layer: int
+    mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve], order: int, layer: int
 ) -> None:
     nek_layer = nektar_writer.nektar_layer_elements(mesh, order, layer)
     assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
@@ -573,26 +580,24 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 # Integration test for very simple 1-element mesh
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
     quad = Quad(
-        Curve(
-            lambda x: Coords(
-                np.array(1.0),
-                np.array(0.0),
-                np.asarray(x),
-                CoordinateSystem.CARTESIAN,
-            )
+        StraightLineAcrossField(
+            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
         ),
-        Curve(
-            lambda x: Coords(
-                np.array(0.0),
-                np.array(0.0),
-                np.asarray(x),
-                CoordinateSystem.CARTESIAN,
-            )
+        FieldTracer(
+            lambda start, x3: (
+                SliceCoords(
+                    np.full_like(x3, start.x1),
+                    np.full_like(x3, start.x2),
+                    CoordinateSystem.CARTESIAN,
+                ),
+                np.asarray(x3),
+            ),
+            2,
         ),
-        None,
-        straight_field(),
+        1.0,
+        x3_offset=0.5,
     )
-
     simple_mesh = GenericMesh(
         MeshLayer([quad], [frozenset([quad.north]), frozenset([quad.south])]),
         np.array([0.0]),
