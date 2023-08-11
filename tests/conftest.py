@@ -18,7 +18,6 @@ from hypothesis.strategies import (
     from_type,
     integers,
     just,
-    lists,
     none,
     one_of,
     register_type_strategy,

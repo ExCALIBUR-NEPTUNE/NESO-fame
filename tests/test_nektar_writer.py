@@ -23,11 +23,9 @@ from NekPy import SpatialDomains as SD
 from pytest import approx, mark
 
 from neso_fame import nektar_writer
-from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     Coord,
     CoordinateSystem,
-    Coords,
     FieldAlignedCurve,
     FieldTracer,
     GenericMesh,
@@ -42,7 +40,7 @@ from neso_fame.mesh import (
     control_points,
 )
 
-from .conftest import linear_field_line, linear_field_trace, non_nans
+from .conftest import linear_field_trace, non_nans
 
 
 def both_nan(a: float, b: float) -> bool:

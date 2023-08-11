@@ -1,7 +1,6 @@
 import itertools
 from operator import methodcaller
-from typing import cast, Callable, Type
-from unittest.mock import MagicMock
+from typing import Type, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -12,8 +11,6 @@ from hypothesis.strategies import (
     floats,
     from_type,
     integers,
-    lists,
-    one_of,
     sampled_from,
     shared,
     tuples,

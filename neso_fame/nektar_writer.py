@@ -19,7 +19,6 @@ from .mesh import (
     NormalisedCurve,
     Quad,
     QuadMesh,
-    StraightLineAcrossField,
     control_points,
 )
 

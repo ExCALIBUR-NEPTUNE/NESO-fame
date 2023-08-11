@@ -2,7 +2,7 @@ import numpy as np
 
 from neso_fame import generators
 from neso_fame.fields import straight_field
-from neso_fame.mesh import control_points, CoordinateSystem, SliceCoords
+from neso_fame.mesh import CoordinateSystem, SliceCoords, control_points
 
 
 # Test for simple grid
