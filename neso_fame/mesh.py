@@ -1049,12 +1049,13 @@ class FieldTracer:
     divisions all at once, which goes against the lazy approach to
     evaluation used by FAME.
 
-    
+
     Group
     -----
     field line
 
     """
+
     trace: FieldTrace
     resolution: int = 10
 

@@ -196,7 +196,9 @@ def trapezoidal_quad(
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (starts[0][0] == 0. or starts[1][0] == 0.):
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (
+        starts[0][0] == 0.0 or starts[1][0] == 0.0
+    ):
         return None
     shape = mesh.StraightLineAcrossField(
         mesh.SliceCoord(starts[0][0], starts[0][1], c),
@@ -286,8 +288,8 @@ def curved_quad(
 def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     # This assumes that dx3/ds is an even function about the starting
     # x3 point from which the bounding field lines were projected
-    north = q.shape(0.)
-    south = q.shape(1.)
+    north = q.shape(0.0)
+    south = q.shape(1.0)
     x1_1 = float(north.x1)
     x2_1 = float(north.x2)
     x1_2 = float(south.x1)
@@ -333,7 +335,9 @@ def _quad_mesh_elements(
     offset: float,
 ) -> Optional[list[mesh.Quad]]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (limits[0][0] == 0. or limits[1][0] == 0.):
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (
+        limits[0][0] == 0.0 or limits[1][0] == 0.0
+    ):
         return None
 
     def make_shape(
@@ -432,22 +436,26 @@ register_type_strategy(
 
 _num_divisions = shared(integers(1, 5), key=171)
 _divisions = _num_divisions.flatmap(lambda x: integers(0, x - 1))
-linear_quad = builds(
-    trapezoidal_quad,
-    whole_numbers,
-    whole_numbers,
-    non_zero,
-    tuples(
-        tuples(non_zero, whole_numbers),
-        tuples(non_zero, whole_numbers),
-    ).filter(lambda x: x[0] != x[1]),
-    coordinate_systems,
-    floats(-2.0, 2.0),
-    integers(2, 5),
-    _divisions,
-    _num_divisions,
-    whole_numbers,
-).filter(lambda x: x is not None).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
+linear_quad = (
+    builds(
+        trapezoidal_quad,
+        whole_numbers,
+        whole_numbers,
+        non_zero,
+        tuples(
+            tuples(non_zero, whole_numbers),
+            tuples(non_zero, whole_numbers),
+        ).filter(lambda x: x[0] != x[1]),
+        coordinate_systems,
+        floats(-2.0, 2.0),
+        integers(2, 5),
+        _divisions,
+        _num_divisions,
+        whole_numbers,
+    )
+    .filter(lambda x: x is not None)
+    .filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
+)
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
 )
@@ -466,8 +474,10 @@ nonlinear_quad = builds(
     whole_numbers,
 )
 flat_quad = one_of(linear_quad, nonlinear_quad)
-quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(lambda x: x is not None)
-register_type_strategy(mesh.Quad, one_of(flat_quad))#, quad_in_3d))
+quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(
+    lambda x: x is not None
+)
+register_type_strategy(mesh.Quad, one_of(flat_quad))  # , quad_in_3d))
 
 
 starts_and_ends = tuples(
