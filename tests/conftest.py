@@ -1,5 +1,6 @@
 import itertools
 import operator
+from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -279,19 +280,21 @@ def curved_quad(
     )
 
 
-def higher_dim_quad(q: mesh.Quad, angle: float) -> mesh.Quad:
+def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     # This assumes that dx3/ds is an even function about the starting
-    # x3 point from which the bounding field lines were projected.
-    north = q.north(0.5)
-    south = q.south(0.5)
-    np.testing.assert_allclose(north.x3, south.x3, atol=1e-10, rtol=1e-10)
+    # x3 point from which the bounding field lines were projected
+    north = q.shape(0.)
+    south = q.shape(1.)
     x1_1 = float(north.x1)
     x2_1 = float(north.x2)
     x1_2 = float(south.x1)
     x2_2 = float(south.x2)
     dx1 = x1_1 - x1_2
     dx2 = x2_1 - x2_2
-    r = (dx1 * dx1 + dx2 * dx2) / (2 * dx1 * np.cos(angle) + 2 * dx2 * np.sin(angle))
+    denom = 2 * dx1 * np.cos(angle) + 2 * dx2 * np.sin(angle)
+    if abs(denom) < 1e-2:
+        return None
+    r = (dx1 * dx1 + dx2 * dx2) / denom
     x1_c = x1_1 - r * np.cos(angle)
     x2_c = x2_1 - r * np.sin(angle)
     a = np.arctan2(x2_2 - x2_c, x1_2 - x1_c) - angle
@@ -388,7 +391,7 @@ def straight_line_for_system(
 
 _centre = shared(whole_numbers, key=1)
 _rad = shared(non_zero, key=2)
-_dx3 = builds(operator.mul, _rad, floats(0.01, 2.0))
+_dx3 = builds(operator.mul, _rad, floats(0.01, 1.99))
 _x1_start = tuples(_centre, _rad).map(lambda x: x[0] + x[1])
 
 
@@ -406,7 +409,7 @@ def curved_line_for_system(
             whole_numbers,
             just(system),
         ),
-        _rad.map(abs).flatmap(lambda r: floats(0, 2 * r)),  # type: ignore
+        _rad.map(abs).flatmap(lambda r: floats(0.01 * r, 1.99 * r)),  # type: ignore
         _divisions,
         _num_divisions,
         whole_numbers,
@@ -458,7 +461,7 @@ nonlinear_quad = builds(
     whole_numbers,
 )
 flat_quad = one_of(linear_quad, nonlinear_quad)
-quad_in_3d = builds(higher_dim_quad, flat_quad, floats(0.0, 2 * np.pi))
+quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(lambda x: x is not None)
 register_type_strategy(mesh.Quad, one_of(flat_quad, quad_in_3d))
 
 

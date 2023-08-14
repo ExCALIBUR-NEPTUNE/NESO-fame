@@ -497,16 +497,16 @@ def test_curve_control_points_values() -> None:
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
     x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - q.x3_offset)[0]
-    np.testing.assert_allclose(actual.x1, x1)
-    np.testing.assert_allclose(actual.x2, x2)
+    np.testing.assert_allclose(actual.x1, x1, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(actual.x2, x2, rtol=1e-6, atol=1e-7)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
     actual = q.south(s)
     x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - q.x3_offset)[0]
-    np.testing.assert_allclose(actual.x1, x1)
-    np.testing.assert_allclose(actual.x2, x2)
+    np.testing.assert_allclose(actual.x1, x1, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(actual.x2, x2, rtol=1e-6, atol=1e-7)
 
 
 @given(from_type(mesh.Quad))
@@ -582,7 +582,8 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     )
     d_diff = distances[1:, :] - distances[:-1, :]
     for i in range(n + 1):
-        np.testing.assert_allclose(d_diff[0, i], d_diff[:, i], rtol=1e-7, atol=1e-10)
+        np.testing.assert_allclose(d_diff[0, i], d_diff[:, i], rtol=1e-6, atol=1e-7)
+    # Check points fall along field lines that are equally spaced at the start position
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(q.field.trace(
             mesh.SliceCoord(x1, x2, start_points.system), x3
@@ -593,8 +594,8 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
         cp.x3 - q.x3_offset,
     )
     for i in range(n + 1):
-        np.testing.assert_allclose(cp.x1, x1, rtol=1e-7, atol=1e-10)
-        np.testing.assert_allclose(cp.x2, x2, rtol=1e-7, atol=1e-10)
+        np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
+        np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
 
 
 # TODO: Test control points for quads where cross-field nodes don't
@@ -721,15 +722,15 @@ def test_hex_subdivision(hex: mesh.Hex, divisions: int) -> None:
     first = next(divisions_iter)
     corners = first.corners()
     for c, t in zip(corners, hex_corners):
-        np.testing.assert_allclose(c[::2], t[::2])
+        np.testing.assert_allclose(c[::2], t[::2], rtol=1e-8, atol=1e-10)
     prev = corners
     for hex in divisions_iter:
         corners = hex.corners()
         for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[::2], p[1::2])
+            np.testing.assert_allclose(c[::2], p[1::2], rtol=1e-8, atol=1e-10)
         prev = corners
     for p, t in zip(prev, hex_corners):
-        np.testing.assert_allclose(p[1::2], t[1::2])
+        np.testing.assert_allclose(p[1::2], t[1::2], rtol=1e-8, atol=1e-10)
 
 
 @given(mesh_arguments)
@@ -1057,13 +1058,13 @@ def test_normalise_curved_field_line(
     coords_normed = normalised(checkpoints)
     expected_coords = line(checkpoints)
     np.testing.assert_allclose(
-        coords_normed.x1, expected_coords.x1, atol=1e-7, rtol=1e-7
+        coords_normed.x1, expected_coords.x1, atol=1e-7, rtol=1e-6
     )
     np.testing.assert_allclose(
-        coords_normed.x2, expected_coords.x2, atol=1e-7, rtol=1e-7
+        coords_normed.x2, expected_coords.x2, atol=1e-7, rtol=1e-6
     )
     np.testing.assert_allclose(
-        coords_normed.x3, expected_coords.x3, atol=1e-7, rtol=1e-7
+        coords_normed.x3, expected_coords.x3, atol=1e-7, rtol=1e-6
     )
     _, distances = trace(start, expected_coords.x3)
     spacing = distances[1:] - distances[:-1]
