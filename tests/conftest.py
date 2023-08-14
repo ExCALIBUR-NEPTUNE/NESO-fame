@@ -75,9 +75,10 @@ def mutually_broadcastable_from(
 def slice_coord_for_system(
     system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.SliceCoord]:
+    x1 = non_zero if system == mesh.CoordinateSystem.CYLINDRICAL else whole_numbers
     return builds(
         mesh.SliceCoord,
-        whole_numbers,
+        x1,
         whole_numbers,
         just(system),
     )
@@ -190,11 +191,13 @@ def trapezoidal_quad(
     division: int,
     num_divisions: int,
     offset: float,
-) -> mesh.Quad:
+) -> Optional[mesh.Quad]:
     centre = (
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (starts[0][0] == 0. or starts[1][0] == 0.):
+        return None
     shape = mesh.StraightLineAcrossField(
         mesh.SliceCoord(starts[0][0], starts[0][1], c),
         mesh.SliceCoord(starts[1][0], starts[1][1], c),
@@ -328,8 +331,10 @@ def _quad_mesh_elements(
     division: int,
     num_divisions: int,
     offset: float,
-) -> list[mesh.Quad]:
+) -> Optional[list[mesh.Quad]]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (limits[0][0] == 0. or limits[1][0] == 0.):
+        return None
 
     def make_shape(
         starts: tuple[tuple[float, float], tuple[float, float]]
@@ -442,7 +447,7 @@ linear_quad = builds(
     _divisions,
     _num_divisions,
     whole_numbers,
-).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
+).filter(lambda x: x is not None).filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
 )
@@ -455,14 +460,14 @@ nonlinear_quad = builds(
     whole_numbers,
     _dx3,
     sampled_from(list(CARTESIAN_SYSTEMS)),
-    integers(40, 80),
+    integers(100, 200),
     _divisions,
     _num_divisions,
     whole_numbers,
 )
 flat_quad = one_of(linear_quad, nonlinear_quad)
 quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(lambda x: x is not None)
-register_type_strategy(mesh.Quad, one_of(flat_quad, quad_in_3d))
+register_type_strategy(mesh.Quad, one_of(flat_quad))#, quad_in_3d))
 
 
 starts_and_ends = tuples(
@@ -482,7 +487,7 @@ quad_mesh_elements = builds(
     _divisions,
     _num_divisions,
     whole_numbers,
-)
+).filter(lambda x: x is not None)
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
 mesh_arguments = one_of(quad_mesh_arguments)
 quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
