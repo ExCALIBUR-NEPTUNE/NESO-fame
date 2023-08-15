@@ -2,8 +2,8 @@
 
 """
 
-from ctypes import ArgumentError
 import itertools
+from ctypes import ArgumentError
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
@@ -12,15 +12,7 @@ from typing import Iterator, Sequence
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 
-from .mesh import (
-    Coord,
-    Hex,
-    MeshLayer,
-    NormalisedCurve,
-    Quad,
-    QuadMesh,
-    control_points,
-)
+from .mesh import Coord, Hex, MeshLayer, NormalisedCurve, Quad, QuadMesh, control_points
 
 UNSET_ID = -1
 

@@ -9,7 +9,6 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
-from operator import methodcaller
 from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
 
 import numpy as np

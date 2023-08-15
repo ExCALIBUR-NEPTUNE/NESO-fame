@@ -1,6 +1,6 @@
 import itertools
 import operator
-from typing import cast, Optional
+from typing import Optional, cast
 
 import numpy as np
 import numpy.typing as npt
