@@ -1,6 +1,6 @@
 import itertools
 import operator
-from typing import Optional
+from typing import cast, Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -454,7 +454,12 @@ linear_quad = (
         whole_numbers,
     )
     .filter(lambda x: x is not None)
-    .filter(lambda x: len(frozenset(x.corners().to_cartesian().iter_points())) == 4)
+    .filter(
+        lambda x: len(
+            frozenset(cast(mesh.Quad, x).corners().to_cartesian().iter_points())
+        )
+        == 4
+    )
 )
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
@@ -485,19 +490,22 @@ starts_and_ends = tuples(
     floats(1.0, 1e3),
     floats(0.0, 2 * np.pi),
 ).map(lambda s: (s[0], _get_end_point(*s)))
-quad_mesh_elements = builds(
-    _quad_mesh_elements,
-    whole_numbers,
-    whole_numbers,
-    non_zero,
-    starts_and_ends,
-    integers(1, 4),
-    coordinate_systems,
-    integers(2, 10),
-    _divisions,
-    _num_divisions,
-    whole_numbers,
-).filter(lambda x: x is not None)
+quad_mesh_elements = cast(
+    SearchStrategy[list[mesh.Quad]],
+    builds(
+        _quad_mesh_elements,
+        whole_numbers,
+        whole_numbers,
+        non_zero,
+        starts_and_ends,
+        integers(1, 4),
+        coordinate_systems,
+        integers(2, 10),
+        _divisions,
+        _num_divisions,
+        whole_numbers,
+    ).filter(lambda x: x is not None),
+)
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
 mesh_arguments = one_of(quad_mesh_arguments)
 quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))

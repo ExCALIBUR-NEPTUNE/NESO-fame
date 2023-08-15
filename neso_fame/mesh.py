@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cache, cached_property
+from operator import methodcaller
 from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
 
 import numpy as np
@@ -540,6 +541,40 @@ class Quad:
             self.x3_offset,
         )
 
+    def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
+        """Returns the line formed where the quad intersects the x1-x2
+        plane with the given x3 value. The value of x3 should be given
+        *without* accounting for any offset of the quad."""
+        x3_scaled = x3 / self.dx3 + 0.5
+        x3 = (
+            self.dx3 / self.num_divisions * (self.subdivision + x3_scaled)
+            - 0.5 * self.dx3
+        )
+        s = np.linspace(0.0, 1.0, self.field.resolution)
+        x1_coord = np.empty(self.field.resolution)
+        x2_coord = np.empty(self.field.resolution)
+        x3_coord = np.full(self.field.resolution, x3 + self.x3_offset)
+        for i, start in enumerate(self.shape(s).iter_points()):
+            coord = self.field.trace(start, x3)[0].to_coord()
+            x1_coord[i] = coord.x1
+            x2_coord[i] = coord.x2
+        coordinates = np.stack([x1_coord, x2_coord, x3_coord])
+        order = (
+            "cubic"
+            if self.field.resolution > 3
+            else "quadratic"
+            if self.field.resolution > 2
+            else "linear"
+        )
+        interp = interp1d(s, coordinates, order)
+        coord_system = start.system
+
+        def normalised_interpolator(s: npt.ArrayLike) -> Coords:
+            locations = interp(s)
+            return Coords(locations[0], locations[1], locations[2], coord_system)
+
+        return normalised_interpolator
+
     @cached_property
     def north(self) -> FieldAlignedCurve:
         """Field-aligned curve which defines one edge of the
@@ -559,7 +594,7 @@ class Quad:
 
         """
         # FIXME: Doesn't handle self.shape being something other than a straight line
-        return StraightLine(self.north(0.0).to_coord(), self.south(0.0).to_coord())
+        return self._get_line_at_x3(-0.5 * self.dx3)
 
     @cached_property
     def far(self) -> NormalisedCurve:
@@ -567,8 +602,7 @@ class Quad:
         curves defining the boundaries of the quadrilateral.
 
         """
-        # FIXME: Doesn't handle self.shape being something other than a straight line
-        return StraightLine(self.north(1.0).to_coord(), self.south(1.0).to_coord())
+        return self._get_line_at_x3(0.5 * self.dx3)
 
     def corners(self) -> Coords:
         """Returns the points corresponding to the corners of the quadrilateral."""
@@ -620,7 +654,7 @@ class Quad:
 class EndQuad:
     """Represents a quad that is either the near or far end of a
     :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
-    four curved edges."""
+    four curved edges. However, it is always flat."""
 
     north: NormalisedCurve
     """A shape defining one edge of the quad"""

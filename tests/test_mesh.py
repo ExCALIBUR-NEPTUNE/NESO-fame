@@ -509,24 +509,58 @@ def test_quad_south(q: mesh.Quad, s: float) -> None:
     np.testing.assert_allclose(actual.x2, x2, rtol=1e-5, atol=1e-6)
 
 
-@given(from_type(mesh.Quad))
-def test_quad_near_edge(q: mesh.Quad) -> None:
+@given(from_type(mesh.Quad), integers(2, 10))
+def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
     rounder = methodcaller("round", 7)
     expected = frozenset(
         map(rounder, {q.north(0.0).to_coord(), q.south(0.0).to_coord()})
     )
     actual = frozenset(map(rounder, q.near([0.0, 1.0]).iter_points()))
     assert expected == actual
+    # Check points on edge on field lines that pass through the
+    # reference shape for the quad
+    s = np.linspace(0.0, 1.0, n)
+    cp = q.near(s)
+    start_points = q.shape(s)
+    x1, x2 = np.vectorize(
+        lambda x1, x2, x3: tuple(
+            q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
+        )
+    )(
+        start_points.x1,
+        start_points.x2,
+        cp.x3 - q.x3_offset,
+    )
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x3, cp.x3[0], rtol=1e-10, atol=1e-12)
 
 
-@given(from_type(mesh.Quad))
-def test_quad_far_edge(q: mesh.Quad) -> None:
+@given(from_type(mesh.Quad), integers(2, 10))
+def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
     rounder = methodcaller("round", 7)
     expected = frozenset(
         map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()})
     )
     actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points()))
     assert expected == actual
+    # Check points on edge on field lines that pass through the
+    # reference shape for the quad
+    s = np.linspace(0.0, 1.0, n)
+    cp = q.far(s)
+    start_points = q.shape(s)
+    x1, x2 = np.vectorize(
+        lambda x1, x2, x3: tuple(
+            q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
+        )
+    )(
+        start_points.x1,
+        start_points.x2,
+        cp.x3 - q.x3_offset,
+    )
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x3, cp.x3[0], rtol=1e-10, atol=1e-12)
 
 
 @given(from_type(mesh.Quad))
@@ -593,9 +627,8 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
         start_points.x2,
         cp.x3 - q.x3_offset,
     )
-    for i in range(n + 1):
-        np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
-        np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
 
 
 # TODO: Test control points for quads where cross-field nodes don't
@@ -856,7 +889,7 @@ def test_mesh_layer_far_faces(
     subdivisions: int,
 ) -> None:
     layer = mesh.MeshLayer(*args, offset, subdivisions)
-    rounder = methodcaller("round", 12)
+    rounder = methodcaller("round", 8)
     expected = frozenset(
         map(
             rounder,

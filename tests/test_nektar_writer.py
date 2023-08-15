@@ -73,13 +73,13 @@ def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
     return (round(coords[0], 8), round(coords[1], 8), round(coords[2], 8))
 
 
-def comparable_curve(curve: FieldAlignedCurve, order: int) -> ComparableGeometry:
+def comparable_curve(curve: NormalisedCurve, order: int) -> ComparableGeometry:
     return SD.Curve.__name__, frozenset(
         map(comparable_coord, control_points(curve, order).to_cartesian().iter_points())
     )
 
 
-def comparable_edge(curve: FieldAlignedCurve) -> ComparableGeometry:
+def comparable_edge(curve: NormalisedCurve) -> ComparableGeometry:
     return SD.SegGeom.__name__, frozenset(
         map(comparable_coord, control_points(curve, 1).to_cartesian().iter_points())
     )
@@ -264,30 +264,8 @@ def check_edges(
         operator.or_,
         (frozenset({comparable_edge(q.north), comparable_edge(q.south)}) for q in mesh),
     )
-    expected_near_faces = frozenset(
-        (
-            SD.SegGeom.__name__,
-            frozenset(
-                {
-                    comparable_coord(q.north(0.0).to_cartesian().to_coord()),
-                    comparable_coord(q.south(0.0).to_cartesian().to_coord()),
-                }
-            ),
-        )
-        for q in mesh
-    )
-    expected_far_faces = frozenset(
-        (
-            SD.SegGeom.__name__,
-            frozenset(
-                {
-                    comparable_coord(q.north(1.0).to_cartesian().to_coord()),
-                    comparable_coord(q.south(1.0).to_cartesian().to_coord()),
-                }
-            ),
-        )
-        for q in mesh
-    )
+    expected_near_faces = frozenset(comparable_edge(q.near) for q in mesh)
+    expected_far_faces = frozenset(comparable_edge(q.far) for q in mesh)
     assert (
         expected_x3_aligned_edges | expected_near_faces | expected_far_faces
         == actual_edges
