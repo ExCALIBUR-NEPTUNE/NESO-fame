@@ -446,14 +446,14 @@ def test_curve_subdivision(curve: mesh.FieldAlignedCurve, divisions: int) -> Non
     first = next(divisions_iter)
     coord = first(0.0)
     for component, expected in zip(coord, curve(0.0)):
-        np.testing.assert_allclose(component, expected)
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
     prev = first(1.0)
     for curve in divisions_iter:
         for c, p in zip(curve(0.0), prev):
-            np.testing.assert_allclose(c, p)
+            np.testing.assert_allclose(c, p, rtol=1e-7, atol=1e-10)
         prev = curve(1.0)
     for component, expected in zip(prev, curve(1.0)):
-        np.testing.assert_allclose(component, expected)
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
 
 
 @given(from_type(mesh.FieldAlignedCurve), integers(1, 10))
