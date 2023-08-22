@@ -1,6 +1,6 @@
 import itertools
 import operator
-from typing import Callable, Literal, Optional, TypeVar, cast
+from typing import Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -586,9 +586,9 @@ T = TypeVar("T")
 
 @composite
 def hex_starts(
-    draw: Callable[[SearchStrategy[T]], T],
+    draw,
     base_x1: float = 0.0,
-    offset_sign: Literal[0] | Literal[-1] | Literal[1] = 0,
+    offset_sign: int = 0,
 ) -> tuple[Pair, Pair, Pair, Pair]:
     if offset_sign == 0:
         if draw(booleans()):
@@ -599,20 +599,24 @@ def hex_starts(
     return (
         (base_x1, base_x2),
         (
-            base_x1 + offset_sign * draw(non_zero.map(abs)),
+            base_x1 + offset_sign * draw(non_zero.map(abs)),  # type: ignore
             base_x2 + draw(whole_numbers),
         ),
         (
-            base_x1 + offset_sign * draw(whole_numbers.map(abs)),
+            base_x1 + offset_sign * draw(whole_numbers.map(abs)),  # type: ignore
             base_x2 + draw(non_zero),
         ),
-        (base_x1 + offset_sign * draw(non_zero.map(abs)), base_x2 + draw(non_zero)),
+        (
+            base_x1 + offset_sign * draw(non_zero.map(abs)),  # type: ignore
+            base_x2 + draw(non_zero),
+        ),
     )
 
 
 _num_divisions = shared(integers(1, 5), key=171)
 _divisions = _num_divisions.flatmap(lambda x: integers(0, x - 1))
-linear_quad = (
+linear_quad = cast(
+    SearchStrategy[mesh.Quad],
     builds(
         trapezoidal_quad,
         whole_numbers,
@@ -637,21 +641,24 @@ linear_quad = (
             frozenset(cast(mesh.Quad, x).corners().to_cartesian().iter_points())
         )
         == 4
-    )
+    ),
 )
-linear_hex = builds(
-    trapezohedronal_hex,
-    whole_numbers,
-    whole_numbers,
-    non_zero,
-    hex_starts(),
-    coordinate_systems,
-    floats(-2.0, 2.0),
-    integers(2, 5),
-    _divisions,
-    _num_divisions,
-    whole_numbers,
-).filter(lambda x: x is not None)
+linear_hex = cast(
+    SearchStrategy[mesh.Hex],
+    builds(
+        trapezohedronal_hex,
+        whole_numbers,
+        whole_numbers,
+        non_zero,
+        hex_starts(),
+        coordinate_systems,
+        floats(-2.0, 2.0),
+        integers(2, 5),
+        _divisions,
+        _num_divisions,
+        whole_numbers,
+    ).filter(lambda x: x is not None),
+)
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
 )

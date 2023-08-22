@@ -10,7 +10,17 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import cache, cached_property
-from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
+from typing import (
+    Callable,
+    Generic,
+    Literal,
+    Optional,
+    Protocol,
+    Type,
+    TypeVar,
+    cast,
+    overload,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -202,7 +212,9 @@ class Coord:
     def __hash__(self) -> int:
         context = Context(8)
 
-        def get_digits(x: float) -> tuple[int, tuple[int, ...], int]:
+        def get_digits(
+            x: float,
+        ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
             y = Decimal(self.x1).normalize(context).as_tuple()
             return y[0], y[1][:-1], y[2]
 
