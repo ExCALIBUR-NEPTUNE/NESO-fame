@@ -7,6 +7,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import cache, cached_property
 from typing import Callable, Generic, Optional, Protocol, Type, TypeVar, cast, overload
@@ -46,6 +47,15 @@ COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
 }
 
 
+@np.vectorize
+def _round_to_sig_figs(x: float, figures: int) -> float:
+    """Round floats to the given number of significant figures."""
+    abs_x = np.abs(x)
+    if abs_x < 10.0**-figures:
+        return 0.0
+    return float(Decimal(str(x)).normalize(Context(int(figures), ROUND_HALF_UP)))
+
+
 @dataclass(frozen=True)
 class SliceCoord:
     """Representation of a point in a poloidal slice (or
@@ -69,10 +79,14 @@ class SliceCoord:
         yield self.x1
         yield self.x2
 
-    def round(self, places=8) -> SliceCoord:
+    def round(self, figures=8) -> SliceCoord:
         """Returns an object with coordinate values rounded to the
-        desired number of decimal places."""
-        return SliceCoord(round(self.x1, places), round(self.x2, places), self.system)
+        desired number of significant figures."""
+        return SliceCoord(
+            float(_round_to_sig_figs(self.x1, figures)),
+            float(_round_to_sig_figs(self.x2, figures)),
+            self.system,
+        )
 
     def to_3d_coord(self, x3: float) -> Coord:
         """Create a 3D coordinate object from this 2D one, by
@@ -120,11 +134,13 @@ class SliceCoords:
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
-    def round(self, places=8) -> SliceCoords:
+    def round(self, figures=8) -> SliceCoords:
         """Returns an object with coordinate values rounded to the
-        desired number of decimal places."""
+        desired number of significant figures."""
         return SliceCoords(
-            np.round(self.x1, places), np.round(self.x2, places), self.system
+            _round_to_sig_figs(self.x1, figures),
+            _round_to_sig_figs(self.x2, figures),
+            self.system,
         )
 
     def to_coord(self) -> SliceCoord:
@@ -173,14 +189,36 @@ class Coord:
         yield self.x2
         yield self.x3
 
-    def round(self, places=8) -> Coord:
+    def round(self, figures=8) -> Coord:
         """Returns an object with coordinate values rounded to the
-        desired number of decimal places."""
+        desired number of significant figures."""
         return Coord(
-            round(self.x1, places),
-            round(self.x2, places),
-            round(self.x3, places),
+            float(_round_to_sig_figs(self.x1, figures)),
+            float(_round_to_sig_figs(self.x2, figures)),
+            float(_round_to_sig_figs(self.x3, figures)),
             self.system,
+        )
+
+    def __hash__(self) -> int:
+        context = Context(8)
+
+        def get_digits(x: float) -> tuple[int, tuple[int, ...], int]:
+            y = Decimal(self.x1).normalize(context).as_tuple()
+            return y[0], y[1][:-1], y[2]
+
+        x1 = get_digits(self.x1)
+        x2 = get_digits(self.x2)
+        x3 = get_digits(self.x3)
+        return hash((x1, x2, x3, self.system))
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.system == other.system and cast(
+            bool,
+            np.isclose(self.x1, other.x1, 1e-9, 1e-9)
+            and np.isclose(self.x2, other.x2, 1e-9, 1e-9)
+            and np.isclose(self.x3, other.x3, 1e-9, 1e-9),
         )
 
 
@@ -244,13 +282,13 @@ class Coords:
         only work if the collection contains exactly one point."""
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
-    def round(self, places=8) -> Coords:
+    def round(self, figures=8) -> Coords:
         """Returns an object with coordinate values rounded to the
-        desired number of decimal places."""
+        desired number of significant figures."""
         return Coords(
-            np.round(self.x1, places),
-            np.round(self.x2, places),
-            np.round(self.x3, places),
+            _round_to_sig_figs(self.x1, figures),
+            _round_to_sig_figs(self.x2, figures),
+            _round_to_sig_figs(self.x3, figures),
             self.system,
         )
 
@@ -570,7 +608,23 @@ class Quad:
 
         def normalised_interpolator(s: npt.ArrayLike) -> Coords:
             locations = interp(s)
-            return Coords(locations[0], locations[1], locations[2], coord_system)
+            return Coords(
+                locations[0],
+                locations[1],
+                locations[2],
+                # np.where(
+                #     s == 1.0,
+                #     x1_coord[-1],
+                #     np.where(s == 1.0, x1_coord[0], locations[0]),
+                # ),
+                # np.where(
+                #     s == 1.0,
+                #     x2_coord[-1],
+                #     np.where(s == 0.0, x2_coord[0], locations[1]),
+                # ),
+                # np.full_like(s, x3 + self.x3_offset),
+                coord_system,
+            )
 
         return normalised_interpolator
 
@@ -850,6 +904,13 @@ class MeshLayer(Generic[E, B, C]):
             ),
         )
 
+    @staticmethod
+    def _division_number(element: Quad | Hex) -> int:
+        if isinstance(element, Quad):
+            return element.subdivision
+        else:
+            return element.north.subdivision
+
     def near_faces(self) -> Iterator[C]:
         """Iterates over the near faces of the elements in the
         layer. If the layer is subdivided (i.e., is more than one
@@ -861,6 +922,12 @@ class MeshLayer(Generic[E, B, C]):
         return map(
             lambda e: cast(C, e.near),
             self._iterate_elements(self.reference_elements, self.offset, 1),
+            # filter(
+            #     lambda e: self._division_number(e) == 0,
+            #     self._iterate_elements(
+            #         self.reference_elements, self.offset, self.subdivisions
+            #     ),
+            # ),
         )
 
     def far_faces(self) -> Iterator[C]:
@@ -880,6 +947,12 @@ class MeshLayer(Generic[E, B, C]):
         return map(
             lambda e: cast(C, e.far),
             self._iterate_elements(self.reference_elements, self.offset, 1),
+            # filter(
+            #     lambda e: self._division_number(e) == self.subdivisions - 1,
+            #     self._iterate_elements(
+            #         self.reference_elements, self.offset, self.subdivisions
+            #     ),
+            # ),
         )
 
     @overload
@@ -1060,7 +1133,11 @@ def normalise_field_line(
     x1_x2_coords, s = trace(start, x3)
     coordinates = np.stack([*x1_x2_coords, x3])
     order = "cubic" if len(s) > 3 else "quadratic" if len(s) > 2 else "linear"
-    interp = interp1d((s - s[0]) / (s[-1] - s[0]), coordinates, order)
+    distances = (s - s[0]) / (s[-1] - s[0])
+    # Make sure limits are exact
+    distances[0] = 0.0
+    distances[-1] = 1.0
+    interp = interp1d(distances, coordinates, order)
     coord_system = start.system
 
     def normalised_interpolator(s: npt.ArrayLike) -> Coords:

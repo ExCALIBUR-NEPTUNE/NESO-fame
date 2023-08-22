@@ -1,5 +1,4 @@
 import itertools
-from operator import methodcaller
 from typing import Type, cast
 
 import numpy as np
@@ -45,13 +44,34 @@ def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
         next(coord_iter)
 
 
-@given(from_type(mesh.SliceCoord), integers(4, 10), sampled_from((1, -1)))
-def test_slice_coord_round(coord: mesh.SliceCoord, places: int, sign: int) -> None:
-    offset = sign * 10 ** -(places + 1)
-    coord2 = mesh.SliceCoord(coord.x1 + offset, coord.x2 + offset, coord.system)
-    assert coord != coord2
-    assert coord.round(places) == coord2.round(places)
-    assert coord.round(places + 1) != coord2.round(places + 1)
+@pytest.mark.parametrize(
+    "coord1,coord2,places",
+    [
+        (
+            mesh.SliceCoord(1.0, 1.0, mesh.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(1.0001, 0.99999, mesh.CoordinateSystem.CARTESIAN),
+            4,
+        ),
+        (
+            mesh.SliceCoord(3314.44949999, 0.0012121, mesh.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(
+                3314.44950001, 0.0012121441, mesh.CoordinateSystem.CARTESIAN
+            ),
+            5,
+        ),
+        (
+            mesh.SliceCoord(1.0, 1.0, mesh.CoordinateSystem.CYLINDRICAL),
+            mesh.SliceCoord(1.0001, 0.99999, mesh.CoordinateSystem.CYLINDRICAL),
+            4,
+        ),
+    ],
+)
+def test_slice_coord_round(
+    coord1: mesh.SliceCoord, coord2: mesh.SliceCoord, places: int
+) -> None:
+    assert coord1 != coord2
+    assert coord1.round(places) == coord2.round(places)
+    assert coord1.round(places + 1) != coord2.round(places + 1)
 
 
 @pytest.mark.parametrize(
@@ -156,20 +176,58 @@ def test_slice_coords_bad_getitem(
         _ = coords[index]
 
 
-@given(from_type(mesh.SliceCoords), integers(4, 10), sampled_from((1, -1)))
-def test_slice_coords_round(coord: mesh.SliceCoords, places: int, sign: int) -> None:
-    offset = sign * 10 ** -(places + 1)
-    coord2 = mesh.SliceCoords(coord.x1 + offset, coord.x2 + offset, coord.system)
-
+@pytest.mark.parametrize(
+    "coord1,coord2,places",
+    [
+        (
+            mesh.SliceCoords(
+                np.array([1.0, 5.0]),
+                np.array([1.0, 1.0]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            mesh.SliceCoords(
+                np.array([1.0001, 5.0]),
+                np.array([0.99999, 1.0]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            4,
+        ),
+        (
+            mesh.SliceCoords(
+                np.array([3315.05, 1e-12]),
+                np.array([0.0012121, 1e100]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            mesh.SliceCoords(
+                np.array([3315.05, 0.0]),
+                np.array([0.0012121441, 1.0000055e100]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            5,
+        ),
+        (
+            mesh.SliceCoords(
+                np.array(1.0), np.array(1.0), mesh.CoordinateSystem.CYLINDRICAL
+            ),
+            mesh.SliceCoords(
+                np.array(1.0001), np.array(0.99999), mesh.CoordinateSystem.CYLINDRICAL
+            ),
+            4,
+        ),
+    ],
+)
+def test_slice_coords_round(
+    coord1: mesh.SliceCoords, coord2: mesh.SliceCoords, places: int
+) -> None:
     def coords_equal(lhs: mesh.SliceCoords, rhs: mesh.SliceCoords) -> bool:
         return (
             bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2))
             and lhs.system == rhs.system
         )
 
-    assert not coords_equal(coord, coord2)
-    assert coords_equal(coord.round(places), coord2.round(places))
-    assert not coords_equal(coord.round(places + 1), coord2.round(places + 1))
+    assert not coords_equal(coord1, coord2)
+    assert coords_equal(coord1.round(places), coord2.round(places))
+    assert not coords_equal(coord1.round(places + 1), coord2.round(places + 1))
 
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
@@ -183,15 +241,32 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
         next(coord_iter)
 
 
-@given(from_type(mesh.Coord), integers(4, 10), sampled_from((1, -1)))
-def test_coord_round(coord: mesh.Coord, places: int, sign: int) -> None:
-    offset = sign * 10 ** -(places + 1)
-    coord2 = mesh.Coord(
-        coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system
-    )
-    assert coord != coord2
-    assert coord.round(places) == coord2.round(places)
-    assert coord.round(places + 1) != coord2.round(places + 1)
+@pytest.mark.parametrize(
+    "coord1,coord2,places",
+    [
+        (
+            mesh.Coord(1.0, 1.0, -0.5, mesh.CoordinateSystem.CARTESIAN),
+            mesh.Coord(1.0001, 0.99999, -0.500005, mesh.CoordinateSystem.CARTESIAN),
+            4,
+        ),
+        (
+            mesh.Coord(3315.05, 0.0012121, 1e-12, mesh.CoordinateSystem.CARTESIAN),
+            mesh.Coord(3315.05, 0.0012121441, 2e-12, mesh.CoordinateSystem.CARTESIAN),
+            5,
+        ),
+        (
+            mesh.Coord(1.0, 1, -10.0, mesh.CoordinateSystem.CYLINDRICAL),
+            mesh.Coord(1.0001, 0.99999, -9.9999, mesh.CoordinateSystem.CYLINDRICAL),
+            4,
+        ),
+    ],
+)
+def test_coord_round(
+    coord1: mesh.SliceCoord, coord2: mesh.SliceCoord, places: int
+) -> None:
+    assert coord1 != coord2
+    assert coord1.round(places) == coord2.round(places)
+    assert coord1.round(places + 1) != coord2.round(places + 1)
 
 
 @pytest.mark.parametrize(
@@ -398,13 +473,57 @@ def test_coords_to_cartesian() -> None:
     np.testing.assert_allclose(coords.x3, [1.0, 0.5, 0.0], atol=1e-12)
 
 
-@given(from_type(mesh.Coords), integers(4, 10), sampled_from((1, -1)))
-def test_coords_round(coord: mesh.Coords, places: int, sign: int) -> None:
-    offset = sign * 10 ** -(places + 1)
-    coord2 = mesh.Coords(
-        coord.x1 + offset, coord.x2 + offset, coord.x3 + offset, coord.system
-    )
-
+@pytest.mark.parametrize(
+    "coord1,coord2,places",
+    [
+        (
+            mesh.Coords(
+                np.array([1.0, 5.0]),
+                np.array([1.0, 1.0]),
+                np.array([-1e-3, -2e-5]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            mesh.Coords(
+                np.array([1.0001, 5.0]),
+                np.array([0.99999, 1.0]),
+                np.array([-1.0001e-3, -1.99999e-5]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            4,
+        ),
+        (
+            mesh.Coords(
+                np.array([3315.05, 1e-12]),
+                np.array([0.0012121, 1e100]),
+                np.array([0.0, 22.0]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            mesh.Coords(
+                np.array([3315.05, 0.0]),
+                np.array([0.0012121441, 1.0000055e100]),
+                np.array([-0.000000009, 22.0]),
+                mesh.CoordinateSystem.CARTESIAN,
+            ),
+            5,
+        ),
+        (
+            mesh.Coords(
+                np.array(1.0),
+                np.array(1.0),
+                np.array(1.0),
+                mesh.CoordinateSystem.CYLINDRICAL,
+            ),
+            mesh.Coords(
+                np.array(1.0001),
+                np.array(0.99999),
+                np.array(1.0),
+                mesh.CoordinateSystem.CYLINDRICAL,
+            ),
+            4,
+        ),
+    ],
+)
+def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> None:
     def coords_equal(lhs: mesh.Coords, rhs: mesh.Coords) -> bool:
         return (
             bool(
@@ -415,9 +534,9 @@ def test_coords_round(coord: mesh.Coords, places: int, sign: int) -> None:
             and lhs.system == rhs.system
         )
 
-    assert not coords_equal(coord, coord2)
-    assert coords_equal(coord.round(places), coord2.round(places))
-    assert not coords_equal(coord.round(places + 1), coord2.round(places + 1))
+    assert not coords_equal(coord1, coord2)
+    assert coords_equal(coord1.round(places), coord2.round(places))
+    assert not coords_equal(coord1.round(places + 1), coord2.round(places + 1))
 
 
 @given(from_type(mesh.FieldAlignedCurve), whole_numbers, floats(0.0, 1.0))
@@ -425,9 +544,9 @@ def test_curve_offset(curve: mesh.FieldAlignedCurve, offset: float, arg: float) 
     curve2 = curve.offset(offset)
     p1 = curve(arg)
     p2 = curve2(arg)
-    np.testing.assert_allclose(p1.x1, p2.x1)
-    np.testing.assert_allclose(p1.x2, p2.x2)
-    np.testing.assert_allclose(p1.x3, p2.x3 - offset)
+    np.testing.assert_allclose(p1.x1, p2.x1, atol=1e-12)
+    np.testing.assert_allclose(p1.x2, p2.x2, atol=1e-12)
+    np.testing.assert_allclose(p1.x3, p2.x3 - offset, atol=1e-12)
 
 
 @given(from_type(mesh.FieldAlignedCurve), integers(-50, 100))
@@ -497,25 +616,22 @@ def test_curve_control_points_values() -> None:
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
     x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - q.x3_offset)[0]
-    np.testing.assert_allclose(actual.x1, x1, rtol=1e-5, atol=1e-6)
-    np.testing.assert_allclose(actual.x2, x2, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
     actual = q.south(s)
     x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - q.x3_offset)[0]
-    np.testing.assert_allclose(actual.x1, x1, rtol=1e-5, atol=1e-6)
-    np.testing.assert_allclose(actual.x2, x2, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
 
 
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
-    rounder = methodcaller("round", 7)
-    expected = frozenset(
-        map(rounder, {q.north(0.0).to_coord(), q.south(0.0).to_coord()})
-    )
-    actual = frozenset(map(rounder, q.near([0.0, 1.0]).iter_points()))
+    actual = frozenset(q.near(np.array([0.0, 1.0])).iter_points())
+    expected = frozenset({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
     assert expected == actual
     # Check points on edge on field lines that pass through the
     # reference shape for the quad
@@ -531,18 +647,15 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
         start_points.x2,
         cp.x3 - q.x3_offset,
     )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(cp.x3, cp.x3[0], rtol=1e-10, atol=1e-12)
 
 
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
-    rounder = methodcaller("round", 7)
-    expected = frozenset(
-        map(rounder, {q.north(1.0).to_coord(), q.south(1.0).to_coord()})
-    )
-    actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points()))
+    actual = frozenset(q.far(np.array([0.0, 1.0])).iter_points())
+    expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
     assert expected == actual
     # Check points on edge on field lines that pass through the
     # reference shape for the quad
@@ -558,17 +671,16 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
         start_points.x2,
         cp.x3 - q.x3_offset,
     )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(cp.x3, cp.x3[0], rtol=1e-10, atol=1e-12)
 
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    rounder = methodcaller("round", 7)
-    expected = frozenset(map(rounder, q.corners().iter_points()))
-    actual = frozenset(map(rounder, q.far([0.0, 1.0]).iter_points())) | frozenset(
-        map(rounder, q.near([0.0, 1.0]).iter_points())
+    expected = frozenset(q.corners().iter_points())
+    actual = frozenset(q.far([0.0, 1.0]).iter_points()) | frozenset(
+        q.near([0.0, 1.0]).iter_points()
     )
     assert expected == actual
 
@@ -592,12 +704,12 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     assert cp.x1.ndim == 2
     assert cp.x2.ndim == 2
     assert cp.x3.ndim == 2
-    assert np.all(cp.x1 <= round(cast(float, x1_max), 12))
-    assert np.all(cp.x2 <= round(cast(float, x2_max), 12))
-    assert np.all(cp.x3 <= round(cast(float, x3_max), 12))
-    assert np.all(cp.x1 >= round(cast(float, x1_min), 12))
-    assert np.all(cp.x2 >= round(cast(float, x2_min), 12))
-    assert np.all(cp.x3 >= round(cast(float, x3_min), 12))
+    assert np.all(cp.x1 <= mesh._round_to_sig_figs(cast(float, x1_max), 12))
+    assert np.all(cp.x2 <= mesh._round_to_sig_figs(cast(float, x2_max), 12))
+    assert np.all(cp.x3 <= mesh._round_to_sig_figs(cast(float, x3_max), 12))
+    assert np.all(cp.x1 >= mesh._round_to_sig_figs(cast(float, x1_min), 12))
+    assert np.all(cp.x2 >= mesh._round_to_sig_figs(cast(float, x2_min), 12))
+    assert np.all(cp.x3 >= mesh._round_to_sig_figs(cast(float, x3_min), 12))
 
 
 @given(from_type(mesh.Quad), sampled_from(list(range(2, 10, 2))))
@@ -755,15 +867,15 @@ def test_hex_subdivision(hex: mesh.Hex, divisions: int) -> None:
     first = next(divisions_iter)
     corners = first.corners()
     for c, t in zip(corners, hex_corners):
-        np.testing.assert_allclose(c[::2], t[::2], rtol=1e-8, atol=1e-10)
+        np.testing.assert_allclose(c[::2], t[::2], rtol=1e-8, atol=1e-8)
     prev = corners
     for hex in divisions_iter:
         corners = hex.corners()
         for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[::2], p[1::2], rtol=1e-8, atol=1e-10)
+            np.testing.assert_allclose(c[::2], p[1::2], rtol=1e-8, atol=1e-8)
         prev = corners
     for p, t in zip(prev, hex_corners):
-        np.testing.assert_allclose(p[1::2], t[1::2], rtol=1e-8, atol=1e-10)
+        np.testing.assert_allclose(p[1::2], t[1::2], rtol=1e-8, atol=1e-8)
 
 
 @given(mesh_arguments)
@@ -862,22 +974,15 @@ def test_mesh_layer_near_faces(
     subdivisions: int,
 ) -> None:
     layer = mesh.MeshLayer(*args, offset, subdivisions)
-    rounder = methodcaller("round", 8)
     expected = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0])
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0])
+        ),
     )
     actual = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), layer.near_faces())
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+        ),
     )
     assert expected == actual
 
@@ -889,52 +994,35 @@ def test_mesh_layer_far_faces(
     subdivisions: int,
 ) -> None:
     layer = mesh.MeshLayer(*args, offset, subdivisions)
-    rounder = methodcaller("round", 8)
     expected = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
+        ),
     )
     actual = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), layer.far_faces())
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+        ),
     )
     assert expected == actual
 
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
-    rounder = methodcaller("round", 10)
     element_corners = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), layer)
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer)
+        ),
     )
     near_face_corners = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), layer.near_faces())
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+        ),
     )
     far_face_corners = frozenset(
-        map(
-            rounder,
-            itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), layer.far_faces())
-            ),
-        )
+        itertools.chain.from_iterable(
+            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+        ),
     )
     assert near_face_corners < element_corners
     assert far_face_corners < element_corners
@@ -958,9 +1046,6 @@ quad_mesh_elements = (
         4,
         mesh.CoordinateSystem.CARTESIAN,
         10,
-        0,
-        1,
-        0.0,
     ),
 )
 

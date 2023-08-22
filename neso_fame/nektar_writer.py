@@ -177,12 +177,6 @@ class NektarElements:
 
 
 @cache
-def _nektar_point(
-    x1: float, x2: float, x3: float, spatial_dim: int, layer_id: int
-) -> SD.PointGeom:
-    return SD.PointGeom(spatial_dim, UNSET_ID, x1, x2, x3)
-
-
 def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Returns a Nektar++ PointGeom object at the specified position
     in the given layer. Caching is used to ensure that, given the same
@@ -192,8 +186,9 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
     -----
     factory
     """
-    pos = position.to_cartesian().round(8)
-    return _nektar_point(pos.x1, pos.x2, pos.x3, spatial_dim, layer_id)
+    # FIXME: Need to round to 9 significant figures, not 8 decimal places
+    pos = position.to_cartesian()
+    return SD.PointGeom(spatial_dim, UNSET_ID, pos.x1, pos.x2, pos.x3)
 
 
 @cache

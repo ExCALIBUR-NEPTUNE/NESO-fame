@@ -57,20 +57,18 @@ def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
         assert a == approx(e, 1e-8, 1e-8, True)
 
 
-ComparablePoint = tuple[float, float, float]
-ComparableDimensionalGeometry = tuple[str, frozenset[ComparablePoint]]
-ComparableGeometry = ComparablePoint | ComparableDimensionalGeometry
+ComparableDimensionalGeometry = tuple[str, frozenset[Coord]]
+ComparableGeometry = Coord | ComparableDimensionalGeometry
 ComparableComposite = frozenset[int]
 
 
-def comparable_coord(c: Coord) -> ComparablePoint:
-    c = c.to_cartesian()
-    return round(c.x1, 8), round(c.x2, 8), round(c.x3, 8)
+def comparable_coord(c: Coord) -> Coord:
+    return c.to_cartesian()
 
 
-def comparable_nektar_point(geom: SD.PointGeom) -> ComparablePoint:
+def comparable_nektar_point(geom: SD.PointGeom) -> Coord:
     coords = geom.GetCoordinates()
-    return (round(coords[0], 8), round(coords[1], 8), round(coords[2], 8))
+    return Coord(coords[0], coords[1], coords[2], CoordinateSystem.CARTESIAN)
 
 
 def comparable_curve(curve: NormalisedCurve, order: int) -> ComparableGeometry:
@@ -210,7 +208,7 @@ def test_nektar_edge_higher_order(
 @given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
-    corners = frozenset(p.GetCoordinates() for p in points)
+    corners = frozenset(map(comparable_geometry, points))
     assert len(quads) == 1
     assert len(segments) == 4
     assert len(points) == len(corners)
