@@ -1,3 +1,4 @@
+from functools import reduce
 import itertools
 import operator
 from typing import Optional, TypeVar, cast
@@ -468,18 +469,16 @@ def _quad_mesh_elements(
     ]
 
 
-def _hex_mesh_elements(
+def _hex_mesh_arguments(
     a1: float,
     a2: float,
     a3: float,
     limits: tuple[Pair, Pair, Pair, Pair],
-    num_quads: int,
+    num_hexes_x1: int,
+    num_hexes_x2: int,
     c: mesh.CoordinateSystem,
     resolution: int,
-    division: int,
-    num_divisions: int,
-    offset: float,
-) -> Optional[list[mesh.Hex]]:
+) -> Optional[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits, key=operator.itemgetter(0))
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
         sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
@@ -490,20 +489,46 @@ def _hex_mesh_elements(
     ):
         return None
 
-    def make_shape(starts: tuple[Pair, Pair, Pair, Pair]) -> mesh.AcrossFieldCurve:
+    def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
         return mesh.StraightLineAcrossField(
-            mesh.SliceCoord(starts[0][0], starts[0][1], c),
-            mesh.SliceCoord(starts[1][0], starts[1][1], c),
+            mesh.SliceCoord(start[0], start[1], c),
+            mesh.SliceCoord(end[0], end[1], c),
         )
 
-    points = np.linspace(limits[0], limits[1], num_quads + 1)
-    return [
-        mesh.Quad(shape, trace, a3, division, num_divisions, offset)
-        for shape in map(make_shape, itertools.pairwise(points))
-    ]
+    def make_element_and_bounds(pairs: list[Pair], is_bound: list[bool]) -> tuple[mesh.Hex, list[frozenset[mesh.Quad]]]:
+        edges = [
+            mesh.Quad(make_line(pairs[0], pairs[1]), trace, a3),
+            mesh.Quad(make_line(pairs[2], pairs[3]), trace, a3),
+            mesh.Quad(make_line(pairs[0], pairs[2]), trace, a3),
+            mesh.Quad(make_line(pairs[1], pairs[3]), trace, a3),
+        ]
+        return mesh.Hex(*edges), [frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)]
+
+    def fold(x: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]], y: tuple[mesh.Hex, list[frozenset[mesh.Quad]]]) -> tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]:
+        hexes, bounds = x
+        hexes.append(y[0])
+        new_bounds = [b | y_comp for b, y_comp in zip(bounds, y[1])]
+        return hexes, new_bounds
+
+    lower_points = np.linspace(limits[0], limits[1], num_hexes_x2 + 1)
+    upper_points = np.linspace(limits[3], limits[2], num_hexes_x2 + 1)
+    points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
+    initial: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]] = ([], [frozenset()] * 4)
+    return reduce(fold, (
+        make_element_and_bounds(
+            [points[i, j], points[i+1, j], points[i, j+1], points[i+1, j+1]],
+            [j == 0, j == num_hexes_x2, i == 0, i == num_hexes_x1]
+        )
+        # mesh.Hex(
+        #     mesh.Quad(make_line(points[i, j], points[i+1, j]), trace, a3),
+        #     mesh.Quad(make_line(points[i, j+1], points[i+1, j+1]), trace, a3),
+        #     mesh.Quad(make_line(points[i, j], points[i, j+1]), trace, a3),
+        #     mesh.Quad(make_line(points[i+1, j], points[i+1, j+1]), trace, a3),
+        # )
+        for i in range(num_hexes_x1) for j in range(num_hexes_x2)), initial)
 
 
-def get_boundaries(
+def get_quad_boundaries(
     mesh_sequence: list[mesh.Quad],
 ) -> list[frozenset[mesh.FieldAlignedCurve]]:
     return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
@@ -723,15 +748,26 @@ quad_mesh_elements = cast(
     ).filter(lambda x: x is not None),
 )
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
-mesh_arguments = one_of(quad_mesh_arguments)
+quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_quad_boundaries(x)))
 quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_quads = shared(quad_mesh_elements)
 quad_mesh_layer = builds(
     mesh.MeshLayer,
     shared_quads,
-    shared_quads.map(get_boundaries),
+    shared_quads.map(get_quad_boundaries),
     one_of(none(), whole_numbers),
     integers(1, 3),
+)
+
+hex_mesh_arguments = cast(SearchStrategy[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]], builds(_hex_mesh_arguments, whole_numbers, whole_numbers, non_zero, whole_numbers.flatmap(hex_starts), integers(1, 4), integers(1, 4), coordinate_systems, integers(2, 10)).filter(lambda x: x is not None))
+hex_mesh_layer_no_divisions = hex_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
+shared_hex_mesh_args = shared(hex_mesh_arguments)
+hex_mesh_layer = builds(
+    mesh.MeshLayer,
+    shared_hex_mesh_args.map(lambda x: x[0]),
+    shared_hex_mesh_args.map(lambda x: x[1]),
+    one_of(none(), whole_numbers),
+    integers(1,3)
 )
 
 # TODO: Create strategy for Tet meshes and make them an option when generating meshes
