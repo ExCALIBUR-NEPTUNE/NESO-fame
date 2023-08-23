@@ -262,11 +262,17 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
     ],
 )
 def test_coord_round(
-    coord1: mesh.SliceCoord, coord2: mesh.SliceCoord, places: int
+    coord1: mesh.Coord, coord2: mesh.Coord, places: int
 ) -> None:
     assert coord1 != coord2
     assert coord1.round(places) == coord2.round(places)
     assert coord1.round(places + 1) != coord2.round(places + 1)
+
+
+@given(builds(mesh.Coord), builds(mesh.Coord))
+def test_coord_hash(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
+    if hash(coord1) != hash(coord2):
+        assert coord1 != coord2
 
 
 @pytest.mark.parametrize(

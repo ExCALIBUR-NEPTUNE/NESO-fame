@@ -216,7 +216,14 @@ class Coord:
             x: float,
         ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
             y = Decimal(self.x1).normalize(context).as_tuple()
-            return y[0], y[1][:-1], y[2]
+            if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
+                return 0, (), 0
+            truncated = y[1][:-1]
+            if all(t == 0 for t in truncated):
+                sign = 0
+            else:
+                sign = y[0]
+            return sign, truncated, y[2]
 
         x1 = get_digits(self.x1)
         x2 = get_digits(self.x2)
