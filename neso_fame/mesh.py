@@ -633,17 +633,6 @@ class Quad:
                 locations[0],
                 locations[1],
                 locations[2],
-                # np.where(
-                #     s == 1.0,
-                #     x1_coord[-1],
-                #     np.where(s == 1.0, x1_coord[0], locations[0]),
-                # ),
-                # np.where(
-                #     s == 1.0,
-                #     x2_coord[-1],
-                #     np.where(s == 0.0, x2_coord[0], locations[1]),
-                # ),
-                # np.full_like(s, x3 + self.x3_offset),
                 coord_system,
             )
 
@@ -939,13 +928,6 @@ class MeshLayer(Generic[E, B, C]):
             ),
         )
 
-    @staticmethod
-    def _division_number(element: Quad | Hex) -> int:
-        if isinstance(element, Quad):
-            return element.subdivision
-        else:
-            return element.north.subdivision
-
     def near_faces(self) -> Iterator[C]:
         """Iterates over the near faces of the elements in the
         layer. If the layer is subdivided (i.e., is more than one
@@ -957,12 +939,6 @@ class MeshLayer(Generic[E, B, C]):
         return map(
             lambda e: cast(C, e.near),
             self._iterate_elements(self.reference_elements, self.offset, 1),
-            # filter(
-            #     lambda e: self._division_number(e) == 0,
-            #     self._iterate_elements(
-            #         self.reference_elements, self.offset, self.subdivisions
-            #     ),
-            # ),
         )
 
     def far_faces(self) -> Iterator[C]:
