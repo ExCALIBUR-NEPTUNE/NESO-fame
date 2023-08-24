@@ -40,7 +40,7 @@ from neso_fame.mesh import (
     control_points,
 )
 
-from .conftest import linear_field_trace, non_nans, quad_meshes, quad_mesh_layer
+from .conftest import linear_field_trace, non_nans, quad_mesh_layer, quad_meshes
 
 
 def both_nan(a: float, b: float) -> bool:

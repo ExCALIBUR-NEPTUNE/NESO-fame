@@ -1,6 +1,6 @@
-from functools import reduce
 import itertools
 import operator
+from functools import reduce
 from typing import Optional, TypeVar, cast
 
 import numpy as np
@@ -488,6 +488,7 @@ def _hex_mesh_arguments(
         limits[0][0] == 0.0 or limits[1][0] == 0.0
     ):
         return None
+
     def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
         return mesh.StraightLineAcrossField(
             mesh.SliceCoord(start[0], start[1], c),
@@ -804,8 +805,12 @@ mesh_arguments = one_of(quad_mesh_arguments, hex_mesh_arguments)
 register_type_strategy(mesh.MeshLayer, one_of(quad_mesh_layer, hex_mesh_layer))
 
 x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
-quad_meshes: SearchStrategy[mesh.QuadMesh] = builds(mesh.GenericMesh, quad_mesh_layer, x3_offsets)
-hex_meshes: SearchStrategy[mesh.HexMesh] = builds(mesh.GenericMesh, hex_mesh_layer, x3_offsets)
+quad_meshes: SearchStrategy[mesh.QuadMesh] = builds(
+    mesh.GenericMesh, quad_mesh_layer, x3_offsets
+)
+hex_meshes: SearchStrategy[mesh.HexMesh] = builds(
+    mesh.GenericMesh, hex_mesh_layer, x3_offsets
+)
 register_type_strategy(
     mesh.GenericMesh, builds(mesh.GenericMesh, from_type(mesh.MeshLayer), x3_offsets)
 )

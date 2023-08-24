@@ -915,8 +915,13 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        actual_elems = frozenset(frozenset(get_corners(elem).iter_points()) for elem in actual_bound)
-        expected_elems = frozenset(frozenset(get_corners(elem).offset(offset).iter_points()) for elem in expected_bound)
+        actual_elems = frozenset(
+            frozenset(get_corners(elem).iter_points()) for elem in actual_bound
+        )
+        expected_elems = frozenset(
+            frozenset(get_corners(elem).offset(offset).iter_points())
+            for elem in expected_bound
+        )
         assert actual_elems == expected_elems
 
 
