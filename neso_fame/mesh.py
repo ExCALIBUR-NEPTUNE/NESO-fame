@@ -221,18 +221,15 @@ class Coord:
                 return 0, (), 0
             truncated = (y[1] + (0,) * spare_places)[:-1]
             if all(t == 0 for t in truncated):
-                sign = 0
-            else:
-                sign = y[0]
+                return 0, (), 0
             exponent = y[2]
             if isinstance(exponent, int):
                 exponent -= spare_places - 1
-            return sign, truncated, exponent
+            return y[0], truncated, exponent
 
         x1 = get_digits(self.x1)
         x2 = get_digits(self.x2)
         x3 = get_digits(self.x3)
-        print(self, x1)
         return hash((x1, x2, x3, self.system))
 
     def __eq__(self, other) -> bool:
