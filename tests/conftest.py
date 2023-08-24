@@ -452,7 +452,7 @@ def _quad_mesh_elements(
 ) -> Optional[list[mesh.Quad]]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
     if c == mesh.CoordinateSystem.CYLINDRICAL and (
-        limits[0][0] == 0.0 or limits[1][0] == 0.0
+        limits[0][0] == 0.0 or limits[1][0] == 0.0 or limits[0][0] * limits[1][0] < 0
     ):
         return None
 

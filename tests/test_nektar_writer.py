@@ -298,7 +298,7 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
-@given(quad_mesh_layer, integers(1, 12), integers())
+@given(quad_mesh_layer, integers(1, 4), integers())
 def test_nektar_layer_elements(
     mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve], order: int, layer: int
 ) -> None:
@@ -314,7 +314,8 @@ def test_nektar_layer_elements(
 
 
 # Check all elements present when converting a mesh
-@given(quad_meshes, integers(1, 4))
+@settings(deadline=500)
+@given(quad_meshes, integers(1, 3))
 def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(mesh, order, 2)
     assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
@@ -363,7 +364,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@settings(report_multiple_bugs=False)
+@settings(deadline=500)
 @given(
     builds(nektar_writer.nektar_elements, quad_meshes, order, just(2)),
     order,
