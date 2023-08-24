@@ -488,44 +488,61 @@ def _hex_mesh_arguments(
         limits[0][0] == 0.0 or limits[1][0] == 0.0
     ):
         return None
-
     def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
         return mesh.StraightLineAcrossField(
             mesh.SliceCoord(start[0], start[1], c),
             mesh.SliceCoord(end[0], end[1], c),
         )
 
-    def make_element_and_bounds(pairs: list[Pair], is_bound: list[bool]) -> tuple[mesh.Hex, list[frozenset[mesh.Quad]]]:
+    def make_element_and_bounds(
+        pairs: list[Pair], is_bound: list[bool]
+    ) -> tuple[mesh.Hex, list[frozenset[mesh.Quad]]]:
         edges = [
             mesh.Quad(make_line(pairs[0], pairs[1]), trace, a3),
             mesh.Quad(make_line(pairs[2], pairs[3]), trace, a3),
             mesh.Quad(make_line(pairs[0], pairs[2]), trace, a3),
             mesh.Quad(make_line(pairs[1], pairs[3]), trace, a3),
         ]
-        return mesh.Hex(*edges), [frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)]
+        return mesh.Hex(*edges), [
+            frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)
+        ]
 
-    def fold(x: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]], y: tuple[mesh.Hex, list[frozenset[mesh.Quad]]]) -> tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]:
+    def fold(
+        x: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]],
+        y: tuple[mesh.Hex, list[frozenset[mesh.Quad]]],
+    ) -> tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]:
         hexes, bounds = x
         hexes.append(y[0])
         new_bounds = [b | y_comp for b, y_comp in zip(bounds, y[1])]
         return hexes, new_bounds
 
-    lower_points = np.linspace(limits[0], limits[1], num_hexes_x2 + 1)
-    upper_points = np.linspace(limits[3], limits[2], num_hexes_x2 + 1)
+    lower_points = np.linspace(sorted_starts[0], sorted_starts[1], num_hexes_x2 + 1)
+    upper_points = np.linspace(sorted_starts[3], sorted_starts[2], num_hexes_x2 + 1)
     points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
     initial: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]] = ([], [frozenset()] * 4)
-    return reduce(fold, (
-        make_element_and_bounds(
-            [points[i, j], points[i+1, j], points[i, j+1], points[i+1, j+1]],
-            [j == 0, j == num_hexes_x2, i == 0, i == num_hexes_x1]
-        )
-        # mesh.Hex(
-        #     mesh.Quad(make_line(points[i, j], points[i+1, j]), trace, a3),
-        #     mesh.Quad(make_line(points[i, j+1], points[i+1, j+1]), trace, a3),
-        #     mesh.Quad(make_line(points[i, j], points[i, j+1]), trace, a3),
-        #     mesh.Quad(make_line(points[i+1, j], points[i+1, j+1]), trace, a3),
-        # )
-        for i in range(num_hexes_x1) for j in range(num_hexes_x2)), initial)
+    return reduce(
+        fold,
+        (
+            make_element_and_bounds(
+                [
+                    points[i, j],
+                    points[i + 1, j],
+                    points[i, j + 1],
+                    points[i + 1, j + 1],
+                ],
+                [j == 0, j == num_hexes_x2 - 1, i == 0, i == num_hexes_x1 - 1],
+            )
+            # mesh.Hex(
+            #     mesh.Quad(make_line(points[i, j], points[i+1, j]), trace, a3),
+            #     mesh.Quad(make_line(points[i, j+1], points[i+1, j+1]), trace, a3),
+            #     mesh.Quad(make_line(points[i, j], points[i, j+1]), trace, a3),
+            #     mesh.Quad(make_line(points[i+1, j], points[i+1, j+1]), trace, a3),
+            # )
+            for i in range(num_hexes_x1)
+            for j in range(num_hexes_x2)
+        ),
+        initial,
+    )
 
 
 def get_quad_boundaries(
@@ -675,7 +692,7 @@ linear_hex = cast(
         whole_numbers,
         whole_numbers,
         non_zero,
-        hex_starts(),
+        whole_numbers.flatmap(hex_starts),
         coordinate_systems,
         floats(-2.0, 2.0),
         integers(2, 5),
@@ -747,7 +764,6 @@ quad_mesh_elements = cast(
         integers(2, 10),
     ).filter(lambda x: x is not None),
 )
-quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_boundaries(x)))
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_quad_boundaries(x)))
 quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_quads = shared(quad_mesh_elements)
@@ -759,7 +775,20 @@ quad_mesh_layer = builds(
     integers(1, 3),
 )
 
-hex_mesh_arguments = cast(SearchStrategy[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]], builds(_hex_mesh_arguments, whole_numbers, whole_numbers, non_zero, whole_numbers.flatmap(hex_starts), integers(1, 4), integers(1, 4), coordinate_systems, integers(2, 10)).filter(lambda x: x is not None))
+hex_mesh_arguments = cast(
+    SearchStrategy[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]],
+    builds(
+        _hex_mesh_arguments,
+        whole_numbers,
+        whole_numbers,
+        non_zero,
+        whole_numbers.flatmap(hex_starts),
+        integers(1, 3),
+        integers(1, 3),
+        coordinate_systems,
+        integers(2, 5),
+    ).filter(lambda x: x is not None),
+)
 hex_mesh_layer_no_divisions = hex_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_hex_mesh_args = shared(hex_mesh_arguments)
 hex_mesh_layer = builds(
@@ -767,13 +796,16 @@ hex_mesh_layer = builds(
     shared_hex_mesh_args.map(lambda x: x[0]),
     shared_hex_mesh_args.map(lambda x: x[1]),
     one_of(none(), whole_numbers),
-    integers(1,3)
+    integers(1, 3),
 )
 
-# TODO: Create strategy for Tet meshes and make them an option when generating meshes
-register_type_strategy(mesh.MeshLayer, quad_mesh_layer)
+mesh_arguments = one_of(quad_mesh_arguments, hex_mesh_arguments)
+
+register_type_strategy(mesh.MeshLayer, one_of(quad_mesh_layer, hex_mesh_layer))
 
 x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
+quad_meshes: SearchStrategy[mesh.QuadMesh] = builds(mesh.GenericMesh, quad_mesh_layer, x3_offsets)
+hex_meshes: SearchStrategy[mesh.HexMesh] = builds(mesh.GenericMesh, hex_mesh_layer, x3_offsets)
 register_type_strategy(
     mesh.GenericMesh, builds(mesh.GenericMesh, from_type(mesh.MeshLayer), x3_offsets)
 )

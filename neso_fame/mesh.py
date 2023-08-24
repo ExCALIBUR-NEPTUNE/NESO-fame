@@ -476,7 +476,7 @@ class FieldAlignedCurve:
 
 
 @overload
-def control_points(element: NormalisedCurve | Quad, order: int) -> Coords:
+def control_points(element: NormalisedCurve | Quad | EndQuad, order: int) -> Coords:
     ...
 
 
@@ -737,6 +737,20 @@ class EndQuad:
     west: NormalisedCurve
     """A shape defining one edge of the quad"""
 
+    def corners(self) -> Coords:
+        """Returns the points corresponding to the vertices of the
+        quadrilateral.
+
+        """
+        north_corners = control_points(self.north, 1)
+        south_corners = control_points(self.south, 1)
+        return Coords(
+            np.concatenate([north_corners.x1, south_corners.x1]),
+            np.concatenate([north_corners.x2, south_corners.x2]),
+            np.concatenate([north_corners.x3, south_corners.x3]),
+            north_corners.system,
+        )
+
 
 @dataclass(frozen=True)
 class Hex:
@@ -824,7 +838,7 @@ class Hex:
         hex equally in the x3 direction.
 
         """
-        if num_divisions <= 0:
+        if num_divisions <= 1:
             yield self
         else:
             for n, s, e, w in zip(

@@ -40,7 +40,7 @@ from neso_fame.mesh import (
     control_points,
 )
 
-from .conftest import linear_field_trace, non_nans
+from .conftest import linear_field_trace, non_nans, quad_meshes, quad_mesh_layer
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -298,7 +298,7 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
-@given(from_type(MeshLayer), integers(1, 12), integers())
+@given(quad_mesh_layer, integers(1, 12), integers())
 def test_nektar_layer_elements(
     mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve], order: int, layer: int
 ) -> None:
@@ -314,7 +314,7 @@ def test_nektar_layer_elements(
 
 
 # Check all elements present when converting a mesh
-@given(from_type(GenericMesh), integers(1, 4))
+@given(quad_meshes, integers(1, 4))
 def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(mesh, order, 2)
     assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
@@ -365,7 +365,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # generated using the nektar_elements() method?
 @settings(report_multiple_bugs=False)
 @given(
-    builds(nektar_writer.nektar_elements, from_type(GenericMesh), order, just(2)),
+    builds(nektar_writer.nektar_elements, quad_meshes, order, just(2)),
     order,
     booleans(),
     booleans(),
@@ -708,8 +708,8 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
 
 
 @settings(deadline=None)
-@given(from_type(GenericMesh), integers(2, 4))
-def test_write_nektar_curves(mesh: GenericMesh, order: int) -> None:
+@given(quad_meshes, integers(2, 4))
+def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
         nektar_writer.write_nektar(mesh, order, str(xml_file), 2, False)

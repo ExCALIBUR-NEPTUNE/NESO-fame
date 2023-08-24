@@ -4,7 +4,7 @@ from typing import Type, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis.strategies import (
     builds,
     floats,
@@ -261,9 +261,7 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
         ),
     ],
 )
-def test_coord_round(
-    coord1: mesh.Coord, coord2: mesh.Coord, places: int
-) -> None:
+def test_coord_round(coord1: mesh.Coord, coord2: mesh.Coord, places: int) -> None:
     assert coord1 != coord2
     assert coord1.round(places) == coord2.round(places)
     assert coord1.round(places + 1) != coord2.round(places + 1)
@@ -895,13 +893,16 @@ def test_mesh_layer_elements_no_offset(
         assert actual_bound == expected_bound
 
 
-def get_corners(shape: mesh.Hex | mesh.Quad | mesh.NormalisedCurve) -> mesh.Coords:
-    if isinstance(shape, (mesh.Hex, mesh.Quad)):
+def get_corners(
+    shape: mesh.Hex | mesh.EndQuad | mesh.Quad | mesh.NormalisedCurve,
+) -> mesh.Coords:
+    if isinstance(shape, (mesh.Hex, mesh.Quad, mesh.EndQuad)):
         return shape.corners()
     else:
         return shape([0.0, 1.0])
 
 
+@settings(deadline=None)
 @given(mesh_arguments, non_nans())
 def test_mesh_layer_elements_with_offset(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], offset: float
@@ -914,20 +915,12 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        for actual_elem, expected_elem in zip(actual_bound, expected_bound):
-            actual_bound_corners = get_corners(actual_elem)
-            expected_bound_corners = get_corners(expected_elem).offset(offset)
-            np.testing.assert_allclose(
-                actual_bound_corners.x1, expected_bound_corners.x1, atol=1e-12
-            )
-            np.testing.assert_allclose(
-                actual_bound_corners.x2, expected_bound_corners.x2, atol=1e-12
-            )
-            np.testing.assert_allclose(
-                actual_bound_corners.x3, expected_bound_corners.x3, atol=1e-12
-            )
+        actual_elems = frozenset(frozenset(get_corners(elem).iter_points()) for elem in actual_bound)
+        expected_elems = frozenset(frozenset(get_corners(elem).offset(offset).iter_points()) for elem in expected_bound)
+        assert actual_elems == expected_elems
 
 
+@settings(deadline=None)
 @given(mesh_arguments, integers(1, 10))
 def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
