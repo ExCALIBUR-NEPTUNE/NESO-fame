@@ -1,6 +1,7 @@
 # NESO-fame
 ![tests](https://github.com/ExCALIBUR-NEPTUNE/NESO-fame/actions/workflows/test.yml/badge.svg?branch=main)
 ![linting](https://github.com/ExCALIBUR-NEPTUNE/NESO-fame/actions/workflows/linting.yml/badge.svg?branch=main)
+[![codecov](https://codecov.io/gh/ExCALIBUR-NEPTUNE/NESO-fame/graph/badge.svg?token=74F5EHALWB)](https://codecov.io/gh/ExCALIBUR-NEPTUNE/NESO-fame)
 
 The Field-Aligned Mesh Extrusion (fame) tool generates meshes for
 Tokamaks with elements aligned with magnetic field lines. Currently
