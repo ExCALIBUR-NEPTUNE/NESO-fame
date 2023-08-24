@@ -4,7 +4,7 @@ from typing import Type, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given, settings, reproduce_failure
+from hypothesis import given, settings
 from hypothesis.strategies import (
     builds,
     floats,
@@ -614,6 +614,7 @@ def test_curve_control_points_values() -> None:
     np.testing.assert_allclose(x1, [-1.0, 0.0, 1.0], atol=1e-12)
     np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
+
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
