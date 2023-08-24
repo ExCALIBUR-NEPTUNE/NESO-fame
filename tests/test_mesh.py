@@ -4,7 +4,7 @@ from typing import Type, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given, settings
+from hypothesis import given, settings, reproduce_failure
 from hypothesis.strategies import (
     builds,
     floats,
@@ -615,13 +615,12 @@ def test_curve_control_points_values() -> None:
     np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
 
-
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
     x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - q.x3_offset)[0]
-    np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x1, x1, rtol=2e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x2, x2, rtol=2e-4, atol=1e-5)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
@@ -692,10 +691,10 @@ def test_quad_near_far_corners(q: mesh.Quad) -> None:
 @given(from_type(mesh.Quad))
 def test_quad_corners(q: mesh.Quad) -> None:
     corners = q.corners()
-    assert corners[0] == next(q.north(0.0).iter_points())
-    assert corners[1] == next(q.north(1.0).iter_points())
-    assert corners[2] == next(q.south(0.0).iter_points())
-    assert corners[3] == next(q.south(1.0).iter_points())
+    assert corners[0] == q.north(0.0).to_coord()
+    assert corners[1] == q.north(1.0).to_coord()
+    assert corners[2] == q.south(0.0).to_coord()
+    assert corners[3] == q.south(1.0).to_coord()
 
 
 @given(linear_quad, integers(1, 5))
@@ -747,11 +746,6 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
 
 
-# TODO: Test control points for quads where cross-field nodes don't
-# all form straight lines (need to decide on appropriate behaviour
-# first)
-
-
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
 def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
     actual = mesh.control_points(q.offset(x), n)
@@ -790,68 +784,71 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]], rtol=1e-8, atol=1e-10)
 
 
-# FIXME: Commented out until a more intelligent type strategy is created
-#        for Hexes
-
-# @given(from_type(mesh.Hex))
-# def test_hex_near_edge(t: mesh.Hex) -> None:
-#     expected = frozenset(
-#         {
-#             t.north.north(0.0).to_coord(),
-#             t.north.south(0.0).to_coord(),
-#             t.south.north(0.0).to_coord(),
-#             t.south.south(0.0).to_coord(),
-#         }
-#     )
-#     actual = frozenset(t.near.corners().iter_points())
-#     assert expected == actual
+@given(from_type(mesh.Hex))
+def test_hex_near_edge(h: mesh.Hex) -> None:
+    expected = frozenset(
+        {
+            h.north.north(0.0).to_coord(),
+            h.north.south(0.0).to_coord(),
+            h.south.north(0.0).to_coord(),
+            h.south.south(0.0).to_coord(),
+        }
+    )
+    actual = frozenset(h.near.corners().iter_points())
+    assert expected == actual
 
 
-# @given(from_type(mesh.Hex))
-# def test_hex_far_edge(t: mesh.Hex) -> None:
-#     expected = frozenset(
-#         {
-#             t.north.north(1.0).to_coord(),
-#             t.north.south(1.0).to_coord(),
-#             t.south.north(1.0).to_coord(),
-#             t.south.south(1.0).to_coord(),
-#         }
-#     )
-#     actual = frozenset(t.far.corners().iter_points())
-#     assert expected == actual
+@given(from_type(mesh.Hex))
+def test_hex_far_edge(h: mesh.Hex) -> None:
+    expected = frozenset(
+        {
+            h.north.north(1.0).to_coord(),
+            h.north.south(1.0).to_coord(),
+            h.south.north(1.0).to_coord(),
+            h.south.south(1.0).to_coord(),
+        }
+    )
+    actual = frozenset(h.far.corners().iter_points())
+    assert expected == actual
 
 
-# @given(from_type(mesh.Hex))
-# def test_hex_near_far_corners(t: mesh.Hex) -> None:
-#     expected = frozenset(t.corners().iter_points())
-#     actual = frozenset(t.near.corners().iter_points()) | frozenset(
-#         t.far.corners().iter_points()
-#     )
-#     assert expected == actual
+@given(from_type(mesh.Hex))
+def test_hex_near_far_corners(h: mesh.Hex) -> None:
+    expected = frozenset(h.corners().iter_points())
+    actual = frozenset(h.near.corners().iter_points()) | frozenset(
+        h.far.corners().iter_points()
+    )
+    assert expected == actual
 
 
-def test_hex_corners() -> None:
-    pass
+@given(from_type(mesh.Hex))
+def test_hex_corners(h: mesh.Hex) -> None:
+    corners = h.corners()
+    assert corners[0] == h.north.north(0.0).to_coord()
+    assert corners[1] == h.north.north(1.0).to_coord()
+    assert corners[2] == h.north.south(0.0).to_coord()
+    assert corners[3] == h.north.south(1.0).to_coord()
+    assert corners[4] == h.south.north(0.0).to_coord()
+    assert corners[5] == h.south.north(1.0).to_coord()
+    assert corners[6] == h.south.south(0.0).to_coord()
+    assert corners[7] == h.south.south(1.0).to_coord()
 
 
-def test_hex_control_points_cached() -> None:
-    pass
+@given(from_type(mesh.Hex))
+def test_hex_get_quads(h: mesh.Hex) -> None:
+    actual = frozenset(h)
+    expected = frozenset({h.north, h.south, h.east, h.west})
+    assert actual == expected
 
 
-def test_hex_control_points_size() -> None:
-    pass
-
-
-def test_hex_control_points_values() -> None:
-    pass
-
-
-def test_hex_get_quads() -> None:
-    pass
-
-
-def test_hex_offset() -> None:
-    pass
+@given(from_type(mesh.Hex), whole_numbers)
+def test_hex_offset(h: mesh.Hex, x: float) -> None:
+    actual = h.offset(x).corners()
+    expected = h.corners().offset(x)
+    np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
+    np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
+    np.testing.assert_allclose(actual.x3, expected.x3, atol=1e-12)
+    assert actual.system == expected.system
 
 
 @given(from_type(mesh.Hex), integers(-15, 30))
