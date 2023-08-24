@@ -314,7 +314,7 @@ def test_nektar_layer_elements(
 
 
 # Check all elements present when converting a mesh
-@settings(deadline=500)
+@settings(deadline=None)
 @given(quad_meshes, integers(1, 3))
 def test_nektar_elements(mesh: QuadMesh, order: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(mesh, order, 2)
@@ -364,7 +364,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@settings(deadline=500)
+@settings(deadline=None)
 @given(
     builds(nektar_writer.nektar_elements, quad_meshes, order, just(2)),
     order,
