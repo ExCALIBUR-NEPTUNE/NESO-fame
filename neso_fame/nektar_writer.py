@@ -300,7 +300,7 @@ def nektar_quad(
         east, east_termini = nektar_edge(quad.east, order, spatial_dim, layer_id)
         west, west_termini = nektar_edge(quad.west, order, spatial_dim, layer_id)
         points = frozenset(north_termini + south_termini + east_termini + west_termini)
-        assert len(points) == 4, "Ill formed quad; edges do not join into 4 corners"
+        assert len(points) == 4, "Ill-formed quad; edges do not join into 4 corners"
         edges = (north, east, south, west)
     else:
         edges = (
@@ -311,7 +311,7 @@ def nektar_quad(
         )
         points = frozenset(north_termini + south_termini)
     # FIXME: Pretty sure I should refactor so I can get curved surfaces for end quads
-    if spatial_dim > 2 and order > 1 and not isinstance(quad, EndQuad):
+    if order > 1 and not isinstance(quad, EndQuad):
         curve, _ = nektar_curve(quad, order, spatial_dim, layer_id)
     else:
         curve = None
@@ -375,7 +375,7 @@ def nektar_layer_elements(
     """
     # FIXME: Currently inherantly 2D
     elems = list(layer)
-    if isinstance(layer.element_type, Quad):
+    if issubclass(layer.element_type, Quad):
         elements, edges, points = reduce(
             _combine_quad_items,
             (nektar_quad(elem, order, spatial_dim, layer_id) for elem in elems),
@@ -402,7 +402,7 @@ def nektar_layer_elements(
             layer.boundaries(),
         )
     )
-    if isinstance(layer.element_type, Quad):
+    if issubclass(layer.element_type, Quad):
         return NektarLayer2D(
             points,
             edges,
@@ -534,8 +534,11 @@ def nektar_mesh(
             raise RuntimeError(f"Unexpected face geometry type {type(face)}.")
         curve = face.GetCurve()
         if curve is not None:
+            print(curve, i)
             curve.curveID = i
             curved_faces[i] = curve
+        else:
+            print(f'No curve for face {i}')
     for i, element in enumerate(elements.elements()):
         element.SetGlobalID(i)
         if isinstance(element, SD.SegGeom):
@@ -554,6 +557,16 @@ def nektar_mesh(
             hexes[i] = element
         else:
             raise RuntimeError(f"Unexpected face geometry type {type(element)}.")
+        if isinstance(element, SD.Geometry2D):
+            curve = element.GetCurve()
+            if curve is not None:
+                print(curve, i)
+                curve.curveID = i
+                curved_faces[i] = curve
+            else:
+                print(f'No curve for element {i}')
+        else:
+            print(type(element))
 
     # FIXME: The stuff related to Movement can probably be put in a
     # separate function, for tidiness, and/or use caching.

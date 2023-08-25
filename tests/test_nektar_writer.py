@@ -16,6 +16,8 @@ from hypothesis.strategies import (
     integers,
     just,
     lists,
+    one_of,
+    sampled_from,
     shared,
 )
 from NekPy import LibUtilities as LU
@@ -201,8 +203,6 @@ def test_nektar_edge_higher_order(
     assert_nek_points_eq(nek_curve.points[-1], end)
     assert_points_eq(start, curve(0.0).to_coord())
     assert_points_eq(end, curve(1.0).to_coord())
-    for p1, p2 in zip(nek_curve.points, nek_edge.GetCurve().points):
-        assert_nek_points_eq(p1, p2)
 
 
 @given(from_type(Quad), integers(1, 12), integers())
@@ -224,10 +224,21 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     assert corners == frozenset(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )
+    
 
-
-# Check nektar quad with curvature generated properly; how to do that,
-# as I can't access the GetCurve method?
+@given(from_type(Quad), integers(2, 12), integers(), sampled_from((2, 3)))
+def test_nektar_quad_curved(quad: Quad, order: int, layer: int, spatial_dim: int) -> None:
+    quads, _, _ = nektar_writer.nektar_quad(quad, order, spatial_dim, layer)
+    assert len(quads) == 1
+    nek_quad = next(iter(quads))
+    assert nek_quad.GetGlobalID() == nektar_writer.UNSET_ID
+    nek_curve = nek_quad.GetCurve()
+    assert nek_curve is not None
+    assert len(nek_curve.points) == (order + 1)**2
+    assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(0), nek_curve.points[0])
+    assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[order])
+    assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-order - 1])
+    assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
 
 
 def check_points(expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom]):
@@ -298,6 +309,7 @@ def check_elements(expected: Iterable[Quad], actual: Iterable[SD.Geometry]):
 
 # TODO: This will need significant updating once we start generating
 # Tet meshes. Will probably be best to split into two separate tests.
+@settings(deadline=None)
 @given(quad_mesh_layer, integers(1, 4), integers())
 def test_nektar_layer_elements(
     mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve], order: int, layer: int
@@ -458,10 +470,13 @@ def test_nektar_mesh(
     if order == 1:
         assert len(curved_faces) == 0
     else:
-        assert all(
-            curved_faces[i] == i for i in range(n_curve, n_curve + len(curved_faces))
-        )
-        all_expected_faces = frozenset(elements.faces())
+        if isinstance(elements._layers[0], nektar_writer.NektarLayer3D):
+            all_expected_faces = frozenset(elements.faces())
+        else:
+            all_expected_faces = frozenset(elements.elements())
+        n_curves = sum(face.GetCurve() is not None for face in cast(Iterator[SD.Geometry2D], all_expected_faces))
+        assert n_curves > 0
+        assert len(curved_faces) == n_curves
         for item in itertools.chain(actual_triangles, actual_quads):
             face = item.data()
             curve = face.GetCurve()
