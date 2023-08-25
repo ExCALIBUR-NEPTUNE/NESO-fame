@@ -721,26 +721,28 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     cp = mesh.control_points(q, n)
     # Check spacing in the direction along the field lines
     start_points = q.shape(np.linspace(0.0, 1.0, n + 1))
+    x1_starts = np.expand_dims(start_points.x1, 1)
+    x2_starts = np.expand_dims(start_points.x2, 1)
     distances = np.vectorize(
         lambda x1, x2, x3: q.field.trace(
             mesh.SliceCoord(x1, x2, start_points.system), x3
         )[1]
     )(
-        start_points.x1,
-        start_points.x2,
+        x1_starts,
+        x2_starts,
         cp.x3 - q.x3_offset,
     )
-    d_diff = distances[1:, :] - distances[:-1, :]
+    d_diff = distances[:, 1:] - distances[:, :-1]
     for i in range(n + 1):
-        np.testing.assert_allclose(d_diff[0, i], d_diff[:, i], rtol=1e-6, atol=1e-7)
+        np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-6, atol=1e-7)
     # Check points fall along field lines that are equally spaced at the start position
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(
             q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
         )
     )(
-        start_points.x1,
-        start_points.x2,
+        x1_starts,
+        x2_starts,
         cp.x3 - q.x3_offset,
     )
     np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)

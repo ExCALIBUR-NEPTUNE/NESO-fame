@@ -491,9 +491,12 @@ def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords:
 def control_points(
     element: AcrossFieldCurve | NormalisedCurve | Quad, order
 ) -> SliceCoords | Coords:
-    """Returns a set of locations on the line or quad which can be used to
-    represent it to the specified order of accuracy. These points
-    will be equally spaced.
+    """Returns a set of locations on the line or quad which can be
+    used to represent it to the specified order of accuracy. These
+    points will be equally spaced. In the case of Quads, the order of
+    the points in memor corresponds to that expected by Nektar++ when
+    defining curved faces.
+
     """
     s = np.linspace(0.0, 1.0, order + 1)
     if isinstance(element, Quad):
@@ -502,9 +505,9 @@ def control_points(
         x3 = np.empty((order + 1, order + 1))
         for i, line in enumerate(map(element.get_field_line, s)):
             coords = line(s)
-            x1[:, i] = coords.x1
-            x2[:, i] = coords.x2
-            x3[:, i] = coords.x3
+            x1[i, :] = coords.x1
+            x2[i, :] = coords.x2
+            x3[i, :] = coords.x3
         return Coords(x1, x2, x3, coords.system)
     else:
         return element(s)
@@ -718,6 +721,11 @@ class EndQuad:
     """Represents a quad that is either the near or far end of a
     :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
     four curved edges. However, it is always flat."""
+
+    # FIXME: Need to be able to provide control points for this too,
+    # even though it is constrained to the x1-x2 plane. Possibly
+    # should generate everything here JIT from the underlying field
+    # objects? Not sure... Maybe should do that for Hex too.
 
     north: NormalisedCurve
     """A shape defining one edge of the quad"""

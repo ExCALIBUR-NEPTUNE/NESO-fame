@@ -7,12 +7,12 @@ from ctypes import ArgumentError
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
-from typing import Iterator, Sequence
+from typing import Iterator, Optional, Sequence, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 
-from .mesh import Coord, Hex, MeshLayer, NormalisedCurve, Quad, QuadMesh, control_points
+from .mesh import Coord, EndQuad, Hex, Mesh, MeshLayer, NormalisedCurve, Quad, QuadMesh, control_points
 
 UNSET_ID = -1
 
@@ -21,6 +21,13 @@ NektarQuadGeomElements = tuple[
     frozenset[SD.QuadGeom],
     frozenset[SD.SegGeom],
     frozenset[SD.PointGeom],
+]
+
+NektarHexGeomElements = tuple[
+    frozenset[SD.HexGeom],
+    frozenset[SD.QuadGeom],
+    frozenset[SD.SegGeom],
+    frozenset[SD.PointGeom]
 ]
 
 
@@ -186,7 +193,6 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
     -----
     factory
     """
-    # FIXME: Need to round to 9 significant figures, not 8 decimal places
     pos = position.to_cartesian()
     return SD.PointGeom(spatial_dim, UNSET_ID, pos.x1, pos.x2, pos.x3)
 
@@ -201,7 +207,7 @@ def _nektar_curve(
 
 
 def nektar_curve(
-    curve: NormalisedCurve, order: int, spatial_dim: int, layer_id: int
+    curve: NormalisedCurve | Quad, order: int, spatial_dim: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     """Returns a Nektar++ Curve object and the PointGeom objects
     corresponding to the start and end of the given curve. The curve
@@ -261,35 +267,78 @@ def nektar_edge(
 
 
 @cache
+def _nektar_quad(
+    edges: tuple[SD.SegGeom, SD.SegGeom, SD.SegGeom, SD.SegGeom], nek_curve: Optional[SD.Curve]
+) -> SD.QuadGeom:
+    if nek_curve is not None:
+        return SD.QuadGeom(UNSET_ID, list(edges), nek_curve)
+    else:
+        return SD.QuadGeom(UNSET_ID, list(edges))
+
+
+@cache
 def nektar_quad(
-    quad: Quad, order: int, spatial_dim: int, layer_id: int
+    quad: Quad | EndQuad, order: int, spatial_dim: int, layer_id: int
 ) -> NektarQuadGeomElements:
     """Returns a Nektar++ QuadGeom objects (along with the SegGeom and
     PointGeom objects that make it up) representing the given quad, to
     the given order. Caching is used to ensure the same quad, in the
     same layer, represented to the same order will always return the
-    same objects. Caching is done based on the location of the control
-    points of the quad argument, not the identity of the quad object.
+    same objects. The caching is done based on the locations of the
+    control points of the quad and its edgs, rather than the identity
+    of the quad.
 
     Group
     -----
     factory
+
     """
-    if spatial_dim > 2:
-        raise NotImplementedError("Not yet dealing with Quads as faces.")
+    # FIXME: Need to start caching based on 
     north, north_termini = nektar_edge(quad.north, order, spatial_dim, layer_id)
     south, south_termini = nektar_edge(quad.south, order, spatial_dim, layer_id)
-    edges = [
-        north,
-        nektar_edge(quad.near, 1, spatial_dim, layer_id)[0],
-        south,
-        nektar_edge(quad.far, 1, spatial_dim, layer_id)[0],
-    ]
+    if isinstance(quad, EndQuad):
+        east, east_termini = nektar_edge(quad.east, order, spatial_dim, layer_id)
+        west, west_termini = nektar_edge(quad.west, order, spatial_dim, layer_id)
+        points = frozenset(north_termini + south_termini + east_termini + west_termini)
+        assert len(points) == 4, "Ill formed quad; edges do not join into 4 corners"
+        edges = (north, east, south, west)
+    else:
+        edges = (
+            north,
+            nektar_edge(quad.near, 1, spatial_dim, layer_id)[0],
+            south,
+            nektar_edge(quad.far, 1, spatial_dim, layer_id)[0],
+        )
+        points = frozenset(north_termini + south_termini)
+    # FIXME: Pretty sure I should refactor so I can get curved surfaces for end quads
+    if spatial_dim > 2 and order > 1 and not isinstance(quad, EndQuad):
+        curve, _ = nektar_curve(quad, order, spatial_dim, layer_id)
+    else:
+        curve = None
+    nek_quad = _nektar_quad(edges, curve)
     return (
-        frozenset({SD.QuadGeom(UNSET_ID, edges)}),
+        frozenset({nek_quad}),
         frozenset(edges),
-        frozenset(north_termini + south_termini),
+        points
     )
+
+
+@cache
+def nektar_hex(
+    hexa: Hex, order: int, spatial_dim: int, layer_id: int
+) -> NektarHexGeomElements:
+    """Returns a Nektar++ HexGeom object (along with teh QuadGeom,
+    SegGeom and PointGeom objects that make it up) representing a
+    given hex, to the given order. Caching is used to ensure the same
+    quad, in the same layer, represented to the same order will always
+    return the same objects.
+
+    """
+    faces, segments, points = reduce(
+        _combine_quad_items,
+        (nektar_quad(quad, order, spatial_dim, layer_id) for quad in itertools.chain(hexa, [hexa.near, hexa.far]))
+    )
+    return frozenset({SD.HexGeom(UNSET_ID, list(faces))}), faces, segments, points
 
 
 def _combine_quad_items(
@@ -299,6 +348,17 @@ def _combine_quad_items(
         quad1[0] | quad2[0],
         quad1[1] | quad2[1],
         quad1[2] | quad2[2],
+    )
+
+
+def _combine_hex_items(
+    hex1: NektarHexGeomElements, hex2: NektarHexGeomElements
+) -> NektarHexGeomElements:
+    return (
+        hex1[0] | hex2[0],
+        hex1[1] | hex2[1],
+        hex1[2] | hex2[2],
+        hex1[3] | hex2[3],
     )
 
 
@@ -314,39 +374,59 @@ def nektar_layer_elements(
 
     """
     # FIXME: Currently inherantly 2D
-    assert issubclass(layer.element_type, Quad)
     elems = list(layer)
-    elements, edges, points = reduce(
-        _combine_quad_items,
-        (nektar_quad(elem, order, spatial_dim, layer_id) for elem in elems),
-    )
+    if isinstance(layer.element_type, Quad):
+        elements, edges, points = reduce(
+            _combine_quad_items,
+            (nektar_quad(elem, order, spatial_dim, layer_id) for elem in elems),
+        )
+        make_face = lambda *x: nektar_edge(*x)[0]
+    else:
+        elements, faces, edges, points = reduce(
+            _combine_hex_items,
+            (nektar_hex(elem, order, spatial_dim, layer_id) for elem in elems),
+        )
+        make_face = lambda *x: next(iter(nektar_quad(*x)[0]))
     layer_composite = SD.Composite(list(elements))
     near_face = SD.Composite(
-        [nektar_edge(f, 1, spatial_dim, layer_id)[0] for f in layer.near_faces()]
+        [make_face(f, 1, spatial_dim, layer_id) for f in layer.near_faces()]
     )
     far_face = SD.Composite(
-        [nektar_edge(f, 1, spatial_dim, layer_id)[0] for f in layer.far_faces()]
+        [make_face(f, 1, spatial_dim, layer_id) for f in layer.far_faces()]
     )
     bounds = list(
         map(
             lambda x: frozenset(
-                map(lambda y: nektar_edge(y, 1, spatial_dim, layer_id)[0], x)
+                map(lambda y: make_face(y, 1, spatial_dim, layer_id), x)
             ),
             layer.boundaries(),
         )
     )
-    return NektarLayer2D(
-        points,
-        edges,
-        layer_composite,
-        near_face,
-        far_face,
-        elements,
-        bounds,
-    )
+    if isinstance(layer.element_type, Quad):
+        return NektarLayer2D(
+            points,
+            edges,
+            layer_composite,
+            near_face,
+            far_face,
+            cast(frozenset[SD.QuadGeom], elements),
+            cast(list[frozenset[SD.SegGeom]], bounds),
+        )
+    else:
+        return NektarLayer3D(
+            points,
+            edges,
+            layer_composite,
+            near_face,
+            far_face,
+            faces,
+            cast(frozenset[SD.HexGeom], elements),
+            cast(list[frozenset[SD.QuadGeom]], bounds),
+        )
+        
 
 
-def nektar_elements(mesh: QuadMesh, order: int, spatial_dim: int) -> NektarElements:
+def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
     """Creates a collection of Nektar++ objects representing the given
     mesh.
 
