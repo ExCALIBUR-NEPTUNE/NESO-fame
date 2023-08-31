@@ -221,6 +221,31 @@ def trapezoidal_quad(
     )
 
 
+def end_quad(
+    corners: tuple[Pair, Pair, Pair, Pair], c: mesh.CoordinateSystem, x3: float
+) -> Optional[mesh.EndQuad]:
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (0.0 in [c[0] for c in corners]):
+        return None
+
+    sorted_corners = sorted(corners, key=operator.itemgetter(1))
+    sorted_corners = sorted(sorted_corners[0:2], key=operator.itemgetter(0)) + sorted(
+        sorted_corners[2:4], key=operator.itemgetter(0), reverse=True
+    )
+
+    def make_line(point1: Pair, point2: Pair) -> mesh.StraightLine:
+        return mesh.StraightLine(
+            mesh.Coord(point1[0], point1[1], x3, c),
+            mesh.Coord(point2[0], point2[1], x3, c),
+        )
+
+    return mesh.EndQuad(
+        make_line(sorted_corners[0], sorted_corners[1]),
+        make_line(sorted_corners[2], sorted_corners[3]),
+        make_line(sorted_corners[1], sorted_corners[2]),
+        make_line(sorted_corners[3], sorted_corners[0]),
+    )
+
+
 def trapezohedronal_hex(
     a1: float,
     a2: float,
@@ -261,8 +286,8 @@ def trapezohedronal_hex(
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),
-        make_quad(sorted_starts[1], sorted_starts[2]),
         make_quad(sorted_starts[2], sorted_starts[3]),
+        make_quad(sorted_starts[1], sorted_starts[2]),
         make_quad(sorted_starts[3], sorted_starts[0]),
     )
 
@@ -370,8 +395,8 @@ def curved_hex(
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),
-        make_quad(sorted_starts[1], sorted_starts[2]),
         make_quad(sorted_starts[2], sorted_starts[3]),
+        make_quad(sorted_starts[1], sorted_starts[2]),
         make_quad(sorted_starts[3], sorted_starts[0]),
     )
 
@@ -639,19 +664,38 @@ def hex_starts(
         else:
             offset_sign = -1
     base_x2 = draw(whole_numbers)
+    offset1 = draw(
+        tuples(
+            non_zero.map(abs).map(lambda x: offset_sign * x),  # type: ignore
+            whole_numbers,
+        )
+    )
+    existing = {offset1}
+    offset2 = draw(
+        tuples(
+            whole_numbers.map(abs).map(lambda x: offset_sign * x),  # type: ignore
+            non_zero,
+        ).filter(lambda x: x not in existing)
+    )
+    existing.add(offset2)
+    offset3 = draw(
+        tuples(
+            non_zero.map(abs).map(lambda x: offset_sign * x), non_zero  # type: ignore
+        ).filter(lambda x: x not in existing)
+    )
     return (
         (base_x1, base_x2),
         (
-            base_x1 + offset_sign * draw(non_zero.map(abs)),  # type: ignore
-            base_x2 + draw(whole_numbers),
+            base_x1 + offset1[0],
+            base_x2 + offset1[1],
         ),
         (
-            base_x1 + offset_sign * draw(whole_numbers.map(abs)),  # type: ignore
-            base_x2 + draw(non_zero),
+            base_x1 + offset2[0],
+            base_x2 + offset2[1],
         ),
         (
-            base_x1 + offset_sign * draw(non_zero.map(abs)),  # type: ignore
-            base_x2 + draw(non_zero),
+            base_x1 + offset3[0],
+            base_x2 + offset3[1],
         ),
     )
 
@@ -702,6 +746,7 @@ linear_hex = cast(
         whole_numbers,
     ).filter(lambda x: x is not None),
 )
+
 _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
     lambda x: x[0] + x[1] * x[2]
 )
@@ -713,7 +758,7 @@ nonlinear_quad = builds(
     whole_numbers,
     whole_numbers,
     _dx3,
-    sampled_from(list(CARTESIAN_SYSTEMS)),
+    just(mesh.CoordinateSystem.CARTESIAN),
     integers(100, 200),
     _divisions,
     _num_divisions,
@@ -727,7 +772,7 @@ nonlinear_hex = builds(
     ),
     whole_numbers,
     _dx3,
-    sampled_from(list(CARTESIAN_SYSTEMS)),
+    just(mesh.CoordinateSystem.CARTESIAN),
     integers(100, 200),
     _divisions,
     _num_divisions,
@@ -739,6 +784,21 @@ quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(
     lambda x: x is not None
 )
 register_type_strategy(mesh.Quad, one_of(flat_quad))  # , quad_in_3d))
+
+register_type_strategy(
+    mesh.EndQuad,
+    cast(
+        SearchStrategy[mesh.EndQuad],
+        builds(
+            end_quad,
+            whole_numbers.flatmap(hex_starts),
+            sampled_from(
+                [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CYLINDRICAL]
+            ),
+            whole_numbers,
+        ).filter(lambda x: x is not None),
+    ),
+)
 
 flat_sided_hex = one_of(linear_hex, nonlinear_hex)
 curve_sided_hex = builds(higher_dim_hex, linear_hex, floats(-np.pi, np.pi)).filter(

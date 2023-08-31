@@ -736,6 +736,13 @@ class EndQuad:
     west: NormalisedCurve
     """A shape defining one edge of the quad"""
 
+    def __iter__(self) -> Iterator[NormalisedCurve]:
+        """Iterate over the four edges of the quad."""
+        yield self.north
+        yield self.east
+        yield self.south
+        yield self.west
+
     def corners(self) -> Coords:
         """Returns the points corresponding to the vertices of the
         quadrilateral.
@@ -1065,6 +1072,10 @@ class GenericMesh(Generic[E, B, C]):
     def __len__(self) -> int:
         """Returns the number of elements in this mesh."""
         return len(self.reference_layer) * self.offsets.size
+
+
+QuadMeshLayer = MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve]
+HexMeshLayer = MeshLayer[Hex, Quad, EndQuad]
 
 
 QuadMesh = GenericMesh[Quad, FieldAlignedCurve, NormalisedCurve]
