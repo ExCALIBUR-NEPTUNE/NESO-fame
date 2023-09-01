@@ -84,7 +84,9 @@ def _boundary_tracer(
     """
     if north_bound and south_bound:
         return lambda start, x3: (
-            SliceCoords(np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system),
+            SliceCoords(
+                np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
+            ),
             np.asarray(x3),
         )
 
@@ -226,9 +228,8 @@ def field_aligned_2d(
     )
 
 
-Index = TypeVar('Index', int, tuple[int, ...])
+Index = TypeVar("Index", int, tuple[int, ...])
 NodePair = tuple[Index, Index]
-
 
 
 def field_aligned_3d(
@@ -265,9 +266,8 @@ def field_aligned_3d(
         element is the distance traversed along the field line.
     elements
         Defines groups of four points which together make up a quad in the
-        2D mesh. Consists of four integers indicating the indices of
-        the points which are connected by an edge. These integers must be
-        ordered so that consecutive ones are connected by an edge.
+        2D mesh. Consists of four integers (or tuples of integers) indicating
+        the indices of the points which make up the corners.
     extrusion_limits
         The lower and upper limits of the domain in the x3-direction.
     n
@@ -309,7 +309,6 @@ def field_aligned_3d(
         in ascending order within these pairs.
 
         """
-        nodes_list = list(nodes)
         if isinstance(nodes[0], int):
             index = nodes
         else:
@@ -326,10 +325,18 @@ def field_aligned_3d(
             order[3] = order[2]
             order[2] = tmp
         return (
-            cast(tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
-            cast(tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
-            cast(tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
-            cast(tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
+            cast(
+                tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))
+            ),
+            cast(
+                tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))
+            ),
+            cast(
+                tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))
+            ),
+            cast(
+                tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))
+            ),
         )
 
     element_node_pairs = list(map(sort_node_pairs, elements))

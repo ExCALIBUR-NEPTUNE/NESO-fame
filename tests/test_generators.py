@@ -279,15 +279,20 @@ def test_simple_grid_3d() -> None:
             1.0,
             n1,
         ),
-        np.linspace(0., 1., n2),
+        np.linspace(0.0, 1.0, n2),
         copy=False,
-        sparse=False
+        sparse=False,
     )
     starts = SliceCoords(
-        x1, x2,
+        x1,
+        x2,
         CoordinateSystem.CARTESIAN,
     )
-    elements = [((i, j), (i, j+1), (i+1, j+1), (i+1, j)) for i in range(n2 - 1) for j in range(n1-1)]
+    elements = [
+        ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+        for i in range(n2 - 1)
+        for j in range(n1 - 1)
+    ]
     field = straight_field()
     x3 = (0.0, 2.0)
     n = 4
@@ -307,7 +312,7 @@ def test_simple_grid_3d() -> None:
             x1_0_0 = starts.x1[i, j]
             x1_1_0 = starts.x1[i + 1, j]
             x1_0_1 = starts.x1[i, j + 1]
-            x1_1_1 = starts.x1[i+1, j+1]
+            x1_1_1 = starts.x1[i + 1, j + 1]
             np.testing.assert_allclose(corners.x1[[0, 1]], x1_1_0)
             np.testing.assert_allclose(corners.x1[[2, 3]], x1_1_1)
             np.testing.assert_allclose(corners.x1[[4, 5]], x1_0_0)
@@ -315,7 +320,7 @@ def test_simple_grid_3d() -> None:
             x2_0_0 = starts.x1[i, j]
             x2_1_0 = starts.x1[i + 1, j]
             x2_0_1 = starts.x1[i, j + 1]
-            x2_1_1 = starts.x1[i+1, j+1]
+            x2_1_1 = starts.x1[i + 1, j + 1]
             np.testing.assert_allclose(corners.x1[[0, 1]], x2_1_0)
             np.testing.assert_allclose(corners.x1[[2, 3]], x2_1_1)
             np.testing.assert_allclose(corners.x1[[4, 5]], x2_0_0)
@@ -390,24 +395,35 @@ def test_angled_grid_conforming_bounds_3d() -> None:
             1.0,
             m1,
         ),
-        np.linspace(0., 1., m2),
+        np.linspace(0.0, 1.0, m2),
         copy=False,
-        sparse=False
+        sparse=False,
     )
     starts = SliceCoords(
-        x1, x2,
+        x1,
+        x2,
         CoordinateSystem.CARTESIAN,
     )
-    elements = [((i, j), (i, j+1), (i+1, j+1), (i+1, j)) for i in range(m2 - 1) for j in range(m1- 1)]
+    elements = [
+        ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+        for i in range(m2 - 1)
+        for j in range(m1 - 1)
+    ]
     field = straight_field(angle_x1, angle_x2)
     x3 = (-2.0, 1.0)
     n = 5
-    mesh = generators.field_aligned_3d(starts, field, elements, x3, n, conform_to_bounds=True)
+    mesh = generators.field_aligned_3d(
+        starts, field, elements, x3, n, conform_to_bounds=True
+    )
     assert len(mesh) == n * (m1 - 1) * (m2 - 1)
     x3_start = x3[0]
     dx3 = (x3[1] - x3[0]) / n
-    x1_offsets = np.array([-np.tan(angle_x1) * dx3 / 2, 0.0, np.tan(angle_x1) * dx3 / 2])
-    x2_offsets = np.array([-np.tan(angle_x2) * dx3 / 2, 0.0, np.tan(angle_x2) * dx3 / 2])
+    x1_offsets = np.array(
+        [-np.tan(angle_x1) * dx3 / 2, 0.0, np.tan(angle_x1) * dx3 / 2]
+    )
+    x2_offsets = np.array(
+        [-np.tan(angle_x2) * dx3 / 2, 0.0, np.tan(angle_x2) * dx3 / 2]
+    )
     # Check control points of hex curves are in right location
     for layer in mesh.layers():
         x3_end = x3_start + dx3
@@ -418,11 +434,11 @@ def test_angled_grid_conforming_bounds_3d() -> None:
             x1_0_0_mid = starts.x1[i, j]
             x1_1_0_mid = starts.x1[i + 1, j]
             x1_0_1_mid = starts.x1[i, j + 1]
-            x1_1_1_mid = starts.x1[i+1, j+1]
+            x1_1_1_mid = starts.x1[i + 1, j + 1]
             x2_0_0_mid = starts.x2[i, j]
             x2_1_0_mid = starts.x2[i + 1, j]
             x2_0_1_mid = starts.x2[i, j + 1]
-            x2_1_1_mid = starts.x2[i+1, j+1]
+            x2_1_1_mid = starts.x2[i + 1, j + 1]
             points_0_0 = control_points(hexa.south.north, 2)
             points_1_0 = control_points(hexa.north.north, 2)
             points_0_1 = control_points(hexa.south.south, 2)
@@ -431,8 +447,8 @@ def test_angled_grid_conforming_bounds_3d() -> None:
                 np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid)
                 np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid)
             else:
-                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid+ x1_offsets)
-                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid+ x2_offsets)
+                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid + x1_offsets)
+                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid + x2_offsets)
             if i == m2 - 2 or j == m1 - 2:
                 np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid)
                 np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid)
@@ -525,24 +541,35 @@ def test_angled_grid_jagged_bounds_3d() -> None:
             1.0,
             m1,
         ),
-        np.linspace(0., 1., m2),
+        np.linspace(0.0, 1.0, m2),
         copy=False,
-        sparse=False
+        sparse=False,
     )
     starts = SliceCoords(
-        x1, x2,
+        x1,
+        x2,
         CoordinateSystem.CARTESIAN,
     )
-    elements = [((i, j), (i, j+1), (i+1, j+1), (i+1, j)) for i in range(m2 - 1) for j in range(m1- 1)]
+    elements = [
+        ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+        for i in range(m2 - 1)
+        for j in range(m1 - 1)
+    ]
     field = straight_field(angle_x1, angle_x2)
     x3 = (-2.0, 1.0)
     n = 5
-    mesh = generators.field_aligned_3d(starts, field, elements, x3, n, conform_to_bounds=False)
+    mesh = generators.field_aligned_3d(
+        starts, field, elements, x3, n, conform_to_bounds=False
+    )
     assert len(mesh) == n * (m1 - 1) * (m2 - 1)
     x3_start = x3[0]
     dx3 = (x3[1] - x3[0]) / n
-    x1_offsets = np.array([-np.tan(angle_x1) * dx3 / 2, 0.0, np.tan(angle_x1) * dx3 / 2])
-    x2_offsets = np.array([-np.tan(angle_x2) * dx3 / 2, 0.0, np.tan(angle_x2) * dx3 / 2])
+    x1_offsets = np.array(
+        [-np.tan(angle_x1) * dx3 / 2, 0.0, np.tan(angle_x1) * dx3 / 2]
+    )
+    x2_offsets = np.array(
+        [-np.tan(angle_x2) * dx3 / 2, 0.0, np.tan(angle_x2) * dx3 / 2]
+    )
     # Check control points of hex curves are in right location
     for layer in mesh.layers():
         x3_end = x3_start + dx3
@@ -553,23 +580,31 @@ def test_angled_grid_jagged_bounds_3d() -> None:
             x1_0_0_mid = starts.x1[i, j]
             x1_1_0_mid = starts.x1[i + 1, j]
             x1_0_1_mid = starts.x1[i, j + 1]
-            x1_1_1_mid = starts.x1[i+1, j+1]
+            x1_1_1_mid = starts.x1[i + 1, j + 1]
             x2_0_0_mid = starts.x2[i, j]
             x2_1_0_mid = starts.x2[i + 1, j]
             x2_0_1_mid = starts.x2[i, j + 1]
-            x2_1_1_mid = starts.x2[i+1, j+1]
+            x2_1_1_mid = starts.x2[i + 1, j + 1]
             points_0_0 = control_points(hexa.south.north, 2)
             points_1_0 = control_points(hexa.north.north, 2)
             points_0_1 = control_points(hexa.south.south, 2)
             points_1_1 = control_points(hexa.north.south, 2)
-            np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid+ x1_offsets)
-            np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid+ x2_offsets, atol=1e-12)
+            np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid + x1_offsets)
+            np.testing.assert_allclose(
+                points_1_0.x2, x2_1_0_mid + x2_offsets, atol=1e-12
+            )
             np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid + x1_offsets)
-            np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid + x2_offsets, atol=1e-12)
+            np.testing.assert_allclose(
+                points_1_1.x2, x2_1_1_mid + x2_offsets, atol=1e-12
+            )
             np.testing.assert_allclose(points_0_0.x1, x1_0_0_mid + x1_offsets)
-            np.testing.assert_allclose(points_0_0.x2, x2_0_0_mid + x2_offsets, atol=1e-12)
+            np.testing.assert_allclose(
+                points_0_0.x2, x2_0_0_mid + x2_offsets, atol=1e-12
+            )
             np.testing.assert_allclose(points_0_1.x1, x1_0_1_mid + x1_offsets)
-            np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid + x2_offsets, atol=1e-12)
+            np.testing.assert_allclose(
+                points_0_1.x2, x2_0_1_mid + x2_offsets, atol=1e-12
+            )
             np.testing.assert_allclose(points_0_0.x3, x3_positions)
             np.testing.assert_allclose(points_0_1.x3, x3_positions)
             np.testing.assert_allclose(points_1_0.x3, x3_positions)

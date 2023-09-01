@@ -47,11 +47,13 @@ def straight_field(angle_x1=0.0, angle_x2=0.0) -> "FieldTrace":
         x2 = start.x2 + perpendicular_coord * np.tan(angle_x2)
         return SliceCoords(x1, x2, start.system), _cylindrical_distance(
             start.x1, angle_x1, perpendicular_coord
-        ) / np.cos(angle_x2) if start.system == CoordinateSystem.CYLINDRICAL else np.asarray(
+        ) / np.cos(
+            angle_x2
+        ) if start.system == CoordinateSystem.CYLINDRICAL else np.asarray(
             perpendicular_coord
-        ) / (np.cos(
-            angle_x1
-        ) * np.cos(angle_x2))
+        ) / (
+            np.cos(angle_x1) * np.cos(angle_x2)
+        )
 
     return trace
 
