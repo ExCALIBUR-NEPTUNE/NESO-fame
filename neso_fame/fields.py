@@ -23,10 +23,11 @@ def _cylindrical_distance(x1_start, angle, x3):
     )
 
 
-def straight_field(angle=0.0) -> "FieldTrace":
+def straight_field(angle_x1=0.0, angle_x2=0.0) -> "FieldTrace":
     """Returns a field trace corresponding to straight field lines
-    slanted at `angle` above the direction of extrusion into the first
-    coordinate direction.
+    slanted at `angle_x1` above the direction of extrusion into the
+    first coordinate direction and `angle_x2` above the direction of
+    extrusion into the second coordinate direction.
 
     Returns
     -------
@@ -42,15 +43,15 @@ def straight_field(angle=0.0) -> "FieldTrace":
         start: SliceCoord, perpendicular_coord: npt.ArrayLike
     ) -> tuple[SliceCoords, npt.NDArray]:
         """Returns a trace for a straight field line."""
-        x1 = start.x1 + perpendicular_coord * np.tan(angle)
-        x2 = np.asarray(start.x2)
+        x1 = start.x1 + perpendicular_coord * np.tan(angle_x1)
+        x2 = start.x2 + perpendicular_coord * np.tan(angle_x2)
         return SliceCoords(x1, x2, start.system), _cylindrical_distance(
-            start.x1, angle, perpendicular_coord
-        ) if start.system == CoordinateSystem.CYLINDRICAL else np.asarray(
+            start.x1, angle_x1, perpendicular_coord
+        ) / np.cos(angle_x2) if start.system == CoordinateSystem.CYLINDRICAL else np.asarray(
             perpendicular_coord
-        ) / np.cos(
-            angle
-        )
+        ) / (np.cos(
+            angle_x1
+        ) * np.cos(angle_x2))
 
     return trace
 

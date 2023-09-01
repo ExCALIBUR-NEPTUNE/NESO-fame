@@ -8,7 +8,7 @@ import itertools
 from collections import defaultdict
 from collections.abc import Sequence
 from functools import cache
-from typing import Optional, cast
+from typing import Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -84,7 +84,7 @@ def _boundary_tracer(
     """
     if north_bound and south_bound:
         return lambda start, x3: (
-            SliceCoords(np.asarray(start.x1), np.asarray(start.x2), start.system),
+            SliceCoords(np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system),
             np.asarray(x3),
         )
 
@@ -226,10 +226,15 @@ def field_aligned_2d(
     )
 
 
+Index = TypeVar('Index', int, tuple[int, ...])
+NodePair = tuple[Index, Index]
+
+
+
 def field_aligned_3d(
     lower_dim_mesh: SliceCoords,
     field_line: FieldTrace,
-    elements: Sequence[tuple[int, int, int, int]],
+    elements: Sequence[tuple[Index, Index, Index, Index]],
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     n: int = 10,
     spatial_interp_resolution: int = 11,
@@ -296,23 +301,35 @@ def field_aligned_3d(
     )
     tracer = FieldTracer(field_line, spatial_interp_resolution)
 
-    NodePair = tuple[int, int]
-
     def sort_node_pairs(
-        nodes: tuple[int, int, int, int]
+        nodes: tuple[Index, Index, Index, Index]
     ) -> tuple[NodePair, NodePair, NodePair, NodePair]:
         """Return pairs of nodes sorted so edges are in order north,
         south, east, west. Additionally, node indices will always be
         in ascending order within these pairs.
 
         """
-        x2: npt.NDArray = lower_dim_mesh.x2[nodes]
+        nodes_list = list(nodes)
+        if isinstance(nodes[0], int):
+            index = nodes
+        else:
+            index = tuple(zip(*nodes))
+        x1: npt.NDArray = lower_dim_mesh.x1[index]
+        x2: npt.NDArray = lower_dim_mesh.x2[index]
         order = np.argsort(x2)
+        if x1[order[1]] < x1[order[0]]:
+            tmp = order[1]
+            order[1] = order[0]
+            order[0] = tmp
+        if x1[order[3]] > x1[order[2]]:
+            tmp = order[3]
+            order[3] = order[2]
+            order[2] = tmp
         return (
-            cast(tuple[int, int], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
-            cast(tuple[int, int], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
-            cast(tuple[int, int], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
-            cast(tuple[int, int], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
+            cast(tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
+            cast(tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
+            cast(tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
+            cast(tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
         )
 
     element_node_pairs = list(map(sort_node_pairs, elements))
@@ -331,7 +348,7 @@ def field_aligned_3d(
     boundary_nodes = frozenset(itertools.chain.from_iterable(boundary_faces))
 
     @cache
-    def make_quad(node1: int, node2: int) -> Quad:
+    def make_quad(node1: Index, node2: Index) -> Quad:
         shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
         north_bound = conform_to_bounds and node1 in boundary_nodes
         south_bound = conform_to_bounds and node2 in boundary_nodes
