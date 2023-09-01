@@ -5,8 +5,10 @@
 from __future__ import annotations
 
 import itertools
+from collections import defaultdict
 from collections.abc import Sequence
-from typing import Optional
+from functools import cache
+from typing import Optional, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +19,8 @@ from .mesh import (
     FieldTrace,
     FieldTracer,
     GenericMesh,
+    Hex,
+    HexMesh,
     MeshLayer,
     Quad,
     QuadMesh,
@@ -215,6 +219,145 @@ def field_aligned_2d(
             [
                 frozenset({quads[boundaries[0]].north}),
                 frozenset({quads[boundaries[1]].south}),
+            ],
+            subdivisions=subdivisions,
+        ),
+        x3_mid,
+    )
+
+
+def field_aligned_3d(
+    lower_dim_mesh: SliceCoords,
+    field_line: FieldTrace,
+    elements: Sequence[tuple[int, int, int, int]],
+    extrusion_limits: tuple[float, float] = (0.0, 1.0),
+    n: int = 10,
+    spatial_interp_resolution: int = 11,
+    subdivisions: int = 1,
+    conform_to_bounds=True,
+) -> HexMesh:
+    """Generate a 3D mesh where element edges follow field
+    lines. Start with a 2D mesh defined in the poloidal plane. Edges
+    are then traced along the field lines both backwards and forwards
+    in the toroidal direction to form a single layer of field-aligned
+    elements. The field is assumed not to vary in the toroidal
+    direction, meaning this layer can be repeated. However, each layer
+    will be non-conformal with the next.
+
+    Parameters
+    ----------
+    lower_dim_mesh
+        Locations of nodes in the x1-x2 plane, from which to project
+        along field-lines. Unless providing `connectivity`, must be
+        ordered.
+    field_line
+        A callable which takes a `SliceCoord` defining a position on
+        the x3=0 plane and an array-like object with x3
+        coordinates. It should return a 2-tuple. The first element is
+        the locations found by tracing the magnetic field line
+        beginning at the position of the first argument until reaching
+        the x3 locations described in the second argument. The second
+        element is the distance traversed along the field line.
+    elements
+        Defines groups of four points which together make up a quad in the
+        2D mesh. Consists of four integers indicating the indices of
+        the points which are connected by an edge. These integers must be
+        ordered so that consecutive ones are connected by an edge.
+    extrusion_limits
+        The lower and upper limits of the domain in the x3-direction.
+    n
+        Number of layers to generate in the x3 direction
+    spatial_interp_resolution
+        Number of points used to interpolate distances along the field
+        line.
+    boundaries
+        Indices of the elements (in the ``elements`` sequence) that make
+        up the north and south boundary, respectively
+    subdivisions
+        Depth of cells in x3-direction in each layer.
+    conform_to_bounds
+        If True, make the curves originating from boundary nodes
+        straight lines, so that there are regular edges to the domain.
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.QuadMesh`
+        A 3D field-aligned, non-conformal grid
+
+    Group
+    -----
+    generator
+
+    """
+    # Calculate x3 positions for nodes in final mesh
+    dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
+    x3_mid = np.linspace(
+        extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
+    )
+    tracer = FieldTracer(field_line, spatial_interp_resolution)
+
+    NodePair = tuple[int, int]
+
+    def sort_node_pairs(
+        nodes: tuple[int, int, int, int]
+    ) -> tuple[NodePair, NodePair, NodePair, NodePair]:
+        """Return pairs of nodes sorted so edges are in order north,
+        south, east, west. Additionally, node indices will always be
+        in ascending order within these pairs.
+
+        """
+        x2: npt.NDArray = lower_dim_mesh.x2[nodes]
+        order = np.argsort(x2)
+        return (
+            cast(tuple[int, int], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
+            cast(tuple[int, int], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
+            cast(tuple[int, int], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
+            cast(tuple[int, int], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
+        )
+
+    element_node_pairs = list(map(sort_node_pairs, elements))
+
+    # Get the locations (north, south, east, west) of each quad in the hexes it builds
+    face_locations: defaultdict[NodePair, list[int]] = defaultdict(list)
+    for i, pair in itertools.chain.from_iterable(
+        enumerate(x) for x in element_node_pairs
+    ):
+        face_locations[pair].append(i)
+    # Find the quads that are on a boundary
+    boundary_faces = {
+        pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1
+    }
+    # Find the nodes that fall on a boundary
+    boundary_nodes = frozenset(itertools.chain.from_iterable(boundary_faces))
+
+    @cache
+    def make_quad(node1: int, node2: int) -> Quad:
+        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
+        north_bound = conform_to_bounds and node1 in boundary_nodes
+        south_bound = conform_to_bounds and node2 in boundary_nodes
+        local_tracer = (
+            FieldTracer(
+                _boundary_tracer(field_line, shape, north_bound, south_bound),
+                spatial_interp_resolution,
+            )
+            if north_bound or south_bound
+            else tracer
+        )
+        return Quad(shape, local_tracer, dx3)
+
+    hexes = [Hex(*itertools.starmap(make_quad, pairs)) for pairs in element_node_pairs]
+
+    return GenericMesh(
+        MeshLayer(
+            hexes,
+            [
+                frozenset(
+                    itertools.starmap(
+                        make_quad,
+                        (pair for pair, loc in boundary_faces.items() if loc == i),
+                    )
+                )
+                for i in range(4)
             ],
             subdivisions=subdivisions,
         ),
