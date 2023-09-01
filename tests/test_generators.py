@@ -387,8 +387,8 @@ def test_simple_grid_3d() -> None:
 def test_angled_grid_conforming_bounds_3d() -> None:
     angle_x1 = np.pi / 18
     angle_x2 = np.pi / 36
-    m1 = 4
-    m2 = 5
+    m1 = 6
+    m2 = 7
     x1, x2 = np.meshgrid(
         np.linspace(
             -1.0,
@@ -405,7 +405,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
         CoordinateSystem.CARTESIAN,
     )
     elements = [
-        ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+        ((i, j + 1), (i, j), (i + 1, j), (i + 1, j + 1))
         for i in range(m2 - 1)
         for j in range(m1 - 1)
     ]

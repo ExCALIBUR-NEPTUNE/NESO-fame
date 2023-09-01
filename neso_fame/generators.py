@@ -51,14 +51,6 @@ BOUNDARY_TRACER = FieldTracer(
 )
 
 
-def _boundary_curve(start: SliceCoord, dx3: float) -> FieldAlignedCurve:
-    """Produces a curve with constant x1 and x2 coordinates set by
-    ``start`` and which goes from ``-x3/2`` to ``x3/2``.
-
-    """
-    return FieldAlignedCurve(BOUNDARY_TRACER, start, dx3)
-
-
 def _boundary_tracer(
     field: FieldTrace,
     shape: StraightLineAcrossField,
