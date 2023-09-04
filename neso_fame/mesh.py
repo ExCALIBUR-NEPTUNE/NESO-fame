@@ -12,6 +12,7 @@ from enum import Enum
 from functools import cache, cached_property
 from typing import (
     Callable,
+    ClassVar,
     Generic,
     Literal,
     Optional,
@@ -182,6 +183,8 @@ class Coord:
     """Coordinate in third dimension"""
     system: CoordinateSystem
     """The type of coordinates being used"""
+    TOLERANCE: ClassVar[float] = 1e-9
+    """The absolute and relative tolerance to use when comparing Coord objects."""
 
     def to_cartesian(self) -> "Coord":
         """Convert the point to Cartesian coordinates."""
@@ -210,13 +213,14 @@ class Coord:
         )
 
     def __hash__(self) -> int:
-        context = Context(8)
+        decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
+        context = Context(decimal_places)
 
         def get_digits(
             x: float,
         ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
             y = Decimal(self.x1).normalize(context).as_tuple()
-            spare_places = 8 - len(y[1])
+            spare_places = decimal_places - len(y[1])
             if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
                 return 0, (), 0
             truncated = (y[1] + (0,) * spare_places)[:-1]
@@ -237,9 +241,9 @@ class Coord:
             return False
         return self.system == other.system and cast(
             bool,
-            np.isclose(self.x1, other.x1, 1e-9, 1e-9)
-            and np.isclose(self.x2, other.x2, 1e-9, 1e-9)
-            and np.isclose(self.x3, other.x3, 1e-9, 1e-9),
+            np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
+            and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE)
+            and np.isclose(self.x3, other.x3, self.TOLERANCE, self.TOLERANCE),
         )
 
 

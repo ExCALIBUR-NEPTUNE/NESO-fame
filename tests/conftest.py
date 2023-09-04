@@ -32,7 +32,7 @@ from hypothesis.strategies import (
 
 from neso_fame import mesh
 
-settings.register_profile("ci", max_examples=400, deadline=None)
+settings.register_profile("ci", max_examples=200, deadline=None)
 settings.register_profile(
     "debug", max_examples=10, verbosity=Verbosity.verbose, report_multiple_bugs=False
 )

@@ -197,6 +197,13 @@ class NektarElements:
         return max(map(len, map(attrgetter("bounds"), self._layers)))
 
 
+def _round_zero(x: float, tol: float) -> float:
+    """Rounds the number to 0 if it is less than the tolerance."""
+    if abs(x) < tol:
+        return 0.0
+    return x
+
+
 @cache
 def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Returns a Nektar++ PointGeom object at the specified position
@@ -208,7 +215,14 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
     factory
     """
     pos = position.to_cartesian()
-    return SD.PointGeom(spatial_dim, UNSET_ID, pos.x1, pos.x2, pos.x3)
+    tol = pos.TOLERANCE / 10
+    return SD.PointGeom(
+        spatial_dim,
+        UNSET_ID,
+        _round_zero(pos.x1, tol),
+        _round_zero(pos.x2, tol),
+        _round_zero(pos.x3, tol),
+    )
 
 
 @cache
