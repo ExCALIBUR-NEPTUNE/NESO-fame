@@ -697,7 +697,7 @@ def test_subdivided_grid_3d() -> None:
     mesh = generators.field_aligned_3d(
         starts, field, elements, x3, 1, resolution, subdivisions=n
     )
-    assert len(mesh) == n * (m1-1) * (m2-1)
+    assert len(mesh) == n * (m1 - 1) * (m2 - 1)
     dx3 = (x3[1] - x3[0]) / n
     # Check corners of quads are in correct locations
     for index, hexa in enumerate(mesh):
