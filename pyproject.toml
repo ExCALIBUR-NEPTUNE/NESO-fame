@@ -1,3 +1,40 @@
+[build-system]
+requires = ["setuptools>=42", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neso_fame"
+authors = [{name = "Crown Copyright"}]
+maintainers = [{name = "Chris MacMackin", email = "chris.macmackin@ukaea.uk"}]
+description = "Field-aligned mesh extrusion for the NEPTUNE project"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["mesh", "plasma", "physics"]
+license = {text = "GNU Lesser General Public License v3 or later (LGPLv3+)"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "hypnotoad",
+    "NekPy",
+    "click",
+]
+dynamic = ["version"]
+
+[tool.setuptools]
+packages = ["neso_fame"]
+
+[project.urls]
+"Bug Tracker" = "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame/issues/"
+"Source Code" = "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame"
+
+[project.scripts]
+fame-simple = "scripts:simple"
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
