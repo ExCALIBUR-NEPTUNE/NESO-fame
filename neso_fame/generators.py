@@ -15,7 +15,6 @@ import numpy.typing as npt
 
 from .mesh import (
     CoordinateSystem,
-    FieldAlignedCurve,
     FieldTrace,
     FieldTracer,
     GenericMesh,

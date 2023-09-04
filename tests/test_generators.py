@@ -664,3 +664,119 @@ def test_angled_grid_jagged_bounds_3d() -> None:
         assert actual_south == expected_south
         assert actual_east == expected_east
         assert actual_west == expected_west
+
+
+# Test for simple grid
+def test_subdivided_grid_3d() -> None:
+    resolution = 2
+    m1 = 4
+    m2 = 5
+    x1, x2 = np.meshgrid(
+        np.linspace(
+            -1.0,
+            1.0,
+            m1,
+        ),
+        np.linspace(0.0, 1.0, m2),
+        copy=False,
+        sparse=False,
+    )
+    starts = SliceCoords(
+        x1,
+        x2,
+        CoordinateSystem.CARTESIAN,
+    )
+    elements = [
+        ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+        for i in range(m2 - 1)
+        for j in range(m1 - 1)
+    ]
+    field = straight_field()
+    x3 = (-2.0, 1.0)
+    n = 5
+    mesh = generators.field_aligned_3d(
+        starts, field, elements, x3, 1, resolution, subdivisions=n
+    )
+    assert len(mesh) == n * (m1-1) * (m2-1)
+    dx3 = (x3[1] - x3[0]) / n
+    # Check corners of quads are in correct locations
+    for index, hexa in enumerate(mesh):
+        corners = hexa.corners()
+        print(index, corners)
+        assert len(corners) == 8
+        i = index // n // (m1 - 1)
+        j = index // n % (m1 - 1)
+        k = index % n
+        x1_0_0 = starts.x1[i, j]
+        x1_1_0 = starts.x1[i + 1, j]
+        x1_0_1 = starts.x1[i, j + 1]
+        x1_1_1 = starts.x1[i + 1, j + 1]
+        np.testing.assert_allclose(corners.x1[[0, 1]], x1_1_0)
+        np.testing.assert_allclose(corners.x1[[2, 3]], x1_1_1)
+        np.testing.assert_allclose(corners.x1[[4, 5]], x1_0_0)
+        np.testing.assert_allclose(corners.x1[[6, 7]], x1_0_1)
+        x2_0_0 = starts.x1[i, j]
+        x2_1_0 = starts.x1[i + 1, j]
+        x2_0_1 = starts.x1[i, j + 1]
+        x2_1_1 = starts.x1[i + 1, j + 1]
+        np.testing.assert_allclose(corners.x1[[0, 1]], x2_1_0)
+        np.testing.assert_allclose(corners.x1[[2, 3]], x2_1_1)
+        np.testing.assert_allclose(corners.x1[[4, 5]], x2_0_0)
+        np.testing.assert_allclose(corners.x1[[6, 7]], x2_0_1)
+        np.testing.assert_allclose(corners.x3[::2], x3[0] + k * dx3)
+        np.testing.assert_allclose(corners.x3[1::2], x3[0] + (k + 1) * dx3)
+    for layer in mesh.layers():
+        bounds = list(layer.boundaries())
+        assert len(bounds) == 4
+        expected_north = frozenset(
+            map(
+                lambda x: tuple(x.iter_points()),
+                filter(
+                    lambda x: np.all(x.x2 == starts.x2[-1, -1]),
+                    map(lambda x: control_points(x.north, 1), layer),
+                ),
+            )
+        )
+        expected_south = frozenset(
+            map(
+                lambda x: tuple(x.iter_points()),
+                filter(
+                    lambda x: np.all(x.x2 == starts.x2[0, 0]),
+                    map(lambda x: control_points(x.south, 1), layer),
+                ),
+            )
+        )
+        expected_east = frozenset(
+            map(
+                lambda x: tuple(x.iter_points()),
+                filter(
+                    lambda x: np.all(x.x1 == starts.x1[-1, -1]),
+                    map(lambda x: control_points(x.east, 1), layer),
+                ),
+            )
+        )
+        expected_west = frozenset(
+            map(
+                lambda x: tuple(x.iter_points()),
+                filter(
+                    lambda x: np.all(x.x1 == starts.x1[0, 0]),
+                    map(lambda x: control_points(x.west, 1), layer),
+                ),
+            )
+        )
+        actual_north = frozenset(
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+        )
+        actual_south = frozenset(
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+        )
+        actual_east = frozenset(
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[2])
+        )
+        actual_west = frozenset(
+            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[3])
+        )
+        assert actual_north == expected_north
+        assert actual_south == expected_south
+        assert actual_east == expected_east
+        assert actual_west == expected_west
