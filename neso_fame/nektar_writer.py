@@ -660,7 +660,7 @@ def nektar_mesh(
 
 
 def write_nektar(
-    mesh: QuadMesh,
+    mesh: Mesh,
     order: int,
     filename: str,
     spatial_dim: int = 3,
