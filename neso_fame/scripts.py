@@ -23,17 +23,15 @@ NONNEGATIVE = click.IntRange(0)
 
 
 def _validate_layers(
-    element_param: str, ctx: click.Context, param: click.Parameter, value: int
-) -> int:
+        layers: int, nx: int) -> int:
     """Check that the specified direction can be evenly divided into the
     specified number of layers.
     """
-    nx = ctx.params[element_param]
-    if value == 0:
+    if layers == 0:
         return nx
-    if nx % value == 0:
-        return value
-    raise click.BadParameter(f"Can not divide {nx} elements evenly into {value} layers")
+    if nx % layers == 0:
+        return layers
+    raise click.BadParameter(f"Can not divide {nx} elements evenly into {layers} layers")
 
 
 @simple.command("2d")
@@ -77,7 +75,6 @@ def _validate_layers(
         "Use 0 to indicate it should be the same as the x2-resolution."),
     default=0,
     show_default=True,
-    callback=partial(_validate_layers, "nx2"),
 )
 @click.option(
     "--angle",
@@ -108,20 +105,24 @@ def simple_2d(
     meshfile: str,
 ) -> None:
     """Generate a simple 2D Cartesian mesh aligned to straight field
-    lines. These field lines can be at an angle to the x2 direction
+    lines. These field lines can be at an angle to the x1 direction
     (although 90 degrees is singular and will cause the script to
     fail). The mesh will be written MESHFILE in the Nektar++
     uncompressed XML format.
 
     """
+    layers = _validate_layers(layers, nx2)
+    # In order to keep a right-handed co-ordinate system, the
+    # conversion from Cartesian2d to standard 3D cartesian rotates the
+    # axes and makes x1 negative.
     m = field_aligned_2d(
         SliceCoords(
-            np.linspace(-x1_extent[1], x1_extent[0], nx1 + 1),
+            np.linspace(-x2_extent[1], -x2_extent[0], nx1 + 1),
             np.zeros(nx1 + 1),
             CoordinateSystem.CARTESIAN2D,
         ),
-        straight_field(angle * np.pi / 180.0),
-        x2_extent,
+        straight_field(-angle * np.pi / 180.0),
+        x1_extent,
         layers,
         2,
         subdivisions=nx2 // layers,
@@ -131,7 +132,7 @@ def simple_2d(
 
 @simple.command("3d")
 def simple_3d() -> None:
-    """Generate a simple DD Cartesian mesh aligned to straight
+    """Generate a simple 3D Cartesian mesh aligned to straight
     field lines. These field lines can be at an angle to the x3
     direction (although 90 degrees is singular and will cause the
     script to fail).
