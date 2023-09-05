@@ -2,15 +2,13 @@
 
 """
 
-from functools import partial
 import click
-from neso_fame.fields import straight_field
-from neso_fame.nektar_writer import write_nektar
-
 import numpy as np
 
+from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d
 from neso_fame.mesh import CoordinateSystem, SliceCoords
+from neso_fame.nektar_writer import write_nektar
 
 
 @click.group()
@@ -22,8 +20,7 @@ POSITIVE = click.IntRange(1)
 NONNEGATIVE = click.IntRange(0)
 
 
-def _validate_layers(
-        layers: int, nx: int) -> int:
+def _validate_layers(layers: int, nx: int) -> int:
     """Check that the specified direction can be evenly divided into the
     specified number of layers.
     """
@@ -31,7 +28,9 @@ def _validate_layers(
         return nx
     if nx % layers == 0:
         return layers
-    raise click.BadParameter(f"Can not divide {nx} elements evenly into {layers} layers")
+    raise click.BadParameter(
+        f"Can not divide {nx} elements evenly into {layers} layers"
+    )
 
 
 @simple.command("2d")
@@ -72,7 +71,8 @@ def _validate_layers(
     type=NONNEGATIVE,
     help=(
         "The number of non-conformal layers that exist in the x2-direction. "
-        "Use 0 to indicate it should be the same as the x2-resolution."),
+        "Use 0 to indicate it should be the same as the x2-resolution."
+    ),
     default=0,
     show_default=True,
 )
