@@ -260,7 +260,3 @@ def simple_3d(
         starts, field, elements, x3_extent, layers, 2, nx3 // layers
     )
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic)
-
-
-if __name__ == "__main__":
-    simple()
