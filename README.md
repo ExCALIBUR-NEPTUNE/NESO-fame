@@ -15,20 +15,21 @@ https://gitlab.nektar.info/cmacmackin/nektar on branch
 `cmacmackin/generate-nonconformal-meshes`.
 
 ## Running
-You can try generating a simple 2D mesh by running `python example_mesh.py`
-(ensuring that NekPy is in the PYTHONPATH). You can then convert this
-to a file suitable for visualisation by using
+You can generate simple 2D and 3D meshes with the `fame-simple`
+command. Run `fame-simple --help`, `fame-simple 2d --help`, and
+`fame-simple 3d --help` for more information. If you would like to
+visualise a Nektar++ mesh in file `mesh.xml`, run
 
-`FieldConvert test_geometry.xml test_geometry.vtu:vtu:highorder`
+```
+FieldConvert test_geometry.xml test_geometry.vtu:vtu:highorder
+```
 
 Note that this requires Nektar++ to have been compiled with VTK
 support. If it has not, approximate meshes can still be produced using
 
-`FieldConvert test_geometry.xml test_geometry.vtu`
-
-In that case, additional elements will be added to approximate the
-higher-order shape of the element. This results in larger files and
-uglier visualisations, though.
+```
+FieldConvert test_geometry.xml test_geometry.vtu
+```
 
 ## License
 NESO-fame is free software: you can redistribute it and/or modify it under
