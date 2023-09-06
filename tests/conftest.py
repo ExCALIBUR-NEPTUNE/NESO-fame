@@ -125,7 +125,11 @@ register_type_strategy(
     ),
 )
 
-CARTESIAN_SYSTEMS = {mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN2D, mesh.CoordinateSystem.CARTESIAN_ROTATED}
+CARTESIAN_SYSTEMS = {
+    mesh.CoordinateSystem.CARTESIAN,
+    mesh.CoordinateSystem.CARTESIAN2D,
+    mesh.CoordinateSystem.CARTESIAN_ROTATED,
+}
 
 
 def linear_field_trace(
@@ -759,7 +763,9 @@ nonlinear_quad = builds(
     whole_numbers,
     whole_numbers,
     _dx3,
-    sampled_from([mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]),
+    sampled_from(
+        [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]
+    ),
     integers(100, 200),
     _divisions,
     _num_divisions,
@@ -773,7 +779,9 @@ nonlinear_hex = builds(
     ),
     whole_numbers,
     _dx3,
-    sampled_from([mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]),
+    sampled_from(
+        [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]
+    ),
     integers(100, 200),
     _divisions,
     _num_divisions,
@@ -794,7 +802,11 @@ register_type_strategy(
             end_quad,
             whole_numbers.flatmap(hex_starts),
             sampled_from(
-                [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED, mesh.CoordinateSystem.CYLINDRICAL]
+                [
+                    mesh.CoordinateSystem.CARTESIAN,
+                    mesh.CoordinateSystem.CARTESIAN_ROTATED,
+                    mesh.CoordinateSystem.CYLINDRICAL,
+                ]
             ),
             whole_numbers,
         ).filter(lambda x: x is not None),
