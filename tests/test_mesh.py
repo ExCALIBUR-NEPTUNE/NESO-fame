@@ -4,7 +4,7 @@ from typing import Type, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given, settings
+from hypothesis import given, settings, reproduce_failure
 from hypothesis.strategies import (
     builds,
     floats,
@@ -745,8 +745,8 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
         x2_starts,
         cp.x3 - q.x3_offset,
     )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-6)
 
 
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))

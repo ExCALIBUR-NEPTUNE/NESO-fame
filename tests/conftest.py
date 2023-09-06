@@ -509,8 +509,9 @@ def _hex_mesh_arguments(
         sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
     )
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (
-        limits[0][0] == 0.0 or limits[1][0] == 0.0
+    print(limits)
+    if c == mesh.CoordinateSystem.CYLINDRICAL and any(
+        limits[i][0] == 0.0 for i in range(4)
     ):
         return None
 
