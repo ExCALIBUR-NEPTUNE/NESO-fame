@@ -507,7 +507,9 @@ def test_nektar_mesh(
         order,
         spatial_dim if issubclass(mesh.reference_layer.element_type, Quad) else 3,
     )
-    meshgraph = nektar_writer.nektar_mesh(elements, 2, 2, write_movement, periodic, compressed)
+    meshgraph = nektar_writer.nektar_mesh(
+        elements, 2, 2, write_movement, periodic, compressed
+    )
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
@@ -840,7 +842,9 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
 def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
-        nektar_writer.write_nektar(mesh, order, str(xml_file), 2, False, compressed=False)
+        nektar_writer.write_nektar(
+            mesh, order, str(xml_file), 2, False, compressed=False
+        )
         tree = ET.parse(xml_file)
 
     root = tree.getroot()

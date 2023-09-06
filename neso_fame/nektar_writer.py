@@ -572,7 +572,11 @@ def nektar_mesh(
     public nektar
 
     """
-    meshgraph = SD.MeshGraphXmlCompressed(mesh_dim, spatial_dim) if compressed else SD.MeshGraphXml(mesh_dim, spatial_dim)
+    meshgraph = (
+        SD.MeshGraphXmlCompressed(mesh_dim, spatial_dim)
+        if compressed
+        else SD.MeshGraphXml(mesh_dim, spatial_dim)
+    )
     points = meshgraph.GetAllPointGeoms()
     segments = meshgraph.GetAllSegGeoms()
     curved_edges = meshgraph.GetCurvedEdges()
@@ -708,6 +712,11 @@ def write_nektar(
         )
     nek_elements = nektar_elements(mesh, order, spatial_dim)
     nek_mesh = nektar_mesh(
-        nek_elements, mesh_dim, spatial_dim, write_movement, periodic_interfaces, compressed
+        nek_elements,
+        mesh_dim,
+        spatial_dim,
+        write_movement,
+        periodic_interfaces,
+        compressed,
     )
     nek_mesh.Write(filename, True, SD.FieldMetaDataMap())

@@ -38,6 +38,7 @@ def _validate_layers(layers: int, nx: int) -> int:
 def _mesh_provenance() -> str:
     return f"<!-- This mesh was generated using NESO-fame:\n    {' '.join(argv)}\n-->"
 
+
 @simple.command("2d")
 @click.option(
     "--nx1",
@@ -98,7 +99,12 @@ def _mesh_provenance() -> str:
     help="Use periodic x1 boundaries",
     show_default=True,
 )
-@click.option("--compress", is_flag=True, default=False, help="Use the compressed XML format for the mesh")
+@click.option(
+    "--compress",
+    is_flag=True,
+    default=False,
+    help="Use the compressed XML format for the mesh",
+)
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_2d(
     nx1: int,
@@ -225,7 +231,12 @@ def simple_2d(
     help="Use periodic x3 boundaries",
     show_default=True,
 )
-@click.option("--compress", is_flag=True, default=False, help="Use the compressed XML format for the mesh")
+@click.option(
+    "--compress",
+    is_flag=True,
+    default=False,
+    help="Use the compressed XML format for the mesh",
+)
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_3d(
     nx1: int,
@@ -269,7 +280,15 @@ def simple_3d(
     ]
     field = straight_field(-angle1 * np.pi / 180.0, -angle2 * np.pi / 180.0)
 
-    m = field_aligned_3d(starts, field, elements, (-x1_extent[1], -x1_extent[0]), layers, 2, nx1 // layers)
+    m = field_aligned_3d(
+        starts,
+        field,
+        elements,
+        (-x1_extent[1], -x1_extent[0]),
+        layers,
+        2,
+        nx1 // layers,
+    )
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())
