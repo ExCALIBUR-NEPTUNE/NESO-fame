@@ -530,7 +530,8 @@ def nektar_mesh(
     spatial_dim: int,
     write_movement=True,
     periodic_interfaces=True,
-) -> SD.MeshGraphXml:
+    compressed=True,
+) -> SD.MeshGraphXml | SD.MeshGraphXmlCompressed:
     """Creates a Nektar++ MeshGraphXml object from a collection of
     Nektar++ geometry objects.
 
@@ -550,6 +551,9 @@ def nektar_mesh(
         If write_movement is True, whether the last layer joins
         back up with the first, requiring an interface to be
         defined between the two.
+    compressed
+        Whether to return a ``MeshGraphXmlCompressed`` object or
+        a plain ``MeshGraphXml`` object
 
     Danger
     ------
@@ -568,7 +572,7 @@ def nektar_mesh(
     public nektar
 
     """
-    meshgraph = SD.MeshGraphXml(mesh_dim, spatial_dim)
+    meshgraph = SD.MeshGraphXmlCompressed(mesh_dim, spatial_dim) if compressed else SD.MeshGraphXml(mesh_dim, spatial_dim)
     points = meshgraph.GetAllPointGeoms()
     segments = meshgraph.GetAllSegGeoms()
     curved_edges = meshgraph.GetCurvedEdges()
@@ -665,6 +669,7 @@ def write_nektar(
     spatial_dim: int = 3,
     write_movement=True,
     periodic_interfaces=True,
+    compressed=True,
 ) -> None:
     """Create a Nektar++ MeshGraph object from your mesh and write it
     to the disk.
@@ -687,21 +692,22 @@ def write_nektar(
         If write_movement is True, whether the last layer joins
         back up with the first, requiring an interface to be
         defined between the two.
+    compressed
+        Whether to use the Nektar++ compressed XML format
 
     Group
     -----
     public nektar
 
     """
-    mesh_dim = 3 if isinstance(mesh.reference_layer.element_type, Hex) else 2
+    mesh_dim = 3 if issubclass(mesh.reference_layer.element_type, Hex) else 2
     if spatial_dim < mesh_dim:
         raise ArgumentError(
             f"Spatial dimension ({spatial_dim}) must be at least equal to mesh "
             f"dimension ({mesh_dim})"
         )
     nek_elements = nektar_elements(mesh, order, spatial_dim)
-    # FIXME: Need to be able to configure dimensiosn
     nek_mesh = nektar_mesh(
-        nek_elements, mesh_dim, spatial_dim, write_movement, periodic_interfaces
+        nek_elements, mesh_dim, spatial_dim, write_movement, periodic_interfaces, compressed
     )
     nek_mesh.Write(filename, True, SD.FieldMetaDataMap())

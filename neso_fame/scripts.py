@@ -93,6 +93,7 @@ def _validate_layers(layers: int, nx: int) -> int:
     help="Use periodic x1 boundaries",
     show_default=True,
 )
+@click.option("--compress", is_flag=True, default=False, help="Use the compressed XML format for the mesh")
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_2d(
     nx1: int,
@@ -102,6 +103,7 @@ def simple_2d(
     layers: int,
     angle: float,
     periodic: bool,
+    compress: bool,
     meshfile: str,
 ) -> None:
     """Generate a simple 2D Cartesian mesh aligned to straight field
@@ -127,7 +129,7 @@ def simple_2d(
         2,
         subdivisions=nx1 // layers,
     )
-    write_nektar(m, 1, meshfile, 2, layers > 1 or periodic, periodic)
+    write_nektar(m, 1, meshfile, 2, layers > 1 or periodic, periodic, compress)
 
 
 @simple.command("3d")
@@ -216,6 +218,7 @@ def simple_2d(
     help="Use periodic x3 boundaries",
     show_default=True,
 )
+@click.option("--compress", is_flag=True, default=False, help="Use the compressed XML format for the mesh")
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_3d(
     nx1: int,
@@ -228,6 +231,7 @@ def simple_3d(
     angle1: float,
     angle2: float,
     periodic: bool,
+    compress: bool,
     meshfile: str,
 ) -> None:
     """Generate a simple 3D Cartesian mesh aligned to straight field
@@ -259,4 +263,4 @@ def simple_3d(
     field = straight_field(angle1 * np.pi / 180.0, angle2 * np.pi / 180.0)
 
     m = field_aligned_3d(starts, field, elements, x1_extent, layers, 2, nx1 // layers)
-    write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic)
+    write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
