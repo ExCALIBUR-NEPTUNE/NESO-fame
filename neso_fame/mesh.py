@@ -40,6 +40,7 @@ class CoordinateSystem(Enum):
     CARTESIAN = 0
     CYLINDRICAL = 1
     CARTESIAN2D = 2
+    CARTESIAN_ROTATED = 3
 
 
 CartesianTransform = Callable[
@@ -55,6 +56,7 @@ COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
         x2,
     ),
     CoordinateSystem.CARTESIAN2D: lambda x1, _, x3: (x3, -x1, np.asarray(0.0)),
+    CoordinateSystem.CARTESIAN_ROTATED: lambda x1, x2, x3: (x3, x1, x2),
 }
 
 

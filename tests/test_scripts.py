@@ -227,9 +227,9 @@ def test_3d_limits(
                 "--x3-extent",
                 str(x3min),
                 str(x3max),
-                "--nx1",
-                "3",
                 "--nx2",
+                "3",
+                "--nx3",
                 "3",
                 meshfile,
             ],
@@ -249,7 +249,7 @@ def test_3d_limits(
 
 
 @pytest.mark.parametrize(
-    "nx1,nx2,nx3,layers", [(3, 2, 8, 4), (1, 1, 8, 8), (2, 1, 12, 0), (1, 4, 5, 1)]
+    "nx1,nx2,nx3,layers", [(8, 2, 3, 4), (8, 1, 1, 8), (12, 1, 2, 0), (5, 4, 1, 1)]
 )
 def test_3d_resolution(nx1: int, nx2: int, nx3: int, layers: int) -> None:
     runner = CliRunner()
@@ -274,12 +274,12 @@ def test_3d_resolution(nx1: int, nx2: int, nx3: int, layers: int) -> None:
         with open(meshfile, "r") as f:
             output = f.read()
     if layers == 0:
-        actual_layers = nx3
+        actual_layers = nx1
     else:
         actual_layers = layers
     assert (
         len(VERTICES.findall(output))
-        == (nx1 + 1) * (nx2 + 1) * (nx3 // actual_layers + 1) * actual_layers
+        == (nx3 + 1) * (nx2 + 1) * (nx1 // actual_layers + 1) * actual_layers
     )
     if actual_layers > 1:
         assert len(ZONES.findall(output)) == actual_layers
@@ -301,9 +301,9 @@ def test_3d_periodic(layers: int) -> None:
                 "--periodic",
                 "--layers",
                 str(layers),
-                "--nx1",
-                "2",
                 "--nx2",
+                "2",
+                "--nx3",
                 "2",
                 meshfile,
             ],
@@ -321,7 +321,7 @@ def test_3d_invalid_layers() -> None:
     runner = CliRunner()
     with runner.isolated_filesystem():
         meshfile = "invalid.xml"
-        result = runner.invoke(simple, ["3d", "--nx3", "8", "--layers", "3", meshfile])
+        result = runner.invoke(simple, ["3d", "--nx1", "8", "--layers", "3", meshfile])
         assert result.return_value != 0
         assert not os.path.exists(meshfile)
 
@@ -335,11 +335,11 @@ def test_3d_angled_field() -> None:
             [
                 "3d",
                 "--nx1",
-                "2",
+                "1",
                 "--nx2",
                 "2",
                 "--nx3",
-                "1",
+                "2",
                 "--x1-extent",
                 "0",
                 "2",
@@ -362,5 +362,5 @@ def test_3d_angled_field() -> None:
     vertices = [
         (float(v[1]), float(v[2]), float(v[3])) for v in VERTICES.finditer(output)
     ]
-    assert (1.5, 1.25, 2.0) in vertices
-    assert (0.5, 0.75, 0.0) in vertices
+    assert (2.0, 1.5, 1.25) in vertices
+    assert (0.0, 0.5, 0.75) in vertices

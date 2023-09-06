@@ -136,7 +136,7 @@ def simple_2d(
     "--x1-resolution",
     type=POSITIVE,
     help="The number of elements in the x1 direction.",
-    default=10,
+    default=2,
     show_default=True,
 )
 @click.option(
@@ -168,14 +168,14 @@ def simple_2d(
     "--x3-resolution",
     type=POSITIVE,
     help="The number of elements in the x3 direction.",
-    default=2,
+    default=10,
     show_default=True,
 )
 @click.option(
     "--x3-extent",
     nargs=2,
     type=float,
-    help="The limits of the domain in the x4 direction.",
+    help="The limits of the domain in the x3 direction.",
     default=(0.0, 1.0),
     show_default=True,
 )
@@ -183,8 +183,8 @@ def simple_2d(
     "--layers",
     type=NONNEGATIVE,
     help=(
-        "The number of non-conformal layers that exist in the x3-direction. "
-        "Use 0 to indicate it should be the same as the x3-resolution."
+        "The number of non-conformal layers that exist in the x1-direction. "
+        "Use 0 to indicate it should be the same as the x1-resolution."
     ),
     default=0,
     show_default=True,
@@ -193,8 +193,8 @@ def simple_2d(
     "--angle1",
     type=float,
     help=(
-        "The angle the magnentic field is skewed away from the x3-axis "
-        "towards the x1-axis, in degrees."
+        "The angle the magnentic field is skewed away from the x1-axis "
+        "towards the x2-axis, in degrees."
     ),
     default=0,
     show_default=True,
@@ -203,8 +203,8 @@ def simple_2d(
     "--angle2",
     type=float,
     help=(
-        "The angle the magnentic field is skewed away from the x3-axis "
-        "towards the x2-axis, in degrees."
+        "The angle the magnentic field is skewed away from the x1-axis "
+        "towards the x3-axis, in degrees."
     ),
     default=0,
     show_default=True,
@@ -231,30 +231,32 @@ def simple_3d(
     meshfile: str,
 ) -> None:
     """Generate a simple 3D Cartesian mesh aligned to straight field
-    lines. These field lines can be at an angle relative to the x3
+    lines. These field lines can be at an angle relative to the x1
     direction (although 90 degrees is singular and will cause the
     script to fail). The mesh will be written to MESHFILE in the
     Nektar++ uncompressed XML format.
 
     """
-    layers = _validate_layers(layers, nx3)
-    x1, x2 = np.meshgrid(
-        np.linspace(x1_extent[0], x1_extent[1], nx1 + 1),
+    # Coordinates will be rotated so that the magnetic field aligns
+    # with the x1-axis, rather than the x3-axis
+    layers = _validate_layers(layers, nx1)
+    x3, x1 = np.meshgrid(
         np.linspace(x2_extent[0], x2_extent[1], nx2 + 1),
+        np.linspace(x3_extent[0], x3_extent[1], nx3 + 1),
         copy=False,
         sparse=False,
     )
     starts = SliceCoords(
+        x3,
         x1,
-        x2,
-        CoordinateSystem.CARTESIAN,
+        CoordinateSystem.CARTESIAN_ROTATED,
     )
     elements = [
         ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
-        for i in range(nx2)
-        for j in range(nx1)
+        for i in range(nx3)
+        for j in range(nx2)
     ]
     field = straight_field(angle1 * np.pi / 180.0, angle2 * np.pi / 180.0)
 
-    m = field_aligned_3d(starts, field, elements, x3_extent, layers, 2, nx3 // layers)
+    m = field_aligned_3d(starts, field, elements, x1_extent, layers, 2, nx1 // layers)
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic)

@@ -4,15 +4,15 @@ Usage
 You can generate simple meshes from the command-line using the
 ``fame-simple`` command. This generates either a 2D or a 3D mesh,
 aligned with a straight, uniform magnetic field. By default, the field
-is parallel to the x1 direction (for 2D meshes) or the x3 direction
-(for 3D), but you can configure it to be offset by some angle.
+is parallel to the x1 direction, but you can configure it to be offset
+by some angle.
 
 Your mesh is made up of "layers" in the field-aligned
 direction. Elements within a layer are all conformal with each other
 and all follow the direction of the magnetic field. There will be a
 nonconformal interface with adjacent layers. Each layer is identical,
-apart from its position on the x1- or x3-axis. Each layer may be
-further subdivided along the x1/x3 axis but, as stated above, these
+apart from its position on the x1-axis. Each layer may be
+further subdivided along the x1 axis but, as stated above, these
 elements will be conformal.
 
 .. note::
@@ -45,14 +45,14 @@ The process of generating a 3D mesh is very similar. For example, to
 produce a mesh with the following properties
 - 10 by 20 by 8 elements
 - domain :math:`x_1 \in [0, 100], x_2 \in [0, 200], x_3 \in [0, 80]`
-- aligned to a field rotate by 3 degrees away from the x3-axis and towards the x1-axis
-- with four nonconformal layers
+- aligned to a field rotate by 3 degrees away from the x1-axis and towards the x2-axis
+- with 5 nonconformal layers
 
 you should run::
 
   fame-simple 3d --nx1 10 --nx2 20 --nx3 8 --x1-extent 0 100 \
               --x2-extent 0 200--x3-extent 0 80 --angle1 3 \
-              --layers 4 3d_mesh.xml
+              --layers 5 3d_mesh.xml
 
 Again, you can get more information about the options available by
 running ``fame-simple 3d --help``.
