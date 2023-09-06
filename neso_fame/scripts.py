@@ -2,6 +2,8 @@
 
 """
 
+from sys import argv
+
 import click
 import numpy as np
 
@@ -32,6 +34,9 @@ def _validate_layers(layers: int, nx: int) -> int:
         f"Can not divide {nx} elements evenly into {layers} layers"
     )
 
+
+def _mesh_provenance() -> str:
+    return f"<!-- This mesh was generated using NESO-fame:\n    {' '.join(argv)}\n-->"
 
 @simple.command("2d")
 @click.option(
@@ -264,3 +269,5 @@ def simple_3d(
 
     m = field_aligned_3d(starts, field, elements, x1_extent, layers, 2, nx1 // layers)
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
+    with open(meshfile, "a") as f:
+        f.write(_mesh_provenance())
