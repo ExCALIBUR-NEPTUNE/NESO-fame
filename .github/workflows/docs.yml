@@ -24,6 +24,7 @@ jobs:
           key: ${{ runner.os }}-${{ hashFiles('setup.py', 'docs/requirements.txt') }}
       - name: Install dependencies
         run: |
+          python3 -m pip --upgrade pip
           python3 -m pip install .
           python3 -m pip install -r docs/requirements.txt # for building the docs
           python3 -m pip install ghp-import # only required by this yaml for publishing the docs 
