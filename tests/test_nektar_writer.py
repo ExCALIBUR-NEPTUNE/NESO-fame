@@ -1,5 +1,6 @@
 import itertools
 import operator
+import os
 import pathlib
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -479,6 +480,7 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
     order,
     booleans(),
     booleans(),
+    booleans(),
 )
 def test_nektar_mesh(
     mesh: Mesh,
@@ -486,6 +488,7 @@ def test_nektar_mesh(
     order: int,
     write_movement: bool,
     periodic: bool,
+    compressed: bool,
 ) -> None:
     def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
         return filter(
@@ -504,7 +507,7 @@ def test_nektar_mesh(
         order,
         spatial_dim if issubclass(mesh.reference_layer.element_type, Quad) else 3,
     )
-    meshgraph = nektar_writer.nektar_mesh(elements, 2, 2, write_movement, periodic)
+    meshgraph = nektar_writer.nektar_mesh(elements, 2, 2, write_movement, periodic, compressed)
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
@@ -676,34 +679,35 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
     return elem
 
 
+QUAD = Quad(
+    StraightLineAcrossField(
+        SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+        SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
+    ),
+    FieldTracer(
+        lambda start, x3: (
+            SliceCoords(
+                np.full_like(x3, start.x1),
+                np.full_like(x3, start.x2),
+                CoordinateSystem.CARTESIAN,
+            ),
+            np.asarray(x3),
+        ),
+        2,
+    ),
+    1.0,
+    x3_offset=0.5,
+)
+SIMPLE_MESH = GenericMesh(
+    MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),
+    np.array([0.0]),
+)
+
+
 # Integration test for very simple 1-element mesh
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
-    quad = Quad(
-        StraightLineAcrossField(
-            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
-            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-        ),
-        FieldTracer(
-            lambda start, x3: (
-                SliceCoords(
-                    np.full_like(x3, start.x1),
-                    np.full_like(x3, start.x2),
-                    CoordinateSystem.CARTESIAN,
-                ),
-                np.asarray(x3),
-            ),
-            2,
-        ),
-        1.0,
-        x3_offset=0.5,
-    )
-    simple_mesh = GenericMesh(
-        MeshLayer([quad], [frozenset([quad.north]), frozenset([quad.south])]),
-        np.array([0.0]),
-    )
-
     xml_file = tmp_path / "simple_mesh.xml"
-    nektar_writer.write_nektar(simple_mesh, 1, str(xml_file), 2)
+    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
 
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -836,7 +840,7 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
 def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
-        nektar_writer.write_nektar(mesh, order, str(xml_file), 2, False)
+        nektar_writer.write_nektar(mesh, order, str(xml_file), 2, False, compressed=False)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()
@@ -863,3 +867,11 @@ def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
         expected_end = np.array(list(map(float, cast(str, end_point.text).split())))
         np.testing.assert_allclose(start, expected_start, 1e-8)
         np.testing.assert_allclose(end, expected_end, 1e-8)
+
+
+def test_compressed_mesh(tmp_path: pathlib.Path) -> None:
+    xml_file = tmp_path / "simple_mesh.xml"
+    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
+    compressed_file = tmp_path / "compressed_mesh.xml"
+    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(compressed_file), 2, compressed=True)
+    assert os.stat(xml_file).st_size > os.stat(compressed_file).st_size
