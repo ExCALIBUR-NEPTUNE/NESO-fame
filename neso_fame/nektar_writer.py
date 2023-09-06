@@ -20,7 +20,6 @@ from .mesh import (
     MeshLayer,
     NormalisedCurve,
     Quad,
-    QuadMesh,
     control_points,
 )
 

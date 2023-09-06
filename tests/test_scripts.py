@@ -177,7 +177,6 @@ def test_2d_angled_field() -> None:
     assert (0.0, 0.5, 0) in vertices
 
 
-
 def test_3d_defaults() -> None:
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -203,9 +202,15 @@ def test_3d_defaults() -> None:
 
 @pytest.mark.parametrize(
     "x1min,x1max,x2min,x2max,x3min,x3max",
-    [(-1.0, 1.0, 2.0, 5, -22., -21.), (0.1, 0.7, -2.0, 0.0, 100.12, 234.5), (0.0, 100.0, 0.0, 100.0, -1., 1.)],
+    [
+        (-1.0, 1.0, 2.0, 5, -22.0, -21.0),
+        (0.1, 0.7, -2.0, 0.0, 100.12, 234.5),
+        (0.0, 100.0, 0.0, 100.0, -1.0, 1.0),
+    ],
 )
-def test_3d_limits(x1min: int, x1max: int, x2min: int, x2max: int, x3min: int, x3max: int) -> None:
+def test_3d_limits(
+    x1min: int, x1max: int, x2min: int, x2max: int, x3min: int, x3max: int
+) -> None:
     runner = CliRunner()
     with runner.isolated_filesystem():
         meshfile = "limits.xml"
@@ -290,20 +295,24 @@ def test_3d_periodic(layers: int) -> None:
     with runner.isolated_filesystem():
         meshfile = "periodic.xml"
         result = runner.invoke(
-            simple, ["3d", "--periodic", "--layers", str(layers),
-                     "--nx1",
-                     "2",
-                     "--nx2",
-                     "2",
-                     meshfile]
+            simple,
+            [
+                "3d",
+                "--periodic",
+                "--layers",
+                str(layers),
+                "--nx1",
+                "2",
+                "--nx2",
+                "2",
+                meshfile,
+            ],
         )
         assert result.exit_code == 0
         with open(meshfile, "r") as f:
             output = f.read()
     actual_layers = layers or 2
-    assert (
-        len(VERTICES.findall(output)) == 9 * (2 // actual_layers + 1) * actual_layers
-    )
+    assert len(VERTICES.findall(output)) == 9 * (2 // actual_layers + 1) * actual_layers
     assert len(ZONES.findall(output)) == actual_layers
     assert len(INTERFACES.findall(output)) == actual_layers
 

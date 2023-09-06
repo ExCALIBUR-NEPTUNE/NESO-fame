@@ -256,7 +256,5 @@ def simple_3d(
     ]
     field = straight_field(angle1 * np.pi / 180.0, angle2 * np.pi / 180.0)
 
-    m = field_aligned_3d(
-        starts, field, elements, x3_extent, layers, 2, nx3 // layers
-    )
+    m = field_aligned_3d(starts, field, elements, x3_extent, layers, 2, nx3 // layers)
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic)
