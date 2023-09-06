@@ -33,7 +33,7 @@ packages = ["neso_fame"]
 "Source Code" = "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame"
 
 [project.scripts]
-fame-simple = "scripts:simple"
+fame-simple = "neso_fame.scripts:simple"
 
 [tool.mypy]
 python_version = "3.10"
