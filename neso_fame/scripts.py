@@ -124,17 +124,19 @@ def simple_2d(
     # axes and makes x1 negative.
     m = field_aligned_2d(
         SliceCoords(
-            np.linspace(-x2_extent[1], -x2_extent[0], nx2 + 1),
+            np.linspace(x2_extent[0], x2_extent[1], nx2 + 1),
             np.zeros(nx2 + 1),
             CoordinateSystem.CARTESIAN2D,
         ),
         straight_field(-angle * np.pi / 180.0),
-        x1_extent,
+        (-x1_extent[1], -x1_extent[0]),
         layers,
         2,
         subdivisions=nx1 // layers,
     )
     write_nektar(m, 1, meshfile, 2, layers > 1 or periodic, periodic, compress)
+    with open(meshfile, "a") as f:
+        f.write(_mesh_provenance())
 
 
 @simple.command("3d")
@@ -265,9 +267,9 @@ def simple_3d(
         for i in range(nx3)
         for j in range(nx2)
     ]
-    field = straight_field(angle1 * np.pi / 180.0, angle2 * np.pi / 180.0)
+    field = straight_field(-angle1 * np.pi / 180.0, -angle2 * np.pi / 180.0)
 
-    m = field_aligned_3d(starts, field, elements, x1_extent, layers, 2, nx1 // layers)
+    m = field_aligned_3d(starts, field, elements, (-x1_extent[1], -x1_extent[0]), layers, 2, nx1 // layers)
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())

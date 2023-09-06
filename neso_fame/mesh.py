@@ -55,8 +55,8 @@ COORDINATE_TRANSFORMS: dict[CoordinateSystem, CartesianTransform] = {
         x1 * np.sin(x3),
         x2,
     ),
-    CoordinateSystem.CARTESIAN2D: lambda x1, _, x3: (x3, -x1, np.asarray(0.0)),
-    CoordinateSystem.CARTESIAN_ROTATED: lambda x1, x2, x3: (x3, x1, x2),
+    CoordinateSystem.CARTESIAN2D: lambda x1, _, x3: (-x3, x1, np.asarray(0.0)),
+    CoordinateSystem.CARTESIAN_ROTATED: lambda x1, x2, x3: (-x3, x1, x2),
 }
 
 
