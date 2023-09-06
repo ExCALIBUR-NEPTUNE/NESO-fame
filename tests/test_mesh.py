@@ -4,7 +4,7 @@ from typing import Type, cast
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given, settings, reproduce_failure
+from hypothesis import given, settings
 from hypothesis.strategies import (
     builds,
     floats,
