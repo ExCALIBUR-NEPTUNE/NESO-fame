@@ -355,6 +355,10 @@ def nektar_hex(
     quad, in the same layer, represented to the same order will always
     return the same objects.
 
+    Group
+    -----
+    factory
+
     """
     # Be careful with order of faces; needs to be bottom, vertical
     # faces, then top (although actual oreintation in space is

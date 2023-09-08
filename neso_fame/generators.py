@@ -338,9 +338,6 @@ def field_aligned_3d(
     spatial_interp_resolution
         Number of points used to interpolate distances along the field
         line.
-    boundaries
-        Indices of the elements (in the ``elements`` sequence) that make
-        up the north and south boundary, respectively
     subdivisions
         Depth of cells in x3-direction in each layer.
     conform_to_bounds

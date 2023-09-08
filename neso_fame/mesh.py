@@ -508,6 +508,10 @@ def control_points(
     the points in memor corresponds to that expected by Nektar++ when
     defining curved faces.
 
+    Group
+    -----
+    elements
+
     """
     s = np.linspace(0.0, 1.0, order + 1)
     if isinstance(element, Quad):
@@ -529,6 +533,10 @@ class StraightLineAcrossField:
     """A straight line that connects two points in the x1-x2 plane. It
     is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
 
+    Group
+    -----
+    elements
+
     """
 
     north: SliceCoord
@@ -548,6 +556,10 @@ class StraightLineAcrossField:
 class StraightLine:
     """A straight line that connects two points. It
     is a :obj:`~neso_fame.mesh.NormalisedCurve`.
+
+    Group
+    -----
+    elements
 
     """
 
@@ -731,7 +743,13 @@ class Quad:
 class EndQuad:
     """Represents a quad that is either the near or far end of a
     :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
-    four curved edges. However, it is always flat."""
+    four curved edges. However, it is always flat.
+
+    Group
+    -----
+    elements
+
+    """
 
     # FIXME: Need to be able to provide control points for this too,
     # even though it is constrained to the x1-x2 plane. Possibly
