@@ -218,24 +218,29 @@ class Coord:
         decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
         context = Context(decimal_places)
 
+        # FIXME: This can still result in hashes being different for
+        # two similar numbers, if rounding would affect multiple
+        # decimal places (e.g., rounding .999995 up to 1.). The
+        # likelihood is low but non-zero.
         def get_digits(
             x: float,
         ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
-            y = Decimal(self.x1).normalize(context).as_tuple()
+            y = Decimal(x).normalize(context).as_tuple()
             spare_places = decimal_places - len(y[1])
             if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
                 return 0, (), 0
-            truncated = (y[1] + (0,) * spare_places)[:-1]
+            truncated = (y[1] + (0,) * spare_places)[:-3]
             if all(t == 0 for t in truncated):
                 return 0, (), 0
             exponent = y[2]
             if isinstance(exponent, int):
-                exponent -= spare_places - 1
+                exponent -= spare_places - 3
             return y[0], truncated, exponent
 
         x1 = get_digits(self.x1)
         x2 = get_digits(self.x2)
         x3 = get_digits(self.x3)
+
         return hash((x1, x2, x3, self.system))
 
     def __eq__(self, other) -> bool:
