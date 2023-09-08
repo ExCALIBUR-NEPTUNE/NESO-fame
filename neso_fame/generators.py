@@ -50,11 +50,30 @@ BOUNDARY_TRACER = FieldTracer(
 )
 
 
+BoundType = bool | tuple[float, float]
+
+
+def _is_fixed(bound: BoundType) -> bool:
+    if isinstance(bound, bool):
+        return bound
+    return False
+
+
+def _is_planar(bound: BoundType) -> bool:
+    return isinstance(bound, tuple)
+
+
+def _is_bound(bound: BoundType) -> bool:
+    if isinstance(bound, tuple):
+        return True
+    return bound
+
+
 def _boundary_tracer(
     field: FieldTrace,
     shape: StraightLineAcrossField,
-    north_bound: bool,
-    south_bound: bool,
+    north_bound: BoundType,
+    south_bound: BoundType,
 ) -> FieldTrace:
     """Creates a field trace that describes a quad which may conform
     to its boundaries. Note that the distances will be approximate if
@@ -68,12 +87,14 @@ def _boundary_tracer(
         The function describing the shape of the quad where it
         intersects with the x3=0 plane
     north_bound
-        Whether the north edge of the quad conforms to the boundary
+        Whether the north edge of the quad conforms to the
+        boundary and how it conforms
     south_bound
-        Whether the south edge of the quad conforms to the boundary
+        Whether the south edge of the quad conforms to the
+        boundary and how it conforms
 
     """
-    if north_bound and south_bound:
+    if _is_fixed(north_bound) and _is_fixed(south_bound):
         return lambda start, x3: (
             SliceCoords(
                 np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
@@ -81,33 +102,84 @@ def _boundary_tracer(
             np.asarray(x3),
         )
 
-    if not north_bound and not south_bound:
+    if not _is_bound(north_bound) and not _is_bound(south_bound):
         return field
 
+    north_fixed = _is_fixed(north_bound)
+    south_fixed = _is_fixed(south_bound)
+    north_planar = _is_planar(north_bound)
+    south_planar = _is_planar(south_bound)
+    if north_fixed:
+        reference = shape(0.0).to_coord()
+    elif south_fixed:
+        reference = shape(1.0).to_coord()
+    else:
+        reference = SliceCoord(0.0, 0.0, shape.north.system)
+
+    if north_planar:
+        vec: Optional[tuple[float, float]] = cast(tuple[float, float], north_bound)
+    elif south_planar:
+        vec = cast(tuple[float, float], south_bound)
+    else:
+        vec = None
+        normed_vec: Optional[float] = None
+
+    if vec is not None:
+        normed_vec = vec[0] * vec[0] + vec[1] * vec[1]
+
+    dx = (shape.south.x1 - shape.north.x1, shape.south.x2 - shape.north.x2)
+
     def get_position_on_shape(start: SliceCoord) -> float:
-        if abs(shape.south.x1 - shape.north.x1) > abs(shape.south.x2 - shape.north.x2):
-            return (start.x1 - shape.north.x1) / (shape.south.x1 - shape.north.x1)
+        if abs(dx[0]) > abs(dx[1]):
+            return (start.x1 - shape.north.x1) / (dx[0])
         else:
-            return (start.x2 - shape.north.x2) / (shape.south.x2 - shape.north.x2)
+            return (start.x2 - shape.north.x2) / (dx[1])
 
     def func(start: SliceCoord, x3: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
-        factor = get_position_on_shape(start)
-        if north_bound:
-            reference = shape(0.0).to_coord()
+        pos_on_shape = get_position_on_shape(start)
+        if south_fixed:
+            factor_fixed = 1 - pos_on_shape
+        elif north_fixed:
+            factor_fixed = pos_on_shape
         else:
-            factor = 1 - factor
-            reference = shape(1.0).to_coord()
-        factor *= factor
+            factor_fixed = 1.0
+        if south_planar and north_planar:
+            factor_planar = 0.0
+        elif north_planar:
+            factor_planar = pos_on_shape
+        elif south_planar:
+            factor_planar = 1 - pos_on_shape
+        else:
+            factor_planar = 1.0
+        factor_fixed *= factor_fixed
+        x3 = np.asarray(x3)
         position, distance = field(start, x3)
+        if factor_planar < 1:
+            assert vec is not None
+            assert normed_vec is not None
+            pos_vec = (position.x1 - start.x1, position.x2 - start.x2)
+            projection_factor = (pos_vec[0] * vec[0] + pos_vec[1] * vec[1]) / normed_vec
+            position = SliceCoords(
+                position.x1 * factor_planar
+                + (1 - factor_planar) * (start.x1 + projection_factor * vec[0]),
+                position.x2 * factor_planar
+                + (1 - factor_planar) * (start.x2 + projection_factor * vec[1]),
+                position.system,
+            )
+            # FIXME: This assumes the trace is linear; how can I
+            # estimate it for nonlinear ones?
+            distance = np.sign(x3) * np.sqrt(
+                (position.x1 - start.x1) ** 2 + (position.x2 - start.x2) ** 2 + x3 * x3
+            )
         x3_factor = start.x1 if start.system is CoordinateSystem.CYLINDRICAL else 1.0
         coord = SliceCoords(
-            position.x1 * factor + reference.x1 * (1 - factor),
-            position.x2 * factor + reference.x2 * (1 - factor),
+            position.x1 * factor_fixed + reference.x1 * (1 - factor_fixed),
+            position.x2 * factor_fixed + reference.x2 * (1 - factor_fixed),
             position.system,
         )
         dist = np.sign(distance) * np.sqrt(
-            distance * distance * factor
-            + (1 - factor) * x3_factor * x3_factor * np.asarray(x3) ** 2
+            distance * distance * factor_fixed
+            + (1 - factor_fixed) * x3_factor * x3_factor * x3**2
         )
         return coord, dist
 
@@ -339,17 +411,48 @@ def field_aligned_3d(
     ):
         face_locations[pair].append(i)
     # Find the quads that are on a boundary
-    boundary_faces = {
+    boundary_faces: dict[NodePair, int] = {
         pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1
     }
+    faces_by_nodes: defaultdict[Index, list[NodePair]] = defaultdict(list)
+    for j, k in boundary_faces:
+        faces_by_nodes[j].append((j, k))
+        faces_by_nodes[k].append((j, k))
     # Find the nodes that fall on a boundary
-    boundary_nodes = frozenset(itertools.chain.from_iterable(boundary_faces))
+
+    def _bound_type(edges: list[NodePair]) -> BoundType:
+        assert len(edges) == 2
+        vecs = [
+            (n1.x1 - n2.x1, n1.x2 - n2.x2)
+            for n1, n2 in map(
+                lambda x: (lower_dim_mesh[x[0]], lower_dim_mesh[x[1]]), edges
+            )
+        ]
+        if np.isclose(
+            abs(vecs[0][0] * vecs[1][1]),
+            abs(vecs[1][0] * vecs[0][1]),
+            rtol=1e-8,
+            atol=1e-8,
+        ):
+            return vecs[0]
+        else:
+            return True
+
+    boundary_nodes = {i: _bound_type(edges) for i, edges in faces_by_nodes.items()}
 
     @cache
     def make_quad(node1: Index, node2: Index) -> Quad:
+        # FIXME: This is fixing in place boundaries where they don't
+        # actually need to be, as field would be parallel. Need it to
+        # only adjust perpendicular components of field, if that is
+        # possible.
         shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
-        north_bound = conform_to_bounds and node1 in boundary_nodes
-        south_bound = conform_to_bounds and node2 in boundary_nodes
+        if conform_to_bounds:
+            north_bound = boundary_nodes.get(node1, False)
+            south_bound = boundary_nodes.get(node2, False)
+        else:
+            north_bound = False
+            south_bound = False
         local_tracer = (
             FieldTracer(
                 _boundary_tracer(field_line, shape, north_bound, south_bound),

@@ -443,30 +443,30 @@ def test_angled_grid_conforming_bounds_3d() -> None:
             points_1_0 = control_points(hexa.north.north, 2)
             points_0_1 = control_points(hexa.south.south, 2)
             points_1_1 = control_points(hexa.north.south, 2)
-            if i == m2 - 2 or j == 0:
-                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid)
-                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid)
-            else:
-                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid + x1_offsets)
-                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid + x2_offsets)
-            if i == m2 - 2 or j == m1 - 2:
-                np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid)
-                np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid)
-            else:
-                np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid + x1_offsets)
-                np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid + x2_offsets)
-            if i == 0 or j == 0:
-                np.testing.assert_allclose(points_0_0.x1, x1_0_0_mid)
+            if i == 0:
+                np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid)
                 np.testing.assert_allclose(points_0_0.x2, x2_0_0_mid)
             else:
-                np.testing.assert_allclose(points_0_0.x1, x1_0_0_mid + x1_offsets)
+                np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid + x2_offsets)
                 np.testing.assert_allclose(points_0_0.x2, x2_0_0_mid + x2_offsets)
-            if i == 0 or j == m1 - 2:
+            if i == m2 - 2:
+                np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid)
+                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid)
+            else:
+                np.testing.assert_allclose(points_1_1.x2, x2_1_1_mid + x2_offsets)
+                np.testing.assert_allclose(points_1_0.x2, x2_1_0_mid + x2_offsets)
+            if j == 0:
+                np.testing.assert_allclose(points_0_0.x1, x1_0_0_mid)
+                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid)
+            else:
+                np.testing.assert_allclose(points_0_0.x1, x1_0_0_mid + x1_offsets)
+                np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid + x1_offsets)
+            if j == m1 - 2:
                 np.testing.assert_allclose(points_0_1.x1, x1_0_1_mid)
-                np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid)
+                np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid)
             else:
                 np.testing.assert_allclose(points_0_1.x1, x1_0_1_mid + x1_offsets)
-                np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid + x2_offsets)
+                np.testing.assert_allclose(points_1_1.x1, x1_1_1_mid + x1_offsets)
 
             np.testing.assert_allclose(points_0_0.x3, x3_positions)
             np.testing.assert_allclose(points_0_1.x3, x3_positions)
