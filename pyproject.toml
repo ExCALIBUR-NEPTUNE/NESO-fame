@@ -28,6 +28,9 @@ dynamic = ["version"]
 [tool.setuptools]
 packages = ["neso_fame"]
 
+[tools.setuptools.package-data]
+neso_fame = ["py.typed"]
+
 [project.urls]
 "Bug Tracker" = "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame/issues/"
 "Source Code" = "https://github.com/ExCALIBUR-NEPTUNE/NESO-fame"
