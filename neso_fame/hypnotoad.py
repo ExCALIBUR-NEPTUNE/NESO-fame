@@ -2,9 +2,9 @@
 
 """
 
-from hypnotoad import Equilibrium  # type: ignore
 import numpy as np
 import numpy.typing as npt
+from hypnotoad import Equilibrium  # type: ignore
 from scipy.integrate import solve_ivp
 
 from .mesh import CoordinateSystem, FieldTrace, SliceCoord, SliceCoords
@@ -28,7 +28,7 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
 
     def trace(start: SliceCoord, phi: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
         if start.system != CoordinateSystem.CYLINDRICAL:
-            raise ValueError(f"`start` must use a cylindrical coordinate system")
+            raise ValueError("`start` must use a cylindrical coordinate system")
         phi = np.asarray(phi)
         shape = phi.shape
         flat_phi = np.ravel(phi)
@@ -49,7 +49,7 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
             result = solve_ivp(
                 d_dphi,
                 (0.0, phi_neg[-1]),
-                [start.x1, start.x2, 0.],
+                [start.x1, start.x2, 0.0],
                 method="DOP853",
                 t_eval=phi_neg,
                 rtol=1e-10,
@@ -65,7 +65,7 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
             result = solve_ivp(
                 d_dphi,
                 (0.0, phi_pos[-1]),
-                [start.x1, start.x2, 0.],
+                [start.x1, start.x2, 0.0],
                 method="DOP853",
                 t_eval=phi_pos,
                 rtol=1e-10,

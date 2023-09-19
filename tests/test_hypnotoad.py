@@ -1,12 +1,12 @@
 from typing import cast
 
+import numpy as np
+import numpy.typing as npt
 from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypothesis import given
+from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import builds, floats, nothing, one_of
-from hypothesis.extra.numpy import arrays, array_shapes
-import numpy as np
-import numpy.typing as npt
 from pytest import fixture
 from scipy.optimize import root_scalar
 
@@ -80,18 +80,21 @@ class FakeEquilibrium:
 @given(
     builds(
         FakeEquilibrium,
-        builds(Point2D, floats(1., 10.), whole_numbers),
+        builds(Point2D, floats(1.0, 10.0), whole_numbers),
         floats(0.01, 0.99),
-        floats(0.01, 10.),
+        floats(0.01, 10.0),
         floats(0.1, 10.0),
     ),
-    one_of(floats(-4*np.pi, 4*np.pi), arrays(
-        np.float64,
-        array_shapes(),
-        elements=floats(-np.pi, np.pi),
-        fill=nothing(),
-        unique=True,
-    )),
+    one_of(
+        floats(-4 * np.pi, 4 * np.pi),
+        arrays(
+            np.float64,
+            array_shapes(),
+            elements=floats(-np.pi, np.pi),
+            fill=nothing(),
+            unique=True,
+        ),
+    ),
     floats(0.01, 1.0),
     floats(-2 * np.pi, 2 * np.pi),
 )
@@ -153,10 +156,12 @@ def test_trace_outside_separatrix(x_point_equilibrium):
     # Find a starting point on the separatrix, below the X-point
     Z0 = z0 - 0.1
     psi_val = eq.psi(r0, z0)
-    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2*r0])
+    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2 * r0])
     assert R0_sol.converged
     R0 = R0_sol.root + 1e-8
-    positions, _ = equilibrium_trace(eq)(SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0., 0.52, 9))
+    positions, _ = equilibrium_trace(eq)(
+        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 0.52, 9)
+    )
     for R, Z, Z_prev in zip(positions.x1[1:], positions.x2[1:], positions.x2[:-1]):
         assert R > r0
         assert Z > Z_prev
@@ -175,10 +180,12 @@ def test_trace_private_flux_region(x_point_equilibrium):
     # Find a starting point on the separatrix, below the X-point
     Z0 = z0 - 0.1
     psi_val = eq.psi(r0, z0)
-    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2*r0])
+    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2 * r0])
     assert R0_sol.converged
     R0 = R0_sol.root - 1e-8
-    positions, _ = equilibrium_trace(eq)(SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0., 0.5, 9))
+    positions, _ = equilibrium_trace(eq)(
+        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 0.5, 9)
+    )
     for R, R_prev, Z in zip(positions.x1[1:], positions.x1[:-1], positions.x2[1:]):
         print(R, R_prev)
         assert R < R_prev
@@ -199,21 +206,32 @@ def test_trace_solenoid(x_point_equilibrium):
     Z_sol = root_scalar(lambda Z: eq.psi(r0, Z) - psi_val, bracket=[eq.o_point.Z, 2])
     assert Z_sol.converged
     Z_max = Z_sol.root
-    R_sol = root_scalar(lambda R: eq.psi(R, eq.o_point.Z) - psi_val, bracket=[0.0, eq.o_point.R])
+    R_sol = root_scalar(
+        lambda R: eq.psi(R, eq.o_point.Z) - psi_val, bracket=[0.0, eq.o_point.R]
+    )
     assert R_sol.converged
     R_min = R_sol.root
-    R_sol = root_scalar(lambda R: eq.psi(R, eq.o_point.Z) - psi_val, bracket=[eq.o_point.R, 2*eq.o_point.R])
+    R_sol = root_scalar(
+        lambda R: eq.psi(R, eq.o_point.Z) - psi_val,
+        bracket=[eq.o_point.R, 2 * eq.o_point.R],
+    )
     assert R_sol.converged
     R_max = R_sol.root
 
     # Find a starting point on the separatrix, below the X-point
     Z0 = z0 + 0.1
-    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2*r0])
+    R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2 * r0])
     assert R0_sol.converged
     R0 = R0_sol.root - 1e-7
-    positions, _ = equilibrium_trace(eq)(SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0., 2.0, 31))
-    R0_crossings = -1 # First iteration will show as a crossing, but don't want to count it
-    for R, R_prev, Z, Z_prev in zip(positions.x1[1:], positions.x1[:-1], positions.x2[1:], positions.x2[:-1]):
+    positions, _ = equilibrium_trace(eq)(
+        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 2.0, 31)
+    )
+    R0_crossings = (
+        -1
+    )  # First iteration will show as a crossing, but don't want to count it
+    for R, R_prev, Z, Z_prev in zip(
+        positions.x1[1:], positions.x1[:-1], positions.x2[1:], positions.x2[:-1]
+    ):
         assert Z > z0
         assert Z < Z_max
         assert R > R_min
@@ -232,7 +250,9 @@ def test_trace_x_point(x_point_equilibrium):
     eq = x_point_equilibrium
     r0 = eq.x_points[0].R
     z0 = eq.x_points[0].Z
-    positions, _ = equilibrium_trace(eq)(SliceCoord(r0, z0, CoordinateSystem.CYLINDRICAL), np.linspace(0., 0.1, 9))
+    positions, _ = equilibrium_trace(eq)(
+        SliceCoord(r0, z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 0.1, 9)
+    )
     np.testing.assert_allclose(positions.x1, r0, 1e-3, 1e-3)
     np.testing.assert_allclose(positions.x2, z0, 1e-3, 1e-3)
 
@@ -244,7 +264,9 @@ def test_trace_o_point(x_point_equilibrium):
     eq = x_point_equilibrium
     R0 = eq.o_point.R
     Z0 = eq.o_point.Z
-    positions, _ = equilibrium_trace(eq)(SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.1, 9))
+    positions, _ = equilibrium_trace(eq)(
+        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.1, 9)
+    )
     tol = 1e-6
     np.testing.assert_allclose(positions.x1, R0, tol, tol)
     np.testing.assert_allclose(positions.x2, Z0, tol, tol)
