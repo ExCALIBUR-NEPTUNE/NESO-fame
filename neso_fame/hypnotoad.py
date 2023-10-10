@@ -4,18 +4,182 @@ in using hypnotoad.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional, cast
 
-from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk
-from hypnotoad.core.equilibrium import PsiContour
-from hypnotoad.core.mesh import followPerpendicular
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Equilibrium, Point2D  # type: ignore
+from hypnotoad import Equilibrium  # type: ignore
+from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ignore
 from scipy.integrate import solve_ivp
-import yaml
 
-from .mesh import AcrossFieldCurve, CoordinateSystem, FieldTrace, SliceCoord, SliceCoords
+from .mesh import (
+    AcrossFieldCurve,
+    CoordinateSystem,
+    FieldTrace,
+    SliceCoord,
+    SliceCoords,
+)
+
+IntegratedFunction = Callable[[npt.ArrayLike], tuple[npt.NDArray, ...]]
+Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]
+
+
+def integrate_vectorized(
+    start: npt.ArrayLike,
+    scale=1.0,
+    fixed_points: dict[float, npt.ArrayLike] = {},
+    rtol=1e-12,
+    atol=1e-14,
+    vectorize_integrand_calls=True,
+) -> Callable[[Integrand], IntegratedFunction]:
+    """Decorator that will numerically integrate a function and return
+    a callable that is vectorised. The integration will start from
+    t=0. You must specify the y-value at that starting point. You may
+    optionally specify additional "fixed points" which should fall
+    along the curve at chosen t-values. If someone requests a result
+    at this position, the fixed-point will be returned instead. This
+    can be useful if you need to enforce the end-point of a curve to
+    within a very high level of precision.
+
+    """
+    start = np.asarray(start)
+    if start.ndim > 1:
+        raise ValueError("`start` must be 0- or 1-dimensional")
+    fixed_points = {k: np.asarray(v) for k, v in fixed_points.items()}
+    bad_points = {
+        k: v
+        for k, v in fixed_points.items()
+        if cast(npt.NDArray, v).size != start.size or cast(npt.NDArray, v).ndim > 1
+    }
+    if len(bad_points) > 0:
+        raise ValueError(
+            "Specified fixed points with sizes/shapes different from those of "
+            f"`start`: {bad_points}"
+        )
+    pos_fixed = {k: cast(npt.NDArray, v) for k, v in fixed_points.items() if k > 0}
+    neg_fixed = {k: cast(npt.NDArray, v) for k, v in fixed_points.items() if k < 0}
+    if 0.0 in fixed_points and any(cast(npt.NDArray, fixed_points[0.0]) != start):
+        raise ValueError(
+            "Specified 0 value in `fixed-points` which is different from `start`"
+        )
+
+    def wrap(func: Integrand) -> IntegratedFunction:
+        def wrapper(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+            s = np.asarray(s) * scale
+            # Set very small values to 0 to avoid underflow problems
+            if cast(npt.NDArray, s).ndim > 0:
+                cast(npt.NDArray, s)[np.abs(s) < 1e-50] = 0.0
+            s_sorted, invert_s = np.unique(s, return_inverse=True)
+            products = s_sorted[:-1] * s_sorted[1:]
+            pos_fixed_positions: dict[int, npt.NDArray] = {}
+            neg_fixed_positions: dict[int, npt.NDArray] = {}
+            if len(products) > 0:
+                pivot: int = cast(int, np.argmin(products))
+                zero = (
+                    pivot + 1
+                    if s_sorted[pivot + 1] == 0.0
+                    else pivot
+                    if s_sorted[pivot] == 0.0
+                    else None
+                )
+                sign_change = products[pivot] < 0.0
+                if s_sorted[0] < 0.0:
+                    if zero is not None or sign_change:
+                        neg_slice: Optional[slice | int] = slice(pivot, None, -1)
+                    else:
+                        neg_slice = slice(None, None, -1)
+                    neg = s_sorted[neg_slice]
+                    neg_limit = neg[-1]
+                    for k, v in neg_fixed.items():
+                        loc = np.where(neg == k)[0]
+                        if len(loc) > 0:
+                            assert len(loc) == 1
+                            neg_fixed_positions[loc[0]] = v
+                else:
+                    neg_slice = neg_limit = neg = None
+                if s_sorted[-1] > 0.0:
+                    if zero is not None and s_sorted[0] != 0.0:
+                        pos_slice: Optional[slice | int] = slice(pivot + 2, None)
+                    elif sign_change:
+                        pos_slice = slice(pivot + 1, None)
+                    else:
+                        pos_slice = slice(None, None)
+                    pos = s_sorted[pos_slice]
+                    for k, v in pos_fixed.items():
+                        loc = np.where(pos == k)[0]
+                        if len(loc) > 0:
+                            assert len(loc) == 1
+                            pos_fixed_positions[loc[0]] = v
+                    pos_limit = pos[-1]
+                else:
+                    pos_slice = pos_limit = pos = None
+            else:
+                if s_sorted > 0:
+                    pos_limit = s_sorted[0]
+                    pos = s_sorted
+                    neg_limit = neg = None
+                    zero = None
+                    for k, v in pos_fixed.items():
+                        if pos == k:
+                            pos_fixed_positions[0] = v
+                elif s_sorted < 0:
+                    neg_limit = s_sorted[0]
+                    neg = s_sorted
+                    pos_limit = pos = None
+                    zero = None
+                    for k, v in neg_fixed.items():
+                        if neg == k:
+                            neg_fixed_positions[0] = v
+                else:
+                    pos_limit = pos = None
+                    neg_limit = neg = None
+                    zero = 0
+                pos_slice = slice(None, None)
+                neg_slice = slice(None, None)
+            result_tmp = np.empty((cast(npt.NDArray, start).size, s_sorted.size))
+            if neg is not None:
+                result = solve_ivp(
+                    func,
+                    (0.0, neg_limit),
+                    start,
+                    method="DOP853",
+                    t_eval=neg,
+                    rtol=rtol,
+                    atol=atol,
+                    dense_output=True,
+                    vectorized=vectorize_integrand_calls,
+                )
+                if not result.success:
+                    raise RuntimeError("Failed to integrate along field line")
+                for i, v in neg_fixed_positions.items():
+                    result.y[:, i] = v
+                result_tmp[:, neg_slice] = result.y
+            if pos is not None:
+                result = solve_ivp(
+                    func,
+                    (0.0, pos_limit),
+                    start,
+                    method="DOP853",
+                    t_eval=pos,
+                    rtol=rtol,
+                    atol=atol,
+                    dense_output=True,
+                    vectorized=vectorize_integrand_calls,
+                )
+                if not result.success:
+                    raise RuntimeError("Failed to integrate along field line")
+                for i, v in pos_fixed_positions.items():
+                    result.y[:, i] = v
+                result_tmp[:, pos_slice] = result.y
+            if zero is not None:
+                result_tmp[:, zero] = start
+            return tuple(
+                result_tmp[i, invert_s] for i in range(cast(npt.NDArray, start).size)
+            )
+
+        return wrapper
+
+    return wrap
 
 
 def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
@@ -24,86 +188,35 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
 
     """
 
-    def d_dphi(_: float, y: npt.NDArray) -> npt.NDArray:
-        R = y[0]
-        Z = y[1]
-        R_over_B_t = R / equilibrium.Bzeta(R, Z)
-        dR_dphi = equilibrium.Bp_R(R, Z) * R_over_B_t
-        dZ_dphi = equilibrium.Bp_Z(R, Z) * R_over_B_t
-        return np.asarray(
-            [dR_dphi, dZ_dphi, np.sqrt(dR_dphi * dR_dphi + dZ_dphi * dZ_dphi + 1)]
-        )
-
     def trace(start: SliceCoord, phi: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
         if start.system != CoordinateSystem.CYLINDRICAL:
             raise ValueError("`start` must use a cylindrical coordinate system")
+
+        @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-10, atol=1e-11)
+        def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
+            R = y[0]
+            Z = y[1]
+            R_over_B_t = R / equilibrium.Bzeta(R, Z)
+            dR_dphi = equilibrium.Bp_R(R, Z) * R_over_B_t
+            dZ_dphi = equilibrium.Bp_Z(R, Z) * R_over_B_t
+            return (
+                dR_dphi,
+                dZ_dphi,
+                np.sqrt(dR_dphi * dR_dphi + dZ_dphi * dZ_dphi + 1),
+            )
+
         phi = np.asarray(phi)
-        shape = phi.shape
-        flat_phi = np.ravel(phi)
-        n = len(flat_phi)
-        sort_order = np.argsort(flat_phi)
-        phi_sorted = flat_phi[sort_order]
-        neg = phi_sorted < 0
-        pos = phi_sorted > 0
-        phi_neg = phi_sorted[neg][::-1]
-        phi_pos = phi_sorted[pos]
-        R = np.empty(n)
-        Z = np.empty(n)
-        dist = np.empty(n)
-        R_tmp = np.full(n, start.x1)
-        Z_tmp = np.full(n, start.x2)
-        dist_tmp = np.zeros(n)
-        if len(phi_neg) > 0:
-            result = solve_ivp(
-                d_dphi,
-                (0.0, phi_neg[-1]),
-                [start.x1, start.x2, 0.0],
-                method="DOP853",
-                t_eval=phi_neg,
-                rtol=1e-10,
-                atol=1e-12,
-                dense_output=True,
-            )
-            if not result.success:
-                raise RuntimeError("Failed to integrate along field line")
-            R_tmp[neg] = result.y[0, ::-1]
-            Z_tmp[neg] = result.y[1, ::-1]
-            # FIXME: Should I use FineContour.getDistance instead?
-            dist_tmp[neg] = result.y[2, ::-1]
-        if len(phi_pos) > 0:
-            result = solve_ivp(
-                d_dphi,
-                (0.0, phi_pos[-1]),
-                [start.x1, start.x2, 0.0],
-                method="DOP853",
-                t_eval=phi_pos,
-                rtol=1e-10,
-                atol=1e-12,
-                dense_output=True,
-            )
-            if not result.success:
-                raise RuntimeError("Failed to integrate along field line")
-            R_tmp[pos] = result.y[0]
-            Z_tmp[pos] = result.y[1]
-            dist_tmp[pos] = result.y[2]
-        R[sort_order] = R_tmp
-        Z[sort_order] = Z_tmp
-        dist[sort_order] = dist_tmp
-        # FIXME: Should I refine the points using one of the
-        # PsiContour methods?
-        # https://hypnotoad.readthedocs.io/en/latest/point-refinement.html
-        #
-        # Probably should, but will require having a psi contour
-        # available; think I'll need to do some clever sort of caching
-        # to handle that efficiently
+        R, Z, dist = integrated(phi)
         return SliceCoords(
-            R.reshape(shape), Z.reshape(shape), CoordinateSystem.CYLINDRICAL
-        ), dist.reshape(shape)
+            R.reshape(phi.shape), Z.reshape(phi.shape), CoordinateSystem.CYLINDRICAL
+        ), dist.reshape(phi.shape)
 
     return trace
 
 
-def eqdsk_equilibrium(eqdsk: str | Path, options: dict[str, Any] = {}) -> TokamakEquilibrium:
+def eqdsk_equilibrium(
+    eqdsk: str | Path, options: dict[str, Any] = {}
+) -> TokamakEquilibrium:
     """Reads in GEQDSK file and creates a hypnotoad
     TokamakEquilibrium object.
 
@@ -118,23 +231,19 @@ def eqdsk_equilibrium(eqdsk: str | Path, options: dict[str, Any] = {}) -> Tokama
         <https://hypnotoad.readthedocs.io/en/latest/_temp/nonorthogonal-options.html>`_.
 
     """
-    possible_options = (
-        [opt for opt in TokamakEquilibrium.user_options_factory.defaults]
-        + [
-            opt
-            for opt in TokamakEquilibrium.nonorthogonal_options_factory.defaults
-        ]
-    )
+    possible_options = [
+        opt for opt in TokamakEquilibrium.user_options_factory.defaults
+    ] + [opt for opt in TokamakEquilibrium.nonorthogonal_options_factory.defaults]
     unused_options = [opt for opt in options if opt not in possible_options]
     if unused_options != []:
-        raise ValueError(
-            f"There are options that are not used: {unused_options}"
-        )
-    with open(eqdsk, 'r') as f:
+        raise ValueError(f"There are options that are not used: {unused_options}")
+    with open(eqdsk, "r") as f:
         return read_geqdsk(f, options, options)
 
 
-def perpendicular_edge(eq: Equilibrium, north: SliceCoord, south: SliceCoord) -> AcrossFieldCurve:
+def perpendicular_edge(
+    eq: Equilibrium, north: SliceCoord, south: SliceCoord
+) -> AcrossFieldCurve:
     """Returns a line traveling at right angles to the magnetic field
     connecting the two points on the poloidal plane. If this is not
     possible, raise an exception.
@@ -149,53 +258,143 @@ def perpendicular_edge(eq: Equilibrium, north: SliceCoord, south: SliceCoord) ->
         The end point of the line
 
     """
+    # FIXME: Should this space points evenly by distance rather than by psi?
     if north.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
     if south.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
-    psi_start = eq.psi(north.x1, north.x2)
-    psi_end = eq.psi(south.x1, south.x2)
-    start = Point2D(north.x1, north.x2)
+    psi_start = float(eq.psi_func(north.x1, north.x2, grid=False))
+    psi_end = float(eq.psi_func(south.x1, south.x2, grid=False))
+    sign = np.sign(psi_end - psi_start)
 
-    def func(s: npt.ArrayLike) -> SliceCoords:
-        psis = psi_start + (psi_end - psi_start) * np.asarray(s)
-        points = followPerpendicular(None, start, psi_start, f_R=eq.f_R, f_Z=eq.f_Z, psivals=psis, rtol=1e-10, atol=1e-12)
-        return SliceCoords(np.array(p.R for p in points), np.array(p.Z for p in points), CoordinateSystem.CYLINDRICAL)
+    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+        dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
+        dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
+        norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
+        return sign * dpsidR / norm, sign * dpsidZ / norm
 
-    # Check end point agrees with what we expect, within
-    # tolerance. Otherwise our edges won't properly join up later.
-    if func(1.).to_coord() != south:
-        raise RuntimeError(
-            "No line perpendicular to the magnetic field connects start and end "
-            f"points {north} and {south}"
+    def terminus(t: float, x: npt.NDArray) -> float:
+        return float(eq.psi(x[0], x[1])) - psi_end
+
+    terminus.terminal = True  # type: ignore
+
+    # Integrate until reaching the terminus, to work out the distance
+    # along the contour to normalise with.
+    result = solve_ivp(
+        f,
+        (0.0, 1e2),
+        [north.x1, north.x2],
+        method="DOP853",
+        rtol=5e-14,
+        atol=1e-14,
+        events=terminus,
+        vectorized=True,
+    )
+    if not result.success:
+        raise RuntimeError("Failed to integrate along field line")
+    if len(result.t_events[0]) == 0:
+        raise RuntimeError("Integration did not cross over expected end-point")
+    if not np.isclose(result.y[0, -1], south.x1, 1e-8, 1e-8) and not np.isclose(
+        result.y[1, -1], south.x2, 1e-8, 1e-8
+    ):
+        raise RuntimeError("Integration did not converge on expected location")
+    total_distance: float = result.t[-1]
+
+    @integrate_vectorized(tuple(north), total_distance, {total_distance: tuple(south)})
+    def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+        return f(np.asarray(s) * total_distance, np.asarray(x))
+
+    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+        s = np.asarray(s)
+        R, Z = solution(s)
+        return SliceCoords(
+            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
         )
-    return func
+
+    return solution_coords
 
 
-def flux_surface_edge(eq: Equilibrium, contour: PsiContour, north: SliceCoord, south: SliceCoord) -> AcrossFieldCurve:
+@np.vectorize
+def smallest_angle_between(end_angle: float, start_angle: float) -> float:
+    delta_angle = end_angle - start_angle
+    # Deal with cases where the angles stradle the atan2 discontinuity
+    if delta_angle < -np.pi:
+        return delta_angle + 2 * np.pi
+    elif delta_angle > np.pi:
+        return delta_angle - 2 * np.pi
+    return delta_angle
+
+
+def flux_surface_edge(
+    eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
+) -> AcrossFieldCurve:
     if north.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
     if south.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
-    fine_contour = contour.get_fine_contour()
-    start = fine_contour.getDistance(Point2D(north.x1, north.x2))
-    end = fine_contour.getDistance(Point2D(south.x1, south.x2))
-    interp = fine_contour.interpFunction()
 
-    @np.vectorize
-    def wrapped_interp(dist: float) -> tuple[float, float]:
-        point = interp(dist)
-        try:
-            tangent_point = interp(dist + 0.05 * (end - start))
-            tangent = tangent_point - point
-        except ValueError:
-            tangent_point = interp(dist - 0.05 * (end - start))
-            tangent = point - tangent_point
-        return tuple(contour.refinePoint(point, tangent, psi=eq.psi))
+    psi_north = cast(float, eq.psi(north.x1, north.x2))
+    psi_south = cast(float, eq.psi(south.x1, south.x2))
+    if not np.isclose(psi_north, psi_south, 1e-10, 1e-10):
+        raise ValueError(
+            f"Start and end points {north} and {south} have different psi values "
+            f"{psi_north} and {psi_south}"
+        )
 
-    def func(s: npt.ArrayLike) -> SliceCoords:
-        dists = start + (end - start) * np.asarray(s)
-        R, Z = wrapped_interp(dists)
-        return SliceCoords(R, Z, CoordinateSystem.CYLINDRICAL)
+    start_angle = np.arctan2(north.x2 - eq.o_point.Z, north.x1 - eq.o_point.R)
+    end_angle = np.arctan2(south.x2 - eq.o_point.Z, south.x1 - eq.o_point.R)
+    delta_angle = smallest_angle_between(end_angle, start_angle)
 
-    return func
+    # Work out whether we need to reverse the direction of travel
+    # along the flux surfaces
+    sign = np.sign(delta_angle * eq.psi(north.x1, north.x2))
+
+    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+        dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
+        dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
+        norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
+        return -sign * dpsidZ / norm, sign * dpsidR / norm
+
+    def terminus(t: float, x: npt.NDArray) -> float:
+        return float(
+            smallest_angle_between(
+                end_angle, np.arctan2(x[1] - eq.o_point.Z, x[0] - eq.o_point.R)
+            )
+        )
+
+    terminus.terminal = True  # type: ignore
+
+    # Integrate until reaching the terminus, to work out the distance
+    # along the contour to normalise with.
+    result = solve_ivp(
+        f,
+        (0.0, 1e2),
+        [north.x1, north.x2],
+        method="DOP853",
+        rtol=5e-14,
+        atol=1e-14,
+        events=terminus,
+        vectorized=True,
+    )
+    if not result.success:
+        raise RuntimeError("Failed to integrate along field line")
+    if len(result.t_events[0]) == 0:
+        raise RuntimeError("Integration did not cross over expected end-point")
+    if not np.isclose(result.y[0, -1], south.x1, 1e-8, 1e-8) and not np.isclose(
+        result.y[1, -1], south.x2, 1e-8, 1e-8
+    ):
+        raise RuntimeError("Integration did not converge on expected location")
+    total_distance: float = result.t[-1]
+
+    @integrate_vectorized(tuple(north), total_distance, {total_distance: tuple(south)})
+    def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+        return f(np.asarray(s) * total_distance, np.asarray(x))
+
+    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+        s = np.asarray(s)
+        R, Z = solution(s)
+        return SliceCoords(
+            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
+        )
+
+    return solution_coords

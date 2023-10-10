@@ -86,6 +86,8 @@ class SliceCoord:
     """Coordinate in second dimension"""
     system: CoordinateSystem
     """The type of coordinates being used"""
+    TOLERANCE: ClassVar[float] = 1e-9
+    """The absolute and relative tolerance to use when comparing Coord objects."""
 
     def __iter__(self) -> Iterator[float]:
         """Iterate over the coordinates of the point."""
@@ -105,6 +107,15 @@ class SliceCoord:
         """Create a 3D coordinate object from this 2D one, by
         specifying the location in the third dimension."""
         return Coord(self.x1, self.x2, x3, self.system)
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.system == other.system and cast(
+            bool,
+            np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
+            and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE),
+        )
 
 
 @dataclass
