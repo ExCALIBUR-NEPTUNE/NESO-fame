@@ -103,6 +103,33 @@ class SliceCoord:
             self.system,
         )
 
+    def __hash__(self) -> int:
+        decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
+        context = Context(decimal_places)
+
+        # FIXME: This can still result in hashes being different for
+        # two similar numbers, if rounding would affect multiple
+        # decimal places (e.g., rounding .999995 up to 1.). The
+        # likelihood is low but non-zero.
+        def get_digits(
+            x: float,
+        ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
+            y = Decimal(x).normalize(context).as_tuple()
+            spare_places = decimal_places - len(y[1])
+            if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
+                return 0, (), 0
+            truncated = (y[1] + (0,) * spare_places)[:-3]
+            if all(t == 0 for t in truncated):
+                return 0, (), 0
+            exponent = y[2]
+            if isinstance(exponent, int):
+                exponent -= spare_places - 3
+            return y[0], truncated, exponent
+
+        x1 = get_digits(self.x1)
+        x2 = get_digits(self.x2)
+        return hash((x1, x2, self.system))
+
     def to_3d_coord(self, x3: float) -> Coord:
         """Create a 3D coordinate object from this 2D one, by
         specifying the location in the third dimension."""
@@ -138,11 +165,8 @@ class SliceCoords:
 
     def iter_points(self) -> Iterator[SliceCoord]:
         """Iterate over the points held in this object."""
-        for x1, x2 in cast(
-            Iterator[tuple[float, float]],
-            zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))),
-        ):
-            yield SliceCoord(x1, x2, self.system)
+        for x1, x2 in zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))):
+            yield SliceCoord(float(x1), float(x2), self.system)
 
     def __iter__(self) -> Iterator[npt.NDArray]:
         """Iterate over the coordinates of the points."""
@@ -286,9 +310,8 @@ class Coords:
 
     def iter_points(self) -> Iterator[Coord]:
         """Iterate over the points held in this object."""
-        for x1, x2, x3 in cast(
-            Iterator[tuple[float, float, float]],
-            zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))),
+        for x1, x2, x3 in zip(
+            *map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))
         ):
             yield Coord(float(x1), float(x2), float(x3), self.system)
 

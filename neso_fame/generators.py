@@ -5,13 +5,23 @@
 from __future__ import annotations
 
 import itertools
+import operator
 from collections import defaultdict
 from collections.abc import Sequence
-from functools import cache
+from functools import cache, reduce
 from typing import Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad import MeshRegion as HypnoMeshRegion
+
+from neso_fame.hypnotoad import (
+    equilibrium_trace,
+    flux_surface_edge,
+    get_region_boundaries,
+    perpendicular_edge,
+)
 
 from .mesh import (
     CoordinateSystem,
@@ -346,7 +356,7 @@ def field_aligned_3d(
 
     Returns
     -------
-    :obj:`~neso_fame.mesh.QuadMesh`
+    :obj:`~neso_fame.mesh.HexMesh`
         A 3D field-aligned, non-conformal grid
 
     Group
@@ -439,10 +449,6 @@ def field_aligned_3d(
 
     @cache
     def make_quad(node1: Index, node2: Index) -> Quad:
-        # FIXME: This is fixing in place boundaries where they don't
-        # actually need to be, as field would be parallel. Need it to
-        # only adjust perpendicular components of field, if that is
-        # possible.
         shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
         if conform_to_bounds:
             north_bound = boundary_nodes.get(node1, False)
@@ -478,3 +484,136 @@ def field_aligned_3d(
         ),
         x3_mid,
     )
+
+
+def hypnotoad_mesh(
+    hypnotoad_poloidal_mesh: HypnoMesh,
+    extrusion_limits: tuple[float, float] = (0.0, 1.0),
+    n: int = 10,
+    spatial_interp_resolution: int = 11,
+    subdivisions: int = 1,
+) -> HexMesh:
+    """Generate a 3D mesh from a 3D poloidal mesh created using
+        hypnotoad. Edges are traced from the nodes making up the corners
+        of elements. The tracing follows the magnetic field lines from the
+        equilibrium backwards and forwards in the toroidal direction to
+        form a single layer of field-aligned elements. The field is
+        assumed not to vary in the toroidal direction, meaning this layer
+        can be repeated. However, each layer will be non-conformal with
+        the next.
+
+        Parameters
+        ----------
+        hypnotoad_poloidal_mesh
+            A mesh object created by hypnotoad from an equilibrium
+            magnetic field.
+        extrusion_limits
+            The lower and upper limits of the domain in the x3-direction.
+        n
+            Number of layers to generate in the x3 direction
+        spatial_interp_resolution
+            Number of points used to interpolate distances along the field
+            line.
+        subdivisions
+            Depth of cells in x3-direction in each layer
+    .
+        Returns
+        -------
+        :obj:`~neso_fame.mesh.HexMesh`
+            A 3D field-aligned, non-conformal grid
+
+        Group
+        -----
+        generator
+
+    """
+    dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
+    x3_mid = np.linspace(
+        extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
+    )
+    tracer = FieldTracer(
+        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
+        spatial_interp_resolution,
+    )
+
+    @cache
+    def perpendicular_quad(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            perpendicular_edge(hypnotoad_poloidal_mesh.equilibrium, north, south),
+            tracer,
+            dx3,
+        )
+
+    @cache
+    def flux_surface_quad(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            flux_surface_edge(hypnotoad_poloidal_mesh.equilibrium, north, south),
+            tracer,
+            dx3,
+        )
+
+    def get_element_corners(
+        x: npt.NDArray,
+    ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+        return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
+
+    def element_corners(
+        region: HypnoMeshRegion,
+    ) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
+        R = get_element_corners(region.Rxy.corners)
+        Z = get_element_corners(region.Zxy.corners)
+        return (
+            SliceCoords(R[0], Z[0], CoordinateSystem.CYLINDRICAL),
+            SliceCoords(R[1], Z[1], CoordinateSystem.CYLINDRICAL),
+            SliceCoords(R[2], Z[2], CoordinateSystem.CYLINDRICAL),
+            SliceCoords(R[3], Z[3], CoordinateSystem.CYLINDRICAL),
+        )
+
+    def make_hex(sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: SliceCoord) -> Hex:
+        return Hex(
+            flux_surface_quad(nw, ne),
+            flux_surface_quad(sw, se),
+            perpendicular_quad(se, ne),
+            perpendicular_quad(sw, nw),
+        )
+
+    hexes = [
+        make_hex(*corners)
+        for corners in itertools.chain.from_iterable(
+            zip(*map(operator.methodcaller("iter_points"), element_corners(region)))
+            for region in hypnotoad_poloidal_mesh.regions.values()
+        )
+    ]
+
+    def merge_bounds(
+        lhs: list[frozenset[Quad]], rhs: list[frozenset[Quad]]
+    ) -> list[frozenset[Quad]]:
+        return [
+            left.union(right)
+            for left, right in itertools.zip_longest(
+                lhs, rhs, fillvalue=cast(frozenset[Quad], frozenset())
+            )
+        ]
+
+    boundaries = reduce(
+        merge_bounds,
+        (
+            get_region_boundaries(region, flux_surface_quad, perpendicular_quad)
+            for region in hypnotoad_poloidal_mesh.regions.values()
+        ),
+    )
+
+    return GenericMesh(
+        MeshLayer(
+            hexes,
+            boundaries,
+            subdivisions=subdivisions,
+        ),
+        x3_mid,
+    )
+
+
+# Properties to test: boundaries are on constant psi (that should be);
+# all quads on a boundary are connected (?); all points from which
+# hexes are extruded present in HypnoMesh (and vice versa); x-points
+# in mesh

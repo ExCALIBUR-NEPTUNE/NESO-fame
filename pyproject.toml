@@ -54,3 +54,8 @@ profile = "black"
 
 [tool.coverage.run]
 source = ["neso_fame/", ]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:`rtol` is too low:UserWarning",  # Hypnotoad sets rtol=0 when calling ivp_solve
+]

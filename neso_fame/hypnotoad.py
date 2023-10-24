@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Equilibrium  # type: ignore
+from hypnotoad import Equilibrium, MeshRegion  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ignore
 from scipy.integrate import solve_ivp
 
@@ -16,6 +16,7 @@ from .mesh import (
     AcrossFieldCurve,
     CoordinateSystem,
     FieldTrace,
+    Quad,
     SliceCoord,
     SliceCoords,
 )
@@ -398,3 +399,138 @@ def flux_surface_edge(
         )
 
     return solution_coords
+
+
+QuadMaker = Callable[[SliceCoord, SliceCoord], Quad]
+
+
+def _make_bound(
+    constructor: QuadMaker,
+    region: MeshRegion,
+    index: tuple[int | slice, ...],
+) -> frozenset[Quad]:
+    """Constructs the quads composing the boundary of `region`
+    described by `index`.
+
+    """
+    R = region.Rxy.corners[index]
+    Z = region.Zxy.corners[index]
+    x = SliceCoords(R[:-1], Z[:-1], CoordinateSystem.CYLINDRICAL)
+    y = SliceCoords(R[1:], Z[1:], CoordinateSystem.CYLINDRICAL)
+    return frozenset(
+        constructor(n, s) for n, s in zip(x.iter_points(), y.iter_points())
+    )
+
+
+def get_region_boundaries(
+    region: MeshRegion,
+    flux_surface_quad: QuadMaker,
+    perpendicular_quad: QuadMaker,
+) -> list[frozenset[Quad]]:
+    """Get a list of the boundaries for the region.
+
+    Parameters
+    ----------
+    region
+        The portion of the mesh for which to return boundaries.
+    flux_surface_quad
+        A function to produce an appropriate :class:`neso_fame.mesh.Quad`
+        object for quads which are aligned to flux surfaces.
+    perpendicular_quad
+        A function to produce an appropriate :class:`neso_fame.mesh.Quad`
+        object for quads which are perpendicular to flux surfaces.
+
+    Returns
+    -------
+
+    A list of boundaries. Each boundary is represented by a frozenset
+    of Quad objects. If that boundary is not present on the given
+    region object, then the set will be empty. The order of the
+    boundaries in the list is:
+
+    #. Centre of the core region
+    #. Inner edge of the plasma (or entire edge, for single-null)
+    #. Outer edge of the plasma
+    #. Internal edge of the upper private flux region
+    #. Internal edge of hte lower private flux region
+    #. Inner lower divertor
+    #. Outer lower divertor
+    #. Inner upper divertor
+    #. Outer upper divertor
+
+    """
+    name = region.equilibriumRegion.name
+    empty: frozenset[Quad] = frozenset()
+    single_null = len(region.meshParent.equilibrium.x_points) == 1
+    centre = (
+        _make_bound(flux_surface_quad, region, (0, slice(None)))
+        if name.endswith("core") and region.connections["inner"] is None
+        else empty
+    )
+    inner_edge = (
+        _make_bound(flux_surface_quad, region, (-1, slice(None)))
+        if (
+            name
+            in {
+                "inner_core",
+                "core",
+                "inner_lower_divertor",
+                "inner_upper_divertor",
+            }
+            or (
+                name in {"outer_lower_divertor", "outer_upper_divertor"} and single_null
+            )
+        )
+        and region.connections["outer"] is None
+        else empty
+    )
+    outer_edge = (
+        _make_bound(flux_surface_quad, region, (-1, slice(None)))
+        if name in {"outer_core", "outer_lower_divertor", "outer_upper_divertor"}
+        and not single_null
+        and region.connections["outer"] is None
+        else empty
+    )
+    upper_pfr = (
+        _make_bound(flux_surface_quad, region, (0, slice(None)))
+        if name in {"inner_upper_divertor", "outer_upper_divertor"}
+        and region.connections["inner"] is None
+        else empty
+    )
+    lower_pfr = (
+        _make_bound(flux_surface_quad, region, (0, slice(None)))
+        if name in {"inner_lower_divertor", "outer_lower_divertor"}
+        and region.connections["inner"] is None
+        else empty
+    )
+    inner_lower_divertor = (
+        _make_bound(perpendicular_quad, region, (slice(None), 0))
+        if name == "inner_lower_divertor"
+        else empty
+    )
+    outer_lower_divertor = (
+        _make_bound(perpendicular_quad, region, (slice(None), 0))
+        if name == "outer_lower_divertor"
+        else empty
+    )
+    inner_upper_divertor = (
+        _make_bound(perpendicular_quad, region, (slice(None), -1))
+        if name == "inner_upper_divertor"
+        else empty
+    )
+    outer_upper_divertor = (
+        _make_bound(perpendicular_quad, region, (slice(None), -1))
+        if name == "outer_upper_divertor"
+        else empty
+    )
+    return [
+        centre,
+        inner_edge,
+        outer_edge,
+        upper_pfr,
+        lower_pfr,
+        inner_lower_divertor,
+        outer_lower_divertor,
+        inner_upper_divertor,
+        outer_upper_divertor,
+    ]

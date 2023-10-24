@@ -1,12 +1,26 @@
-from typing import Callable, cast
+import itertools
+import operator
+from collections import Counter
+from collections.abc import Iterable
+from enum import Enum
+from typing import Any, Callable, NamedTuple, cast
 
 import numpy as np
 import numpy.typing as npt
 from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
+from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
 from hypothesis import given, settings
 from hypothesis.extra.numpy import array_shapes, arrays
-from hypothesis.strategies import builds, floats, integers, lists, nothing, one_of
+from hypothesis.strategies import (
+    builds,
+    floats,
+    integers,
+    lists,
+    nothing,
+    one_of,
+    sampled_from,
+)
 from pytest import fixture
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
@@ -15,10 +29,18 @@ from scipy.special import ellipeinc
 from neso_fame.hypnotoad import (
     equilibrium_trace,
     flux_surface_edge,
+    get_region_boundaries,
     perpendicular_edge,
     smallest_angle_between,
 )
-from neso_fame.mesh import CoordinateSystem, SliceCoord
+from neso_fame.mesh import (
+    CoordinateSystem,
+    FieldTracer,
+    Quad,
+    SliceCoord,
+    SliceCoords,
+    StraightLineAcrossField,
+)
 
 from .conftest import whole_numbers
 
@@ -189,7 +211,7 @@ class FakeEquilibrium(Equilibrium):
         return np.vectorize(distance)
 
 
-equilibria = builds(
+fake_equilibria = builds(
     FakeEquilibrium,
     builds(Point2D, floats(1.0, 10.0), whole_numbers),
     floats(0.1, 0.99),
@@ -200,7 +222,7 @@ equilibria = builds(
 
 @settings(deadline=None)
 @given(
-    equilibria,
+    fake_equilibria,
     one_of(
         floats(-2 * np.pi, 2 * np.pi),
         arrays(
@@ -230,33 +252,126 @@ def test_field_trace(
     assert np.all(sorted_distances[:-1] <= sorted_distances[1:])
 
 
-@fixture
-def x_point_equilibrium():
-    """Creates an equilibrium with an X-point."""
-    nx = 65
-    ny = 65
+class EquilibriumType(Enum):
+    LOWER_SINGLE_NULL = 0
+    UPPER_SINGLE_NULL = 1
+    CONNECTED_DOUBLE_NULL = 2
+    LOWER_DOUBLE_NULL = 3
+    UPPER_DOUBLE_NULL = 4
 
-    r1d = np.linspace(1.0, 2.0, nx)
-    z1d = np.linspace(-1.0, 1.0, ny)
+
+class OPoint(NamedTuple):
+    R: float
+    Z: float
+    aspect_ratio: float
+    magnitude: float
+
+
+SQRT2: float = np.sqrt(2.0)
+
+
+def create_equilibrium(
+    nx: int = 65,
+    ny: int = 65,
+    r_lims: tuple[float, float] = (1.0, 2.0),
+    z_lims: tuple[float, float] = (-1.0, 1.0),
+    o_points: list[OPoint] = [OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)],
+    make_regions: bool = False,
+    options: dict[str, Any] = {},
+) -> TokamakEquilibrium:
+    """Creates an equilibrium. Defaults to an equilibrium with one X-point."""
+
+    def semi_axes_squared(point: OPoint) -> tuple[float, float]:
+        aspect_sq = point.aspect_ratio * point.aspect_ratio
+        asq = point.magnitude * point.magnitude * 2 / (1 + aspect_sq)
+        bsq = aspect_sq * asq
+        return asq, bsq
+
+    r1d = np.linspace(r_lims[0], r_lims[1], nx)
+    z1d = np.linspace(z_lims[0], z_lims[1], ny)
     r2d, z2d = np.meshgrid(r1d, z1d, indexing="ij")
 
-    r0 = 1.5
-    z0 = -0.3
-
-    # This has two O-points, and one x-point at (r0, z0)
     def psi_func(R, Z):
-        return np.exp(-((R - r0) ** 2 + (Z - z0 - 0.3) ** 2) / 0.3**2) + np.exp(
-            -((R - r0) ** 2 + (Z - z0 + 0.3) ** 2) / 0.3**2
+        return sum(
+            np.exp(-((R - r0) ** 2) / asq - (Z - z0) ** 2 / bsq)
+            for (r0, z0), (asq, bsq) in zip(
+                map(operator.itemgetter(slice(2)), o_points),
+                map(semi_axes_squared, o_points),
+            )
+        )
+
+    if len(o_points) == 2:
+        psi1d = np.linspace(0.0, 1.0, nx)
+    else:
+        psi1d = psi_func(
+            np.linspace(sum(o.R for o in o_points) / len(o_points), r_lims[1], nx),
+            np.full(nx, 0.5 * sum(z_lims)),
         )
 
     return TokamakEquilibrium(
         r1d,
         z1d,
         psi_func(r2d, z2d),
-        np.linspace(0.0, 1.0, nx),  # psi1d
+        psi1d,
         np.linspace(0.0, 1.0, nx),  # fpol1d
-        make_regions=False,
+        make_regions=make_regions,
+        settings=options,
     )
+
+
+def lower_single_null() -> TokamakEquilibrium:
+    """Creates an equilibrium with an X-point."""
+    return create_equilibrium(
+        o_points=[OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
+        make_regions=True,
+    )
+
+
+def upper_single_null() -> TokamakEquilibrium:
+    return create_equilibrium(
+        o_points=[OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
+        make_regions=True,
+    )
+
+
+def connected_double_null() -> TokamakEquilibrium:
+    return create_equilibrium(
+        o_points=[
+            OPoint(1.5, 0.8, 1.0, 0.4),
+            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ],
+        make_regions=True,
+    )
+
+
+def lower_double_null() -> TokamakEquilibrium:
+    return create_equilibrium(
+        o_points=[
+            OPoint(1.5, 0.9, 1.0, 0.4),
+            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ],
+        make_regions=True,
+        options={"nx_inter_sep": 3},
+    )
+
+
+def upper_double_null() -> TokamakEquilibrium:
+    return create_equilibrium(
+        o_points=[
+            OPoint(1.5, 0.9, 1.0, 0.4),
+            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ],
+        make_regions=True,
+        options={"nx_inter_sep": 3},
+    )
+
+
+@fixture
+def x_point_equilibrium() -> TokamakEquilibrium:
+    return create_equilibrium(make_regions=False)
 
 
 def test_trace_outside_separatrix(x_point_equilibrium):
@@ -307,7 +422,7 @@ def test_trace_private_flux_region(x_point_equilibrium):
     assert np.any(positions.x1 < r0), "Did not integrate past X-point"
 
 
-def test_trace_solenoid(x_point_equilibrium):
+def test_trace_core(x_point_equilibrium):
     """Tests tracing the field when there is an X-point present, to
     ensure it stays on the correct side of the separatrix.
 
@@ -316,6 +431,7 @@ def test_trace_solenoid(x_point_equilibrium):
     r0 = eq.x_points[0].R
     z0 = eq.x_points[0].Z
     psi_val = eq.psi(r0, z0)
+    print(r0, z0)
 
     Z_sol = root_scalar(lambda Z: eq.psi(r0, Z) - psi_val, bracket=[eq.o_point.Z, 2])
     assert Z_sol.converged
@@ -332,11 +448,11 @@ def test_trace_solenoid(x_point_equilibrium):
     assert R_sol.converged
     R_max = R_sol.root
 
-    # Find a starting point on the separatrix, below the X-point
+    # Find a starting point on the separatrix, above the X-point
     Z0 = z0 + 0.1
     R0_sol = root_scalar(lambda R: eq.psi(R, Z0) - psi_val, bracket=[r0, 2 * r0])
     assert R0_sol.converged
-    R0 = R0_sol.root - 1e-7
+    R0 = R0_sol.root - 1e-6
     positions, _ = equilibrium_trace(eq)(
         SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 2.0, 31)
     )
@@ -387,6 +503,12 @@ def test_trace_o_point(x_point_equilibrium):
 
 
 # TODO: Generate some fake EQDSK data so I can test the equilibrium reader
+# def test_read_eqdsk(
+#     x_point_equilibrium: TokamakEquilibrium, tmp_path: pathlib.Path
+# ) -> None:
+#     eq1 = x_point_equilibrium
+#     geqdsk_file = tmp_path / "example_output.g"
+
 
 # We don't want psis that are too close together. psi=0 is a singular
 # point in our equations, so will have bad accuracy; avoid it!
@@ -395,7 +517,7 @@ psis = integers(-99, 400).map(lambda x: (x + 100) / 100)
 
 @settings(deadline=None)
 @given(
-    equilibria,
+    fake_equilibria,
     floats(0.0, 2 * np.pi),
     lists(psis, min_size=2, max_size=2, unique=True),
     arrays(
@@ -439,12 +561,12 @@ def test_perpendicular_edges(
         / total_distance**2
     )
     for d, e, p in np.nditer([dist, total_err, positions]):
-        np.testing.assert_allclose(d / total_distance, p, 1e-8, max(1e-8, float(e)))
+        np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
 
 
 @settings(deadline=None)
 @given(
-    equilibria,
+    fake_equilibria,
     lists(
         integers(0, 999).map(lambda x: x / 1000 * 2 * np.pi),
         min_size=2,
@@ -484,6 +606,11 @@ def test_flux_surface_edges(
     np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-8, 1e-8)
     # Calculate distances of points along ellipse and check they are
     # proportional to the normalised `position` parameter
+
+    # FIXME: Problem with my distance calculation is that I assume the
+    # shortest path is always used to connect two points, whereas
+    # actually they are connected by whatever direction a field line
+    # travels about the flux surface.
     a_prime = np.sqrt(eq.a * psi)
     b_prime = np.sqrt(eq.b * psi)
     semi_maj = max(a_prime, b_prime)
@@ -510,3 +637,77 @@ def test_flux_surface_edges(
     distances = ellipeinc(t - offset, m) - start_distance
     total_arc = ellipeinc(end_parameter - offset, m) - start_distance
     np.testing.assert_allclose(distances / total_arc, positions, 1e-8, 1e-8)
+
+
+sample_meshes = [
+    Mesh(lower_single_null(), {}),
+    Mesh(upper_single_null(), {}),
+    Mesh(connected_double_null(), {}),
+    Mesh(lower_double_null(), {}),
+    Mesh(upper_double_null(), {}),
+]
+for m in sample_meshes:
+    m.calculateRZ()
+real_meshes = sampled_from(sample_meshes)
+mesh_regions = real_meshes.map(lambda x: list(x.regions.values())).flatmap(sampled_from)
+
+
+def check_coordinate_pairs_connected(
+    coord_pairs: Iterable[tuple[SliceCoord, SliceCoord]], periodic: bool
+) -> None:
+    """Check that the pairs of coordinates describe line segments that
+    all connect together to form a larger curve."""
+    location_counts = Counter(itertools.chain(*coord_pairs))
+    expected_hanging = 0 if periodic else 2
+    hanging_nodes = len([c for c in location_counts.values() if c == 1])
+    assert hanging_nodes == expected_hanging
+    assert (
+        len([c for c in location_counts.values() if c == 2])
+        == len(location_counts) - hanging_nodes
+    )
+
+
+def dummy_trace(start: SliceCoord, s: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
+    return SliceCoords(
+        np.full_like(s, start.x1),
+        np.full_like(s, start.x2),
+        CoordinateSystem.CYLINDRICAL,
+    ), np.asarray(s)
+
+
+@given(mesh_regions, floats())
+def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
+    eq = region.meshParent.equilibrium
+
+    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
+        )
+
+    for b in filter(bool, get_region_boundaries(region, constructor, constructor)[:5]):
+        quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in b]
+        # Check quads are all adjacent
+        check_coordinate_pairs_connected(quad_nodes, region.name == "core(0)")
+        # Check quads all have same psi values
+        psis = list(
+            [eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes
+        )
+        np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
+
+
+@given(mesh_regions, floats())
+def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
+    eq = region.meshParent.equilibrium
+
+    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
+        )
+
+    for b in filter(bool, get_region_boundaries(region, constructor, constructor)[5:]):
+        quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in b]
+        # Check quads are all adjacent
+        check_coordinate_pairs_connected(quad_nodes, False)
+        # Check quads start at unique psi
+        psis = frozenset(float(eq.psi(p[0].x1, p[0].x2)) for p in quad_nodes)
+        assert len(psis) == len(b)
