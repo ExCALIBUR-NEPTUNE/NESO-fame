@@ -1,6 +1,4 @@
-"""Functions for generating full meshes from magnetic field data.
-
-"""
+"""Functions for generating full meshes from magnetic field data."""
 
 from __future__ import annotations
 
@@ -42,7 +40,9 @@ Connectivity = Sequence[tuple[int, int]]
 
 
 def _ordered_connectivity(size: int) -> Connectivity:
-    """Produces connectivity information representing a sequence of
+    """Produce connectivity for a line of nodes.
+
+    Produces connectivity information representing a sequence of
     nodes connected to each other one after the other.
 
     """
@@ -85,7 +85,9 @@ def _boundary_tracer(
     north_bound: BoundType,
     south_bound: BoundType,
 ) -> FieldTrace:
-    """Creates a field trace that describes a quad which may conform
+    """Create a field trace compatible with quad boundaries.
+
+    Creates a field trace that describes a quad which may conform
     to its boundaries. Note that the distances will be approximate if
     the field is nonlinear.
 
@@ -205,15 +207,16 @@ def field_aligned_2d(
     connectivity: Optional[Connectivity] = None,
     boundaries: tuple[int, int] = (0, -1),
     subdivisions: int = 1,
-    conform_to_bounds=True,
+    conform_to_bounds: bool = True,
 ) -> QuadMesh:
-    """Generate a 2D mesh where element edges follow field
-    lines. Start with a 1D mesh defined in the poloidal plane. Edges
-    are then traced along the field lines both backwards and forwards
-    in the toroidal direction to form a single layer of field-aligned
-    elements. The field is assumed not to vary in the toroidal
-    direction, meaning this layer can be repeated. However, each layer
-    will be non-conformal with the next.
+    """Generate a 2D mesh.
+
+    Element edges follow field lines. Start with a 1D mesh defined in
+    the poloidal plane. Edges are then traced along the field lines
+    both backwards and forwards in the toroidal direction to form a
+    single layer of field-aligned elements. The field is assumed not
+    to vary in the toroidal direction, meaning this layer can be
+    repeated. However, each layer will be non-conformal with the next.
 
     Parameters
     ----------
@@ -313,15 +316,16 @@ def field_aligned_3d(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
-    conform_to_bounds=True,
+    conform_to_bounds: bool = True,
 ) -> HexMesh:
-    """Generate a 3D mesh where element edges follow field
-    lines. Start with a 2D mesh defined in the poloidal plane. Edges
-    are then traced along the field lines both backwards and forwards
-    in the toroidal direction to form a single layer of field-aligned
-    elements. The field is assumed not to vary in the toroidal
-    direction, meaning this layer can be repeated. However, each layer
-    will be non-conformal with the next.
+    """Generate a 3D mesh.
+
+    Element edges follow field lines. Start with a 2D mesh defined in
+    the poloidal plane. Edges are then traced along the field lines
+    both backwards and forwards in the toroidal direction to form a
+    single layer of field-aligned elements. The field is assumed not
+    to vary in the toroidal direction, meaning this layer can be
+    repeated. However, each layer will be non-conformal with the next.
 
     Parameters
     ----------
@@ -374,7 +378,9 @@ def field_aligned_3d(
     def sort_node_pairs(
         nodes: tuple[Index, Index, Index, Index]
     ) -> tuple[NodePair, NodePair, NodePair, NodePair]:
-        """Return pairs of nodes sorted so edges are in order north,
+        """Return sorted pairs of nodes.
+
+        Pairs are sorted so edges are in order north,
         south, east, west. Additionally, node indices will always be
         in ascending order within these pairs.
 
@@ -431,9 +437,7 @@ def field_aligned_3d(
         assert len(edges) == 2
         vecs = [
             (n1.x1 - n2.x1, n1.x2 - n2.x2)
-            for n1, n2 in map(
-                lambda x: (lower_dim_mesh[x[0]], lower_dim_mesh[x[1]]), edges
-            )
+            for n1, n2 in ((lower_dim_mesh[x[0]], lower_dim_mesh[x[1]]) for x in edges)
         ]
         if np.isclose(
             abs(vecs[0][0] * vecs[1][1]),
@@ -493,38 +497,40 @@ def hypnotoad_mesh(
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
 ) -> HexMesh:
-    """Generate a 3D mesh from a 3D poloidal mesh created using
-        hypnotoad. Edges are traced from the nodes making up the corners
-        of elements. The tracing follows the magnetic field lines from the
-        equilibrium backwards and forwards in the toroidal direction to
-        form a single layer of field-aligned elements. The field is
-        assumed not to vary in the toroidal direction, meaning this layer
-        can be repeated. However, each layer will be non-conformal with
-        the next.
+    """Generate a 3D mesh from hypnotoad-generage mesh.
 
-        Parameters
-        ----------
-        hypnotoad_poloidal_mesh
-            A mesh object created by hypnotoad from an equilibrium
-            magnetic field.
-        extrusion_limits
-            The lower and upper limits of the domain in the x3-direction.
-        n
-            Number of layers to generate in the x3 direction
-        spatial_interp_resolution
-            Number of points used to interpolate distances along the field
-            line.
-        subdivisions
-            Depth of cells in x3-direction in each layer
+    Edges are traced from the nodes making up the corners
+    of elements. The tracing follows the magnetic field lines from the
+    equilibrium backwards and forwards in the toroidal direction to
+    form a single layer of field-aligned elements. The field is
+    assumed not to vary in the toroidal direction, meaning this layer
+    can be repeated. However, each layer will be non-conformal with
+    the next.
+
+    Parameters
+    ----------
+    hypnotoad_poloidal_mesh
+        A mesh object created by hypnotoad from an equilibrium
+        magnetic field.
+    extrusion_limits
+        The lower and upper limits of the domain in the x3-direction.
+    n
+        Number of layers to generate in the x3 direction
+    spatial_interp_resolution
+        Number of points used to interpolate distances along the field
+        line.
+    subdivisions
+        Depth of cells in x3-direction in each layer
     .
-        Returns
-        -------
-        :obj:`~neso_fame.mesh.HexMesh`
-            A 3D field-aligned, non-conformal grid
 
-        Group
-        -----
-        generator
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.HexMesh`
+        A 3D field-aligned, non-conformal grid
+
+    Group
+    -----
+    generator
 
     """
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n

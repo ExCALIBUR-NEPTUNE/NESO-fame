@@ -27,11 +27,11 @@ Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]
 
 def integrate_vectorized(
     start: npt.ArrayLike,
-    scale=1.0,
+    scale: float = 1.0,
     fixed_points: dict[float, npt.ArrayLike] = {},
-    rtol=1e-12,
-    atol=1e-14,
-    vectorize_integrand_calls=True,
+    rtol: float = 1e-12,
+    atol: float = 1e-14,
+    vectorize_integrand_calls: bool = True,
 ) -> Callable[[Integrand], IntegratedFunction]:
     """Decorator that will numerically integrate a function and return
     a callable that is vectorised. The integration will start from
@@ -232,9 +232,9 @@ def eqdsk_equilibrium(
         <https://hypnotoad.readthedocs.io/en/latest/_temp/nonorthogonal-options.html>`_.
 
     """
-    possible_options = [
-        opt for opt in TokamakEquilibrium.user_options_factory.defaults
-    ] + [opt for opt in TokamakEquilibrium.nonorthogonal_options_factory.defaults]
+    possible_options = list(TokamakEquilibrium.user_options_factory.defaults) + list(
+        TokamakEquilibrium.nonorthogonal_options_factory.defaults
+    )
     unused_options = [opt for opt in options if opt not in possible_options]
     if unused_options != []:
         raise ValueError(f"There are options that are not used: {unused_options}")
@@ -442,7 +442,6 @@ def get_region_boundaries(
 
     Returns
     -------
-
     A list of boundaries. Each boundary is represented by a frozenset
     of Quad objects. If that boundary is not present on the given
     region object, then the set will be empty. The order of the

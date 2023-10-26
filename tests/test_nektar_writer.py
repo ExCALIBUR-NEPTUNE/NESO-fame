@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import itertools
 import operator
 import os
@@ -277,7 +279,9 @@ def test_nektar_hex(hexa: Hex, order: int, layer: int) -> None:
     )
 
 
-def check_points(expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom]):
+def check_points(
+    expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom]
+) -> None:
     expected_points = frozenset(
         map(
             comparable_coord,
@@ -298,7 +302,7 @@ def check_edges(
     | MeshLike[Hex, Quad, EndQuad],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
-):
+) -> None:
     if issubclass(
         mesh.element_type
         if isinstance(mesh, MeshLayer)
@@ -354,7 +358,7 @@ def check_edges(
 
 def check_face_composites(
     expected: Iterable[NormalisedCurve] | Iterable[EndQuad], actual: SD.Composite
-):
+) -> None:
     def comparable_item(
         item: NormalisedCurve | EndQuad,
     ) -> tuple[str, frozenset[Coord]]:
@@ -375,14 +379,12 @@ def check_face_composites(
 def check_elements(
     expected: Iterable[Quad] | Iterable[Hex],
     actual: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
-):
+) -> None:
     actual_elements = comparable_set(actual)
     expected_elements = frozenset(
-        map(
-            lambda x: comparable_quad(x)
-            if isinstance(x, Quad)
-            else comparable_hex(cast(Hex, x)),
-            expected,
+        (
+            comparable_quad(x) if isinstance(x, Quad) else comparable_hex(cast(Hex, x))
+            for x in expected
         )
     )
     assert actual_elements == expected_elements
@@ -468,6 +470,90 @@ N = TypeVar("N", SD.Curve, SD.Geometry)
 
 
 # TODO: Write some unit tests for the iterator methods on NektarElements
+def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
+    return filter(
+        cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
+        itertools.chain(*items),
+    )
+
+
+def find_item(i: int, geoms: frozenset[SD.Geometry]) -> SD.Geometry:
+    for geom in geoms:
+        if geom.GetGlobalID() == i:
+            return geom
+    raise IndexError(f"Item with ID {i} not found in set {geoms}")
+
+
+def check_curved_edges(
+    order: int,
+    elements: nektar_writer.NektarElements,
+    curved_edges: SD.NekMap[SD.Curve],
+    actual_segments: SD.NekMap[SD.SegGeom],
+) -> None:
+    n_curve = len(curved_edges)
+    if order == 1:
+        assert n_curve == 0
+    else:
+        all_expected_segments = frozenset(elements.segments())
+        n_curves = sum(seg.GetCurve() is not None for seg in all_expected_segments)
+        assert n_curves > 0
+        assert len(curved_edges) == n_curves
+        for item in actual_segments:
+            seg = item.data()
+            curve = seg.GetCurve()
+            if curve is not None:
+                comparable_curve = comparable_geometry(curve)
+                assert comparable_curve == comparable_geometry(
+                    curved_edges[curve.curveID]
+                )
+                assert comparable_curve == comparable_geometry(
+                    cast(
+                        SD.SegGeom, find_item(seg.GetGlobalID(), all_expected_segments)
+                    ).GetCurve()
+                )
+                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(
+                    curve.points[0]
+                )
+                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(
+                    curve.points[-1]
+                )
+
+
+def check_curved_faces(
+    order: int,
+    elements: nektar_writer.NektarElements,
+    curved_faces: SD.NekMap[SD.Curve],
+    actual_triangles: SD.NekMap[SD.TriGeom],
+    actual_quads: SD.NekMap[SD.QuadGeom],
+) -> None:
+    if order == 1:
+        assert len(curved_faces) == 0
+    else:
+        if isinstance(elements._layers[0], nektar_writer.NektarLayer3D):
+            all_expected_faces: frozenset[SD.Geometry2D | SD.Geometry3D] = frozenset(
+                elements.faces()
+            )
+        else:
+            all_expected_faces = frozenset(elements.elements())
+        n_curves = sum(
+            face.GetCurve() is not None
+            for face in cast(Iterator[SD.Geometry2D], all_expected_faces)
+        )
+        assert n_curves > 0
+        assert len(curved_faces) == n_curves
+        for item in itertools.chain(actual_triangles, actual_quads):
+            face = item.data()
+            curve = face.GetCurve()
+            if curve is not None:
+                comparable_curve = comparable_geometry(curve)
+                assert comparable_curve == comparable_geometry(
+                    curved_faces[curve.curveID]
+                )
+                assert comparable_curve == comparable_geometry(
+                    cast(
+                        SD.Geometry2D, find_item(face.GetGlobalID(), all_expected_faces)
+                    ).GetCurve()
+                )
 
 
 # TODO: Could I test this with some a NektarElements object produced
@@ -490,18 +576,6 @@ def test_nektar_mesh(
     periodic: bool,
     compressed: bool,
 ) -> None:
-    def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
-        return filter(
-            cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
-            itertools.chain(*items),
-        )
-
-    def find_item(i: int, geoms: frozenset[SD.Geometry]) -> SD.Geometry:
-        for geom in geoms:
-            if geom.GetGlobalID() == i:
-                return geom
-        raise IndexError(f"Item with ID {i} not found in set {geoms}")
-
     elements = nektar_writer.nektar_elements(
         mesh,
         order,
@@ -546,63 +620,9 @@ def test_nektar_mesh(
         assert actual_comparable == expected_comparable
 
     curved_edges = meshgraph.GetCurvedEdges()
-    n_curve = len(curved_edges)
-    if order == 1:
-        assert n_curve == 0
-    else:
-        all_expected_segments = frozenset(elements.segments())
-        n_curves = sum(seg.GetCurve() is not None for seg in all_expected_segments)
-        assert n_curves > 0
-        assert len(curved_edges) == n_curves
-        for item in actual_segments:
-            seg = item.data()
-            curve = seg.GetCurve()
-            if curve is not None:
-                comparable_curve = comparable_geometry(curve)
-                assert comparable_curve == comparable_geometry(
-                    curved_edges[curve.curveID]
-                )
-                assert comparable_curve == comparable_geometry(
-                    cast(
-                        SD.SegGeom, find_item(seg.GetGlobalID(), all_expected_segments)
-                    ).GetCurve()
-                )
-                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(
-                    curve.points[0]
-                )
-                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(
-                    curve.points[-1]
-                )
-
+    check_curved_edges(order, elements, curved_edges, actual_segments)
     curved_faces = meshgraph.GetCurvedFaces()
-    if order == 1:
-        assert len(curved_faces) == 0
-    else:
-        if isinstance(elements._layers[0], nektar_writer.NektarLayer3D):
-            all_expected_faces: frozenset[SD.Geometry2D | SD.Geometry3D] = frozenset(
-                elements.faces()
-            )
-        else:
-            all_expected_faces = frozenset(elements.elements())
-        n_curves = sum(
-            face.GetCurve() is not None
-            for face in cast(Iterator[SD.Geometry2D], all_expected_faces)
-        )
-        assert n_curves > 0
-        assert len(curved_faces) == n_curves
-        for item in itertools.chain(actual_triangles, actual_quads):
-            face = item.data()
-            curve = face.GetCurve()
-            if curve is not None:
-                comparable_curve = comparable_geometry(curve)
-                assert comparable_curve == comparable_geometry(
-                    curved_faces[curve.curveID]
-                )
-                assert comparable_curve == comparable_geometry(
-                    cast(
-                        SD.Geometry2D, find_item(face.GetGlobalID(), all_expected_faces)
-                    ).GetCurve()
-                )
+    check_curved_faces(order, elements, curved_faces, actual_triangles, actual_quads)
 
     actual_composites = meshgraph.GetComposites()
     n_layers = len(list(elements.layers()))
@@ -706,22 +726,7 @@ SIMPLE_MESH = GenericMesh(
 )
 
 
-# Integration test for very simple 1-element mesh
-def test_write_nektar(tmp_path: pathlib.Path) -> None:
-    xml_file = tmp_path / "simple_mesh.xml"
-    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
-
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
-    assert isinstance(root, ET.Element)
-    assert root.tag == "NEKTAR"
-    assert root.attrib == {}
-
-    geom = find_element(root, "GEOMETRY")
-    assert geom.tag == "GEOMETRY"
-    assert int(cast(str, geom.get("DIM"))) == 2
-
-    vertices = find_element(geom, "VERTEX")
+def check_xml_vertices(vertices: ET.Element) -> tuple[int, int, int, int]:
     assert len(vertices) == 4
     north_east = north_west = south_east = south_west = -1
     for i, vertex in enumerate(vertices):
@@ -742,8 +747,13 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert north_west >= 0
     assert south_east >= 0
     assert south_west >= 0
+    return north_east, north_west, south_east, south_west
 
-    edges = find_element(geom, "EDGE")
+
+def check_xml_edges(
+    edges: ET.Element, vertices: tuple[int, int, int, int]
+) -> tuple[int, int, int, int]:
+    north_east, north_west, south_east, south_west = vertices
     assert len(edges) == 4
     edge_vals: set[tuple[int, int]] = set()
     east = -1
@@ -770,19 +780,18 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
             south = i
         edge_vals.add(termini)
     assert edge_vals == {expected_east, expected_west, expected_north, expected_south}
+    assert north >= 0
+    assert south >= 0
+    assert east >= 0
+    assert west >= 0
+    return north, east, south, west
 
-    elements = find_element(geom, "ELEMENT")
-    assert len(elements) == 1
-    elem = elements[0]
-    assert elem.tag == "Q" or elem.tag == "QUAD"
-    assert elem.get("ID") == "0"
-    assert tuple(sorted(map(int, cast(str, elem.text).split()))) == (0, 1, 2, 3)
 
-    curves = find_element(geom, "CURVED")
-    assert len(curves) == 0
-
-    composites = find_element(geom, "COMPOSITE")
+def check_xml_composites(
+    composites: ET.Element, edges: tuple[int, int, int, int]
+) -> tuple[int, int, int]:
     assert len(composites) == 5
+    north, east, south, west = edges
     domain_comp = -1
     east_comp = -1
     west_comp = -1
@@ -809,7 +818,39 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
     assert west_comp >= 0
     assert north_comp >= 0
     assert south_comp >= 0
+    return domain_comp, east_comp, west_comp
 
+
+# Integration test for very simple 1-element mesh
+def test_write_nektar(tmp_path: pathlib.Path) -> None:
+    xml_file = tmp_path / "simple_mesh.xml"
+    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
+
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    assert isinstance(root, ET.Element)
+    assert root.tag == "NEKTAR"
+    assert root.attrib == {}
+
+    geom = find_element(root, "GEOMETRY")
+    assert geom.tag == "GEOMETRY"
+    assert int(cast(str, geom.get("DIM"))) == 2
+    vertices = check_xml_vertices(find_element(geom, "VERTEX"))
+    edges = check_xml_edges(find_element(geom, "EDGE"), vertices)
+
+    elements = find_element(geom, "ELEMENT")
+    assert len(elements) == 1
+    elem = elements[0]
+    assert elem.tag == "Q" or elem.tag == "QUAD"
+    assert elem.get("ID") == "0"
+    assert tuple(sorted(map(int, cast(str, elem.text).split()))) == (0, 1, 2, 3)
+
+    curves = find_element(geom, "CURVED")
+    assert len(curves) == 0
+
+    domain_comp, east_comp, west_comp = check_xml_composites(
+        find_element(geom, "COMPOSITE"), edges
+    )
     domains = find_element(geom, "DOMAIN")
     assert len(domains) == 1
     domain = domains[0]

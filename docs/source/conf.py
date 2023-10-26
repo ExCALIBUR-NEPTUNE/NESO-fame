@@ -182,7 +182,7 @@ python_module_names_to_strip_from_xrefs = [
 
 # General API configuration
 object_description_options = [
-    ("py:.*", dict(include_rubrics_in_toc=True)),
+    ("py:.*", {"include_rubrics_in_toc": True}),
 ]
 
 

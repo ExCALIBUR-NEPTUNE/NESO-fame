@@ -41,28 +41,28 @@ def test_simple_grid_2d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 2
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -113,28 +113,28 @@ def test_angled_grid_conforming_bounds_2d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 2
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -180,28 +180,28 @@ def test_angled_grid_jagged_bounds_2d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 2
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[0] + x1_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[-1] + x1_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -242,28 +242,28 @@ def test_subdivided_grid_2d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 2
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -331,52 +331,52 @@ def test_simple_grid_3d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 4
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         expected_east = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    map(lambda x: control_points(x.east, 1), layer),
-                ),
+                    (control_points(x.east, 1) for x in layer),
+                )
             )
         )
         expected_west = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    map(lambda x: control_points(x.west, 1), layer),
-                ),
+                    (control_points(x.west, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         actual_east = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[2])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[2])
         )
         actual_west = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[3])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[3])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -476,52 +476,52 @@ def test_angled_grid_conforming_bounds_3d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 4
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         expected_east = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    map(lambda x: control_points(x.east, 1), layer),
-                ),
+                    (control_points(x.east, 1) for x in layer),
+                )
             )
         )
         expected_west = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    map(lambda x: control_points(x.west, 1), layer),
-                ),
+                    (control_points(x.west, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         actual_east = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[2])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[2])
         )
         actual_west = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[3])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[3])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -613,52 +613,52 @@ def test_angled_grid_jagged_bounds_3d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 4
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x2, starts.x2[-1, -1] + x2_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x2, starts.x2[0, 0] + x2_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         expected_east = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[-1, -1] + x1_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.east, 1), layer),
-                ),
+                    (control_points(x.east, 1) for x in layer),
+                )
             )
         )
         expected_west = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[0, 0] + x1_offsets[[0, 2]]),
-                    map(lambda x: control_points(x.west, 1), layer),
-                ),
+                    (control_points(x.west, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         actual_east = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[2])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[2])
         )
         actual_west = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[3])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[3])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south
@@ -729,52 +729,52 @@ def test_subdivided_grid_3d() -> None:
         bounds = list(layer.boundaries())
         assert len(bounds) == 4
         expected_north = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    map(lambda x: control_points(x.north, 1), layer),
-                ),
+                    (control_points(x.north, 1) for x in layer),
+                )
             )
         )
         expected_south = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    map(lambda x: control_points(x.south, 1), layer),
-                ),
+                    (control_points(x.south, 1) for x in layer),
+                )
             )
         )
         expected_east = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    map(lambda x: control_points(x.east, 1), layer),
-                ),
+                    (control_points(x.east, 1) for x in layer),
+                )
             )
         )
         expected_west = frozenset(
-            map(
-                lambda x: tuple(x.iter_points()),
-                filter(
+            (
+                tuple(x.iter_points())
+                for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    map(lambda x: control_points(x.west, 1), layer),
-                ),
+                    (control_points(x.west, 1) for x in layer),
+                )
             )
         )
         actual_north = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[0])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[0])
         )
         actual_south = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[1])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[1])
         )
         actual_east = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[2])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[2])
         )
         actual_west = frozenset(
-            map(lambda x: tuple(control_points(x, 1).iter_points()), bounds[3])
+            (tuple(control_points(x, 1).iter_points()) for x in bounds[3])
         )
         assert actual_north == expected_north
         assert actual_south == expected_south

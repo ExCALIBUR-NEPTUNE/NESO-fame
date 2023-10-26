@@ -1,6 +1,4 @@
-"""Functions for building meshes from the command line.
-
-"""
+"""Functions for building meshes from the command line."""
 
 from sys import argv
 

@@ -855,9 +855,9 @@ def test_hex_offset(h: mesh.Hex, x: float) -> None:
 
 
 @given(from_type(mesh.Hex), integers(-15, 30))
-def test_hex_subdivision_len(hex: mesh.Hex, divisions: int) -> None:
+def test_hex_subdivision_len(h: mesh.Hex, divisions: int) -> None:
     expected = max(1, divisions)
-    divisions_iter = hex.subdivide(divisions)
+    divisions_iter = h.subdivide(divisions)
     for _ in range(expected):
         _ = next(divisions_iter)
     with pytest.raises(StopIteration):
@@ -865,16 +865,16 @@ def test_hex_subdivision_len(hex: mesh.Hex, divisions: int) -> None:
 
 
 @given(from_type(mesh.Hex), integers(-5, 10))
-def test_hex_subdivision(hex: mesh.Hex, divisions: int) -> None:
-    divisions_iter = hex.subdivide(divisions)
-    hex_corners = hex.corners()
+def test_hex_subdivision(h: mesh.Hex, divisions: int) -> None:
+    divisions_iter = h.subdivide(divisions)
+    hex_corners = h.corners()
     first = next(divisions_iter)
     corners = first.corners()
     for c, t in zip(corners, hex_corners):
         np.testing.assert_allclose(c[::2], t[::2], rtol=1e-8, atol=1e-8)
     prev = corners
-    for hex in divisions_iter:
-        corners = hex.corners()
+    for h in divisions_iter:
+        corners = h.corners()
         for c, p in zip(corners, prev):
             np.testing.assert_allclose(c[::2], p[1::2], rtol=1e-8, atol=1e-8)
         prev = corners
@@ -933,32 +933,32 @@ def test_mesh_layer_elements_with_subdivisions(
     layer = mesh.MeshLayer(*args, subdivisions=subdivisions)
     expected = frozenset(
         itertools.chain.from_iterable(
-            map(
-                lambda x: x.corners().iter_points(),
-                itertools.chain.from_iterable(
-                    map(lambda x: x.subdivide(subdivisions), args[0])
-                ),
+            (
+                x.corners().iter_points()
+                for x in itertools.chain.from_iterable(
+                    (x.subdivide(subdivisions) for x in args[0])
+                )
             )
         )
     )
     actual = frozenset(
-        itertools.chain.from_iterable(map(lambda x: x.corners().iter_points(), layer))
+        itertools.chain.from_iterable((x.corners().iter_points() for x in layer))
     )
     assert expected == actual
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         expected_corners = frozenset(
             itertools.chain.from_iterable(
-                map(
-                    lambda x: get_corners(x).iter_points(),
-                    itertools.chain.from_iterable(
-                        map(lambda x: x.subdivide(subdivisions), expected_bound)
-                    ),
+                (
+                    get_corners(x).iter_points()
+                    for x in itertools.chain.from_iterable(
+                        (x.subdivide(subdivisions) for x in expected_bound)
+                    )
                 )
             )
         )
         actual_corners = frozenset(
             itertools.chain.from_iterable(
-                map(lambda x: get_corners(x).iter_points(), actual_bound)
+                (get_corners(x).iter_points() for x in actual_bound)
             )
         )
         assert expected_corners == actual_corners
@@ -980,12 +980,12 @@ def test_mesh_layer_near_faces(
     layer = mesh.MeshLayer(*args, offset, subdivisions)
     expected = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: evaluate_element(x.offset(offset), 0.0), args[0])
+            (evaluate_element(x.offset(offset), 0.0) for x in args[0])
         ),
     )
     actual = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+            (get_corners(x).iter_points() for x in layer.near_faces())
         ),
     )
     assert expected == actual
@@ -1000,12 +1000,12 @@ def test_mesh_layer_far_faces(
     layer = mesh.MeshLayer(*args, offset, subdivisions)
     expected = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: evaluate_element(x.offset(offset), 1.0), args[0])
+            (evaluate_element(x.offset(offset), 1.0) for x in args[0])
         ),
     )
     actual = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+            (get_corners(x).iter_points() for x in layer.far_faces())
         ),
     )
     assert expected == actual
@@ -1014,18 +1014,16 @@ def test_mesh_layer_far_faces(
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
     element_corners = frozenset(
-        itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer)
-        ),
+        itertools.chain.from_iterable((get_corners(x).iter_points() for x in layer)),
     )
     near_face_corners = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.near_faces())
+            (get_corners(x).iter_points() for x in layer.near_faces())
         ),
     )
     far_face_corners = frozenset(
         itertools.chain.from_iterable(
-            map(lambda x: get_corners(x).iter_points(), layer.far_faces())
+            (get_corners(x).iter_points() for x in layer.far_faces())
         ),
     )
     assert near_face_corners < element_corners

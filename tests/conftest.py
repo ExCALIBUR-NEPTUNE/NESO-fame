@@ -1,7 +1,7 @@
 import itertools
 import operator
 from functools import reduce
-from typing import Optional, TypeVar, cast
+from typing import Any, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -42,11 +42,11 @@ settings.register_profile("dev", max_examples=10)
 Pair = tuple[float, float]
 
 
-def non_nans():
+def non_nans() -> SearchStrategy[float]:
     return floats(allow_nan=False)
 
 
-def arbitrary_arrays():
+def arbitrary_arrays() -> SearchStrategy[npt.NDArray]:
     return arrays(floating_dtypes(), array_shapes())
 
 
@@ -67,10 +67,15 @@ def mutually_broadcastable_arrays(
 def mutually_broadcastable_from(
     strategy: SearchStrategy[BroadcastableShapes],
 ) -> SearchStrategy[tuple[npt.NDArray]]:
-    def shape_to_array(shapes):
+    def shape_to_array(
+        shapes: BroadcastableShapes
+    ) -> SearchStrategy[tuple[npt.NDArray]]:
         return tuples(
             *(
-                arrays(np.float64, just(s), elements=whole_numbers)
+                cast(
+                    SearchStrategy[npt.NDArray],
+                    arrays(np.float64, just(s), elements=whole_numbers),
+                )
                 for s in shapes.input_shapes
             )
         )
@@ -659,7 +664,7 @@ T = TypeVar("T")
 
 @composite
 def hex_starts(
-    draw,
+    draw: Any,
     base_x1: float = 0.0,
     offset_sign: int = 0,
 ) -> tuple[Pair, Pair, Pair, Pair]:
@@ -685,7 +690,8 @@ def hex_starts(
     existing.add(offset2)
     offset3 = draw(
         tuples(
-            non_zero.map(abs).map(lambda x: offset_sign * x), non_zero  # type: ignore
+            non_zero.map(abs).map(lambda x: offset_sign * x),  # type: ignore
+            non_zero,
         ).filter(lambda x: x not in existing)
     )
     return (

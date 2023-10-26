@@ -1,6 +1,4 @@
-"""Tools for creating Nektar++ objects for representing a mesh.
-
-"""
+"""Tools for creating Nektar++ objects for representing a mesh."""
 
 import itertools
 from ctypes import ArgumentError
@@ -186,7 +184,7 @@ class NektarElements:
         ] = itertools.zip_longest(
             *map(attrgetter("bounds"), self._layers), fillvalue=frozenset()
         )
-        return map(lambda ls: SD.Composite(list(reduce(or_, ls))), zipped_bounds)
+        return (SD.Composite(list(reduce(or_, ls))) for ls in zipped_bounds)
 
     def num_bounds(self) -> int:
         """Returns the number of boundary regions of teh mesh, not
@@ -468,14 +466,10 @@ def nektar_layer_elements(
     far_face = SD.Composite(
         [make_face(f, order, spatial_dim, layer_id) for f in layer.far_faces()]
     )
-    bounds = list(
-        map(
-            lambda x: frozenset(
-                map(lambda y: make_face(y, 1, spatial_dim, layer_id), x)
-            ),
-            layer.boundaries(),
-        )
-    )
+    bounds = [
+        frozenset((make_face(y, 1, spatial_dim, layer_id) for y in x))
+        for x in layer.boundaries()
+    ]
     if issubclass(layer.element_type, Quad):
         return NektarLayer2D(
             points,

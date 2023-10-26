@@ -1,6 +1,4 @@
-"""Classes to represent meshes and their constituent elements.
-
-"""
+"""Classes to represent meshes and their constituent elements."""
 
 from __future__ import annotations
 
@@ -96,7 +94,8 @@ class SliceCoord:
 
     def round(self, figures=8) -> SliceCoord:
         """Returns an object with coordinate values rounded to the
-        desired number of significant figures."""
+        desired number of significant figures.
+        """
         return SliceCoord(
             float(_round_to_sig_figs(self.x1, figures)),
             float(_round_to_sig_figs(self.x2, figures)),
@@ -132,7 +131,8 @@ class SliceCoord:
 
     def to_3d_coord(self, x3: float) -> Coord:
         """Create a 3D coordinate object from this 2D one, by
-        specifying the location in the third dimension."""
+        specifying the location in the third dimension.
+        """
         return Coord(self.x1, self.x2, x3, self.system)
 
     def __eq__(self, other) -> bool:
@@ -184,7 +184,8 @@ class SliceCoords:
 
     def round(self, figures=8) -> SliceCoords:
         """Returns an object with coordinate values rounded to the
-        desired number of significant figures."""
+        desired number of significant figures.
+        """
         return SliceCoords(
             _round_to_sig_figs(self.x1, figures),
             _round_to_sig_figs(self.x2, figures),
@@ -193,12 +194,14 @@ class SliceCoords:
 
     def to_coord(self) -> SliceCoord:
         """Tries to convert the object to a `SliceCoord` object. This will
-        only work if the collection contains exactly one point."""
+        only work if the collection contains exactly one point.
+        """
         return SliceCoord(float(self.x1), float(self.x2), self.system)
 
     def to_3d_coords(self, x3: float) -> Coords:
         """Create a 3D coordinates object from this 2D one, by
-        specifying the location in the third dimension."""
+        specifying the location in the third dimension.
+        """
         return Coords(self.x1, self.x2, np.asarray(x3), self.system)
 
 
@@ -241,7 +244,8 @@ class Coord:
 
     def round(self, figures=8) -> Coord:
         """Returns an object with coordinate values rounded to the
-        desired number of significant figures."""
+        desired number of significant figures.
+        """
         return Coord(
             float(_round_to_sig_figs(self.x1, figures)),
             float(_round_to_sig_figs(self.x2, figures)),
@@ -345,12 +349,14 @@ class Coords:
 
     def to_coord(self) -> Coord:
         """Tries to convert the object to a `Coord` object. This will
-        only work if the collection contains exactly one point."""
+        only work if the collection contains exactly one point.
+        """
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
     def round(self, figures=8) -> Coords:
         """Returns an object with coordinate values rounded to the
-        desired number of significant figures."""
+        desired number of significant figures.
+        """
         return Coords(
             _round_to_sig_figs(self.x1, figures),
             _round_to_sig_figs(self.x2, figures),
@@ -488,7 +494,8 @@ class FieldAlignedCurve:
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Convenience function so that a FieldAlignedCurve is itself a
-        :obj:`~neso_fame.mesh.NormalisedCurve`"""
+        :obj:`~neso_fame.mesh.NormalisedCurve`.
+        """
         return self.function(s)
 
     def offset(self, offset: float) -> "FieldAlignedCurve":
@@ -662,7 +669,8 @@ class Quad:
     def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
         """Returns the line formed where the quad intersects the x1-x2
         plane with the given x3 value. The value of x3 should be given
-        *without* accounting for any offset of the quad."""
+        *without* accounting for any offset of the quad.
+        """
         x3_scaled = x3 / self.dx3 + 0.5
         x3 = (
             self.dx3 / self.num_divisions * (self.subdivision + x3_scaled)
@@ -701,13 +709,15 @@ class Quad:
     @cached_property
     def north(self) -> FieldAlignedCurve:
         """Field-aligned curve which defines one edge of the
-        quadrilateral. It passes through `self.shape(0.)`"""
+        quadrilateral. It passes through `self.shape(0.)`.
+        """
         return self.get_field_line(0.0)
 
     @cached_property
     def south(self) -> FieldAlignedCurve:
         """Field-aligned curve which defines one edge of the
-        quadrilateral. It passes through `self.shape(1.)`"""
+        quadrilateral. It passes through `self.shape(1.)`.
+        """
         return self.get_field_line(1.0)
 
     @cached_property
@@ -1000,9 +1010,9 @@ class MeshLayer(Generic[E, B, C]):
         """
         return map(
             frozenset,
-            map(
-                lambda b: self._iterate_elements(b, self.offset, self.subdivisions),
-                self.bounds,
+            (
+                self._iterate_elements(b, self.offset, self.subdivisions)
+                for b in self.bounds
             ),
         )
 
@@ -1014,9 +1024,9 @@ class MeshLayer(Generic[E, B, C]):
         of the boundaries normal to the x3-direction.
 
         """
-        return map(
-            lambda e: cast(C, e.near),
-            self._iterate_elements(self.reference_elements, self.offset, 1),
+        return (
+            cast(C, e.near)
+            for e in self._iterate_elements(self.reference_elements, self.offset, 1)
         )
 
     def far_faces(self) -> Iterator[C]:
@@ -1033,15 +1043,9 @@ class MeshLayer(Generic[E, B, C]):
         when creating Nektar++ objects, it won't matter.
 
         """
-        return map(
-            lambda e: cast(C, e.far),
-            self._iterate_elements(self.reference_elements, self.offset, 1),
-            # filter(
-            #     lambda e: self._division_number(e) == self.subdivisions - 1,
-            #     self._iterate_elements(
-            #         self.reference_elements, self.offset, self.subdivisions
-            #     ),
-            # ),
+        return (
+            cast(C, e.far)
+            for e in self._iterate_elements(self.reference_elements, self.offset, 1)
         )
 
     @overload
@@ -1069,14 +1073,11 @@ class MeshLayer(Generic[E, B, C]):
         if isinstance(offset, float):
             x = offset
             return itertools.chain.from_iterable(
-                map(
-                    lambda e: e.offset(x).subdivide(subdivisions),  # typing: off
-                    elements,
-                )
+                (e.offset(x).subdivide(subdivisions) for e in elements)
             )
         else:
             return itertools.chain.from_iterable(
-                map(lambda e: e.subdivide(subdivisions), elements)
+                (e.subdivide(subdivisions) for e in elements)
             )
 
 
@@ -1118,14 +1119,14 @@ class GenericMesh(Generic[E, B, C]):
         mesh.
 
         """
-        return map(
-            lambda off: MeshLayer(
+        return (
+            MeshLayer(
                 self.reference_layer.reference_elements,
                 self.reference_layer.bounds,
                 off,
                 self.reference_layer.subdivisions,
-            ),
-            self.offsets,
+            )
+            for off in self.offsets
         )
 
     def __iter__(self) -> Iterator[E]:

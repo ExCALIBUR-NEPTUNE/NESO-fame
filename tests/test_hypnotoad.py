@@ -60,14 +60,25 @@ class FakeEquilibrium(Equilibrium):
 
     """
 
-    def __init__(self, o_point=Point2D(1.0, 1.0), a=0.25, b=0.25, q=1.0):
+    def __init__(
+        self,
+        o_point: Point2D = Point2D(1.0, 1.0),
+        a: float = 0.25,
+        b: float = 0.25,
+        q: float = 1.0,
+    ) -> None:
         self.o_point = o_point
         self.a = a
         self.b = b
         self.q = q
 
     def psi_func(
-        self, x: npt.ArrayLike, y: npt.ArrayLike, dx=0, dy=0, grid=True
+        self,
+        x: npt.ArrayLike,
+        y: npt.ArrayLike,
+        dx: int = 0,
+        dy: int = 0,
+        grid: bool = True,
     ) -> npt.NDArray:
         """Mimics the signature of RectBivariateSpline."""
         assert not grid
@@ -88,7 +99,7 @@ class FakeEquilibrium(Equilibrium):
         else:
             return np.asarray(0.0)
 
-    def psi(self, R, Z):
+    def psi(self, R: npt.ArrayLike, Z: npt.ArrayLike) -> npt.NDArray:
         "Return the poloidal flux at the given (R,Z) location"
         return self.psi_func(R, Z, grid=False)
 
@@ -98,7 +109,7 @@ class FakeEquilibrium(Equilibrium):
         dpsidZ = self.psi_func(R, Z, dy=1, grid=False)
         return dpsidR / (dpsidR**2 + dpsidZ**2)
 
-    def f_Z(self, R, Z):
+    def f_Z(self, R: npt.ArrayLike, Z: npt.ArrayLike) -> npt.NDArray:
         """returns the Z component of the vector Grad(psi)/|Grad(psi)|**2."""
         dpsidR = self.psi_func(R, Z, dx=1, grid=False)
         dpsidZ = self.psi_func(R, Z, dy=1, grid=False)
@@ -237,7 +248,7 @@ fake_equilibria = builds(
 )
 def test_field_trace(
     eq: FakeEquilibrium, phis: npt.NDArray, psi_start: float, theta_start: float
-):
+) -> None:
     trace = equilibrium_trace(cast(Equilibrium, eq))
     R_start, Z_start = eq.to_RZ(psi_start, theta_start)
     positions, distances = trace(
@@ -291,12 +302,14 @@ def create_equilibrium(
     z1d = np.linspace(z_lims[0], z_lims[1], ny)
     r2d, z2d = np.meshgrid(r1d, z1d, indexing="ij")
 
-    def psi_func(R, Z):
-        return sum(
-            np.exp(-((R - r0) ** 2) / asq - (Z - z0) ** 2 / bsq)
-            for (r0, z0), (asq, bsq) in zip(
-                map(operator.itemgetter(slice(2)), o_points),
-                map(semi_axes_squared, o_points),
+    def psi_func(R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray:
+        return np.asarray(
+            sum(
+                np.exp(-((R - r0) ** 2) / asq - (Z - z0) ** 2 / bsq)
+                for (r0, z0), (asq, bsq) in zip(
+                    map(operator.itemgetter(slice(2)), o_points),
+                    map(semi_axes_squared, o_points),
+                )
             )
         )
 
@@ -374,7 +387,7 @@ def x_point_equilibrium() -> TokamakEquilibrium:
     return create_equilibrium(make_regions=False)
 
 
-def test_trace_outside_separatrix(x_point_equilibrium):
+def test_trace_outside_separatrix(x_point_equilibrium: TokamakEquilibrium) -> None:
     """Tests tracing the field when there is an X-point present, to
     ensure it stays on the correct side of the separatrix.
 
@@ -398,7 +411,7 @@ def test_trace_outside_separatrix(x_point_equilibrium):
     assert np.any(positions.x2 > z0), "Did not integrate past X-point"
 
 
-def test_trace_private_flux_region(x_point_equilibrium):
+def test_trace_private_flux_region(x_point_equilibrium: TokamakEquilibrium) -> None:
     """Tests tracing the field when there is an X-point present, to
     ensure it stays on the correct side of the separatrix.
 
@@ -422,7 +435,7 @@ def test_trace_private_flux_region(x_point_equilibrium):
     assert np.any(positions.x1 < r0), "Did not integrate past X-point"
 
 
-def test_trace_core(x_point_equilibrium):
+def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
     """Tests tracing the field when there is an X-point present, to
     ensure it stays on the correct side of the separatrix.
 
@@ -473,7 +486,7 @@ def test_trace_core(x_point_equilibrium):
     assert R0_crossings >= 2
 
 
-def test_trace_x_point(x_point_equilibrium):
+def test_trace_x_point(x_point_equilibrium: TokamakEquilibrium) -> None:
     """Test tracing from the X-point. There should be no
     movement. However, as it is an unstable equilibrium, this test is
     being done with very high tolerances."""
@@ -487,7 +500,7 @@ def test_trace_x_point(x_point_equilibrium):
     np.testing.assert_allclose(positions.x2, z0, 1e-3, 1e-3)
 
 
-def test_trace_o_point(x_point_equilibrium):
+def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
     """Test tracing from the O-point. There should be no
     movement. However, as it is not a stable equilibrium, this test is
     being done with higher tolerance than usual."""
@@ -557,8 +570,7 @@ def test_perpendicular_edges(
     total_distance, terr = distance(termini_psi[1])
     # Standard uncertainty propagation
     total_err = (
-        np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2)
-        / total_distance**2
+        np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2
     )
     for d, e, p in np.nditer([dist, total_err, positions]):
         np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
@@ -639,12 +651,17 @@ def test_flux_surface_edges(
     np.testing.assert_allclose(distances / total_arc, positions, 1e-8, 1e-8)
 
 
+LOWER_SINGLE_NULL = Mesh(lower_single_null(), {})
+UPPER_SINGLE_NULL = Mesh(upper_single_null(), {})
+CONNECTED_DOUBLE_NULL = Mesh(connected_double_null(), {})
+LOWER_DOUBLE_NULL = Mesh(lower_double_null(), {})
+UPPER_DOUBLE_NULL = Mesh(upper_double_null(), {})
 sample_meshes = [
-    Mesh(lower_single_null(), {}),
-    Mesh(upper_single_null(), {}),
-    Mesh(connected_double_null(), {}),
-    Mesh(lower_double_null(), {}),
-    Mesh(upper_double_null(), {}),
+    LOWER_SINGLE_NULL,
+    UPPER_SINGLE_NULL,
+    CONNECTED_DOUBLE_NULL,
+    LOWER_DOUBLE_NULL,
+    UPPER_DOUBLE_NULL,
 ]
 for m in sample_meshes:
     m.calculateRZ()
@@ -689,9 +706,9 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
         # Check quads are all adjacent
         check_coordinate_pairs_connected(quad_nodes, region.name == "core(0)")
         # Check quads all have same psi values
-        psis = list(
+        psis = [
             [eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes
-        )
+        ]
         np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
 
 
