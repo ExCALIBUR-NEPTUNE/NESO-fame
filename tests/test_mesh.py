@@ -173,7 +173,7 @@ def test_slice_coords_bad_getitem(
 ) -> None:
     coords = mesh.SliceCoords(x1, x2, mesh.CoordinateSystem.CARTESIAN)
     with pytest.raises(expected):
-        _ = coords[index]
+        _ = coords[index]  # type: ignore
 
 
 @pytest.mark.parametrize(
@@ -394,7 +394,7 @@ def test_coords_bad_getitem(
 ) -> None:
     coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
     with pytest.raises(expected):
-        _ = coords[index]
+        _ = coords[index]  # type: ignore
 
 
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")

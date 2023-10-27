@@ -92,7 +92,7 @@ class SliceCoord:
         yield self.x1
         yield self.x2
 
-    def round(self, figures=8) -> SliceCoord:
+    def round(self, figures: int = 8) -> SliceCoord:
         """Returns an object with coordinate values rounded to the
         desired number of significant figures.
         """
@@ -135,7 +135,7 @@ class SliceCoord:
         """
         return Coord(self.x1, self.x2, x3, self.system)
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
         return self.system == other.system and cast(
@@ -143,6 +143,9 @@ class SliceCoord:
             np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
             and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE),
         )
+
+
+Index = int | tuple[int, ...]
 
 
 @dataclass
@@ -177,12 +180,12 @@ class SliceCoords:
         """Returns the number of points contained in the object."""
         return np.broadcast(self.x1, self.x2).size
 
-    def __getitem__(self, idx) -> SliceCoord:
+    def __getitem__(self, idx: Index) -> SliceCoord:
         """Return an individual point from the collection."""
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
-    def round(self, figures=8) -> SliceCoords:
+    def round(self, figures: int = 8) -> SliceCoords:
         """Returns an object with coordinate values rounded to the
         desired number of significant figures.
         """
@@ -242,7 +245,7 @@ class Coord:
         yield self.x2
         yield self.x3
 
-    def round(self, figures=8) -> Coord:
+    def round(self, figures: int = 8) -> Coord:
         """Returns an object with coordinate values rounded to the
         desired number of significant figures.
         """
@@ -282,7 +285,7 @@ class Coord:
 
         return hash((x1, x2, x3, self.system))
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
         return self.system == other.system and cast(
@@ -342,7 +345,7 @@ class Coords:
         """Returns the number of poitns present in the collection."""
         return np.broadcast(self.x1, self.x2, self.x3).size
 
-    def __getitem__(self, idx) -> Coord:
+    def __getitem__(self, idx: Index) -> Coord:
         """Returns the coordinates of an individual point."""
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
@@ -353,7 +356,7 @@ class Coords:
         """
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
-    def round(self, figures=8) -> Coords:
+    def round(self, figures: int = 8) -> Coords:
         """Returns an object with coordinate values rounded to the
         desired number of significant figures.
         """
@@ -1181,7 +1184,7 @@ def normalise_field_line(
     start: SliceCoord,
     x3_min: float,
     x3_max: float,
-    resolution=10,
+    resolution: int = 10,
 ) -> NormalisedCurve:
     """Takes a function defining a magnetic field and returns a new
     function tracing a field line within it.

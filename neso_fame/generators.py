@@ -308,6 +308,39 @@ Index = TypeVar("Index", int, tuple[int, ...])
 NodePair = tuple[Index, Index]
 
 
+def _sort_node_pairs(
+    lower_dim_mesh: SliceCoords, nodes: tuple[Index, Index, Index, Index]
+) -> tuple[NodePair, NodePair, NodePair, NodePair]:
+    """Return sorted pairs of nodes.
+
+    Pairs are sorted so edges are in order north,
+    south, east, west. Additionally, node indices will always be
+    in ascending order within these pairs.
+
+    """
+    if isinstance(nodes[0], int):
+        index = nodes
+    else:
+        index = tuple(zip(*nodes))
+    x1: npt.NDArray = lower_dim_mesh.x1[index]
+    x2: npt.NDArray = lower_dim_mesh.x2[index]
+    order = np.argsort(x2)
+    if x1[order[1]] < x1[order[0]]:
+        tmp = order[1]
+        order[1] = order[0]
+        order[0] = tmp
+    if x1[order[3]] > x1[order[2]]:
+        tmp = order[3]
+        order[3] = order[2]
+        order[2] = tmp
+    return (
+        cast(tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
+        cast(tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
+        cast(tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
+        cast(tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
+    )
+
+
 def field_aligned_3d(
     lower_dim_mesh: SliceCoords,
     field_line: FieldTrace,
@@ -375,47 +408,7 @@ def field_aligned_3d(
     )
     tracer = FieldTracer(field_line, spatial_interp_resolution)
 
-    def sort_node_pairs(
-        nodes: tuple[Index, Index, Index, Index]
-    ) -> tuple[NodePair, NodePair, NodePair, NodePair]:
-        """Return sorted pairs of nodes.
-
-        Pairs are sorted so edges are in order north,
-        south, east, west. Additionally, node indices will always be
-        in ascending order within these pairs.
-
-        """
-        if isinstance(nodes[0], int):
-            index = nodes
-        else:
-            index = tuple(zip(*nodes))
-        x1: npt.NDArray = lower_dim_mesh.x1[index]
-        x2: npt.NDArray = lower_dim_mesh.x2[index]
-        order = np.argsort(x2)
-        if x1[order[1]] < x1[order[0]]:
-            tmp = order[1]
-            order[1] = order[0]
-            order[0] = tmp
-        if x1[order[3]] > x1[order[2]]:
-            tmp = order[3]
-            order[3] = order[2]
-            order[2] = tmp
-        return (
-            cast(
-                tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))
-            ),
-            cast(
-                tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))
-            ),
-            cast(
-                tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))
-            ),
-            cast(
-                tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))
-            ),
-        )
-
-    element_node_pairs = list(map(sort_node_pairs, elements))
+    element_node_pairs = [_sort_node_pairs(lower_dim_mesh, elem) for elem in elements]
 
     # Get the locations (north, south, east, west) of each quad in the hexes it builds
     face_locations: defaultdict[NodePair, list[int]] = defaultdict(list)

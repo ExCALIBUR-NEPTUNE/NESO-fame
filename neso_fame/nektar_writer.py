@@ -439,7 +439,7 @@ def nektar_layer_elements(
             item: NormalisedCurve | EndQuad | Quad,
             order: int,
             spatial_dim: int,
-            layer_id,
+            layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
             assert not isinstance(item, (EndQuad, Quad))
             return nektar_edge(item, order, spatial_dim, layer_id)[0]
@@ -454,7 +454,7 @@ def nektar_layer_elements(
             item: NormalisedCurve | EndQuad | Quad,
             order: int,
             spatial_dim: int,
-            layer_id,
+            layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
             assert isinstance(item, (EndQuad, Quad))
             return next(iter(nektar_quad(item, order, spatial_dim, layer_id)[0]))
@@ -526,9 +526,9 @@ def nektar_mesh(
     elements: NektarElements,
     mesh_dim: int,
     spatial_dim: int,
-    write_movement=True,
-    periodic_interfaces=True,
-    compressed=True,
+    write_movement: bool = True,
+    periodic_interfaces: bool = True,
+    compressed: bool = True,
 ) -> SD.MeshGraphXml | SD.MeshGraphXmlCompressed:
     """Creates a Nektar++ MeshGraphXml object from a collection of
     Nektar++ geometry objects.
@@ -669,9 +669,9 @@ def write_nektar(
     order: int,
     filename: str,
     spatial_dim: int = 3,
-    write_movement=True,
-    periodic_interfaces=True,
-    compressed=True,
+    write_movement: bool = True,
+    periodic_interfaces: bool = True,
+    compressed: bool = True,
 ) -> None:
     """Create a Nektar++ MeshGraph object from your mesh and write it
     to the disk.
