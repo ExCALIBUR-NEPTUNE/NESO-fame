@@ -6,7 +6,7 @@ import itertools
 import operator
 from collections import defaultdict
 from collections.abc import Sequence
-from functools import cache, reduce
+from functools import cache
 from typing import Optional, TypeVar, cast
 
 import numpy as np
@@ -17,7 +17,7 @@ from hypnotoad import MeshRegion as HypnoMeshRegion
 from neso_fame.hypnotoad import (
     equilibrium_trace,
     flux_surface_edge,
-    get_region_boundaries,
+    get_mesh_boundaries,
     perpendicular_edge,
 )
 
@@ -591,22 +591,8 @@ def hypnotoad_mesh(
         )
     ]
 
-    def merge_bounds(
-        lhs: list[frozenset[Quad]], rhs: list[frozenset[Quad]]
-    ) -> list[frozenset[Quad]]:
-        return [
-            left.union(right)
-            for left, right in itertools.zip_longest(
-                lhs, rhs, fillvalue=cast(frozenset[Quad], frozenset())
-            )
-        ]
-
-    boundaries = reduce(
-        merge_bounds,
-        (
-            get_region_boundaries(region, flux_surface_quad, perpendicular_quad)
-            for region in hypnotoad_poloidal_mesh.regions.values()
-        ),
+    boundaries = get_mesh_boundaries(
+        hypnotoad_poloidal_mesh, flux_surface_quad, perpendicular_quad
     )
 
     return GenericMesh(

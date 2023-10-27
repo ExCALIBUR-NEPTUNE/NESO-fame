@@ -21,7 +21,7 @@ from hypothesis.strategies import (
     one_of,
     sampled_from,
 )
-from pytest import fixture
+from pytest import fixture, mark
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
@@ -29,7 +29,8 @@ from scipy.special import ellipeinc
 from neso_fame.hypnotoad import (
     equilibrium_trace,
     flux_surface_edge,
-    get_region_boundaries,
+    _get_region_boundaries,
+    get_mesh_boundaries,
     perpendicular_edge,
     smallest_angle_between,
 )
@@ -361,7 +362,7 @@ def connected_double_null() -> TokamakEquilibrium:
 def lower_double_null() -> TokamakEquilibrium:
     return create_equilibrium(
         o_points=[
-            OPoint(1.5, 0.9, 1.0, 0.4),
+            OPoint(1.5, 0.801, 1.0, 0.4),
             OPoint(1.5, -0.8, 1.0, 0.4),
             OPoint(1.5, 0.0, 1.0, 0.4),
         ],
@@ -373,8 +374,8 @@ def lower_double_null() -> TokamakEquilibrium:
 def upper_double_null() -> TokamakEquilibrium:
     return create_equilibrium(
         o_points=[
-            OPoint(1.5, 0.9, 1.0, 0.4),
-            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.8, 1.0, 0.4),
+            OPoint(1.5, -0.801, 1.0, 0.4),
             OPoint(1.5, 0.0, 1.0, 0.4),
         ],
         make_regions=True,
@@ -692,6 +693,28 @@ def dummy_trace(start: SliceCoord, s: npt.ArrayLike) -> tuple[SliceCoords, npt.N
     ), np.asarray(s)
 
 
+def check_flux_surface_bound(
+    eq: Equilibrium, bound: frozenset[Quad], periodic: bool
+) -> None:
+    quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in bound]
+    # Check quads are all adjacent
+    check_coordinate_pairs_connected(quad_nodes, periodic)
+    # Check quads all have same psi values
+    psis = np.array(
+        [[eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes]
+    )
+    np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
+
+
+def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
+    quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in bound]
+    # Check quads are all adjacent
+    check_coordinate_pairs_connected(quad_nodes, False)
+    # Check quads start at unique psi
+    psis = frozenset(float(eq.psi(p[0].x1, p[0].x2)) for p in quad_nodes)
+    assert len(psis) == len(bound)
+
+
 @given(mesh_regions, floats())
 def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
@@ -701,15 +724,8 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
         )
 
-    for b in filter(bool, get_region_boundaries(region, constructor, constructor)[:5]):
-        quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in b]
-        # Check quads are all adjacent
-        check_coordinate_pairs_connected(quad_nodes, region.name == "core(0)")
-        # Check quads all have same psi values
-        psis = [
-            [eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes
-        ]
-        np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
+    for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[:5]):
+        check_flux_surface_bound(eq, b, region.name == "core(0)")
 
 
 @given(mesh_regions, floats())
@@ -721,10 +737,96 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
         )
 
-    for b in filter(bool, get_region_boundaries(region, constructor, constructor)[5:]):
-        quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in b]
-        # Check quads are all adjacent
-        check_coordinate_pairs_connected(quad_nodes, False)
-        # Check quads start at unique psi
-        psis = frozenset(float(eq.psi(p[0].x1, p[0].x2)) for p in quad_nodes)
-        assert len(psis) == len(b)
+    for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[5:]):
+        check_perpendicular_bounds(eq, b)
+
+
+def get_region(mesh: Mesh, name: str) -> MeshRegion:
+    name_map = {region.name: region for region in mesh.regions.values()}
+    return name_map[name]
+
+
+@mark.parametrize(
+    "region, is_boundary",
+    [
+        (
+            get_region(LOWER_SINGLE_NULL, "core(0)"),
+            [True, False, False, False, False, False, False, False, False],
+        ),
+        (
+            get_region(LOWER_SINGLE_NULL, "core(1)"),
+            [False, True, False, False, False, False, False, False, False],
+        ),
+        (
+            get_region(LOWER_SINGLE_NULL, "inner_lower_divertor(0)"),
+            [False, False, False, False, True, True, False, False, False],
+        ),
+        (
+            get_region(LOWER_SINGLE_NULL, "inner_lower_divertor(1)"),
+            [False, True, False, False, False, True, False, False, False],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_core(0)"),
+            [True, False, False, False, False, False, False, False, False],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_core(1)"),
+            [False, False, False, False, False, False, False, False, False],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_core(2)"),
+            [False, False, True, False, False, False, False, False, False],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_lower_divertor(2)"),
+            [False, False, True, False, False, False, True, False, False],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(0)"),
+            [False, False, False, True, False, False, False, False, True],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(1)"),
+            [False, False, False, False, False, False, False, False, True],
+        ),
+        (
+            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(2)"),
+            [False, False, True, False, False, False, False, False, True],
+        ),
+    ],
+)
+def test_region_bounds(region: MeshRegion, is_boundary: list[bool]) -> None:
+    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
+        )
+
+    boundaries = _get_region_boundaries(region, constructor, constructor)
+    assert [len(b) > 0 for b in boundaries] == is_boundary
+
+
+@mark.parametrize(
+    "mesh, is_boundary",
+    [
+        (
+            UPPER_SINGLE_NULL,
+            [True, True, False, True, False, False, False, True, True],
+        ),
+        (CONNECTED_DOUBLE_NULL, [True] * 9),
+        (LOWER_DOUBLE_NULL, [True] * 9),
+    ],
+)
+def test_mesh_bounds(mesh: Mesh, is_boundary: list[bool]) -> None:
+    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
+        return Quad(
+            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
+        )
+
+    eq = mesh.equilibrium
+    bounds = get_mesh_boundaries(mesh, constructor, constructor)
+    assert [len(b) > 0 for b in bounds] == is_boundary
+    check_flux_surface_bound(eq, bounds[0], True)
+    for b in itertools.compress(bounds[1:5], is_boundary[1:5]):
+        check_flux_surface_bound(eq, b, False)
+    for b in itertools.compress(bounds[5:], is_boundary[5:]):
+        check_perpendicular_bounds(eq, b)

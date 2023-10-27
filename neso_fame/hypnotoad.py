@@ -3,12 +3,14 @@ in using hypnotoad.
 
 """
 
+import itertools
+from functools import reduce
 from pathlib import Path
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Equilibrium, MeshRegion  # type: ignore
+from hypnotoad import Equilibrium, Mesh, MeshRegion  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ignore
 from scipy.integrate import solve_ivp
 
@@ -422,7 +424,7 @@ def _make_bound(
     )
 
 
-def get_region_boundaries(
+def _get_region_boundaries(
     region: MeshRegion,
     flux_surface_quad: QuadMaker,
     perpendicular_quad: QuadMaker,
@@ -533,3 +535,60 @@ def get_region_boundaries(
         inner_upper_divertor,
         outer_upper_divertor,
     ]
+
+
+def get_mesh_boundaries(
+    mesh: Mesh,
+    flux_surface_quad: QuadMaker,
+    perpendicular_quad: QuadMaker,
+) -> list[frozenset[Quad]]:
+    """Get a list of the boundaries for the meshj.
+
+    Parameters
+    ----------
+    region
+        The hypnotoad mesh object for which to return boundaries.
+    flux_surface_quad
+        A function to produce an appropriate :class:`neso_fame.mesh.Quad`
+        object for quads which are aligned to flux surfaces.
+    perpendicular_quad
+        A function to produce an appropriate :class:`neso_fame.mesh.Quad`
+        object for quads which are perpendicular to flux surfaces.
+
+    Returns
+    -------
+    A list of boundaries. Each boundary is represented by a frozenset
+    of Quad objects. If that boundary is not present on the given
+    mesh object, then the set will be empty. The order of the
+    boundaries in the list is:
+
+    #. Centre of the core region
+    #. Inner edge of the plasma (or entire edge, for single-null)
+    #. Outer edge of the plasma
+    #. Internal edge of the upper private flux region
+    #. Internal edge of hte lower private flux region
+    #. Inner lower divertor
+    #. Outer lower divertor
+    #. Inner upper divertor
+    #. Outer upper divertor
+
+    """
+
+    def merge_bounds(
+        lhs: list[frozenset[Quad]], rhs: list[frozenset[Quad]]
+    ) -> list[frozenset[Quad]]:
+        return [
+            left.union(right)
+            for left, right in itertools.zip_longest(
+                lhs, rhs, fillvalue=cast(frozenset[Quad], frozenset())
+            )
+        ]
+
+    boundaries = reduce(
+        merge_bounds,
+        (
+            _get_region_boundaries(region, flux_surface_quad, perpendicular_quad)
+            for region in mesh.regions.values()
+        ),
+    )
+    return boundaries
