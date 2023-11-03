@@ -1,14 +1,18 @@
 """Functions for building meshes from the command line."""
 
+from io import StringIO, TextIOBase, TextIOWrapper
 from sys import argv
 
 import click
+from hypnotoad import Mesh as HypnoMesh
+from neso_fame.hypnotoad import eqdsk_equilibrium
 import numpy as np
 
 from neso_fame.fields import straight_field
-from neso_fame.generators import field_aligned_2d, field_aligned_3d
+from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.mesh import CoordinateSystem, SliceCoords
 from neso_fame.nektar_writer import write_nektar
+import yaml
 
 
 @click.group()
@@ -288,5 +292,85 @@ def simple_3d(
         nx1 // layers,
     )
     write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
+    with open(meshfile, "a") as f:
+        f.write(_mesh_provenance())
+
+
+@simple.command("hypnotoad")
+@click.option(
+    "--n",
+    "--toroidal-resolution",
+    type=POSITIVE,
+    help="The number of elements in the toroidal direction.",
+    default=10,
+    show_default=True,
+)
+@click.option(
+    "--toroidal_limits",
+    nargs=2,
+    type=float,
+    help="The limits of the domain in the x3 direction.",
+    default=(0.0, 2*np.pi),
+    show_default=True,
+)
+@click.option(
+    "--layers",
+    type=NONNEGATIVE,
+    help=(
+        "The number of non-conformal layers that exist in the x1-direction. "
+        "Use 0 to indicate it should be the same as the x1-resolution."
+    ),
+    default=0,
+    show_default=True,
+)
+@click.option(
+    "--order",
+    type=POSITIVE,
+    help="The order of accuracy to use to describe curved elements."
+    default=3,
+    show_default=True,
+)
+@click.option(
+    "--compress",
+    is_flag=True,
+    default=False,
+    help="Use the compressed XML format for the mesh",
+)
+@click.argument("geqdsk", type=click.Path(exists=True, dir_okay=False))
+@click.argument("hypnotoad_yaml", type=click.File(), default=StringIO(""))
+@click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
+def simple_3d(
+    n: int,
+    toroidal_limits: tuple[float, float],
+    layers: int,
+    order: int,
+    compress: bool,
+    geqdsk: str,
+    hypnotoad_yaml: TextIOBase,
+    meshfile: str,
+) -> None:
+    """Generate a 3D mesh from the GEQDSK file. This is done by first
+    generating a 2D mesh using hypnotoad (based on the settings in the
+    HYPNOTOAD_YAML file) and then following each node in that mesh
+    along the magnetic field lines. The mesh will be written to
+    MESHFILE in the Nektar++ uncompressed XML format. Note that only
+    orthogonal meshes are allowed.
+
+    """
+    layers = _validate_layers(layers, n)
+    options = yaml.safe_load(hypnotoad_yaml)
+    if options is None:
+        options = {}
+    if not isinstance(options, dict):
+        raise RuntimeError("Hypnotoad YAML file must contain a dictionary.")
+    print(f"Reading G-EQDSK from {geqdsk} and constructing equilibrium...")
+    eq = eqdsk_equilibrium(geqdsk, options)
+    print(f"Building 2D poloidal mesh...")
+    hypno_mesh = HypnoMesh(eq, options)
+    print("Extruding 2D mesh along magnetic field lines...")
+    mesh = hypnotoad_mesh(hypno_mesh, toroidal_limits, layers, 21, n // layers)
+    periodic = toroidal_limits[0] % (2*np.pi) == toroidal_limits[1] % (2*np.pi)
+    print("Converting mesh to Nektar++ format and writing to disk...")
+    write_nektar(mesh, order, meshfile, 3, True, periodic, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())
