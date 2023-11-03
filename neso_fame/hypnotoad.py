@@ -3,6 +3,7 @@ in using hypnotoad.
 
 """
 
+from enum import Enum
 import itertools
 from functools import reduce
 from pathlib import Path
@@ -177,7 +178,7 @@ def integrate_vectorized(
             if zero is not None:
                 result_tmp[:, zero] = start
             return tuple(
-                result_tmp[i, invert_s] for i in range(cast(npt.NDArray, start).size)
+                result_tmp[i, invert_s].reshape(s.shape) for i in range(cast(npt.NDArray, start).size)
             )
 
         return wrapper
@@ -195,7 +196,7 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
         if start.system != CoordinateSystem.CYLINDRICAL:
             raise ValueError("`start` must use a cylindrical coordinate system")
 
-        @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-10, atol=1e-11)
+        @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-11, atol=1e-12)
         def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
             R = y[0]
             Z = y[1]
@@ -235,7 +236,7 @@ def eqdsk_equilibrium(
 
     """
     possible_options = list(TokamakEquilibrium.user_options_factory.defaults) + list(
-        TokamakEquilibrium.nonorthogonal_options_factory.defaults
+        Mesh.user_options_factory.defaults
     )
     unused_options = [opt for opt in options if opt not in possible_options]
     if unused_options != []:
@@ -244,12 +245,21 @@ def eqdsk_equilibrium(
         return read_geqdsk(f, options, options)
 
 
+class XPointLocation(Enum):
+    """Indicates if either end of a perpendicular edge ias an X-point.
+    """
+    NONE = 0
+    NORTH = 1
+    SOUTH = 2
+
+
 def perpendicular_edge(
-    eq: Equilibrium, north: SliceCoord, south: SliceCoord
+    eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> AcrossFieldCurve:
-    """Returns a line traveling at right angles to the magnetic field
-    connecting the two points on the poloidal plane. If this is not
-    possible, raise an exception.
+    """Returns a line traveling at right angles to the magnetic field.
+
+    This line will connect the two points on the poloidal plane. If
+    this is not possible, raise an exception.
 
     Parameters
     ----------
@@ -261,13 +271,33 @@ def perpendicular_edge(
         The end point of the line
 
     """
-    # FIXME: Should this space points evenly by distance rather than by psi?
     if north.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
     if south.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
-    psi_start = float(eq.psi_func(north.x1, north.x2, grid=False))
-    psi_end = float(eq.psi_func(south.x1, south.x2, grid=False))
+    # TODO: Refactor so that this can be passed in. As we no where the
+    # x-points lie within the hypnotoad regions, it would be more
+    # efficient identify them in advance rather than have to check
+    # every point.
+    if any(np.isclose(north.x1, x.R, 1e-8, 1e-8) and np.isclose(north.x2, x.Z, 1e-8, 1e-8) for x in eq.x_points):
+        x_point = XPointLocation.NORTH
+    elif any(np.isclose(south.x1, x.R, 1e-8, 1e-8) and np.isclose(south.x2, x.Z, 1e-8, 1e-8) for x in eq.x_points):
+        x_point = XPointLocation.SOUTH
+    else:
+        x_point = XPointLocation.NONE
+    if x_point == XPointLocation.NORTH:
+        start = south
+        end = north
+        def parameter(s: npt.ArrayLike) -> npt.NDArray:
+            return 1 - np.asarray(s)
+    else:
+        start = north
+        end = south
+        def parameter(s: npt.ArrayLike) -> npt.NDArray:
+            return np.asarray(s)
+
+    psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
+    psi_end = float(eq.psi_func(end.x1, end.x2, grid=False))
     sign = np.sign(psi_end - psi_start)
 
     def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
@@ -286,30 +316,48 @@ def perpendicular_edge(
     result = solve_ivp(
         f,
         (0.0, 1e2),
-        [north.x1, north.x2],
+        [start.x1, start.x2],
         method="DOP853",
         rtol=5e-14,
         atol=1e-14,
         events=terminus,
-        vectorized=True,
+        vectorized=False,
     )
     if not result.success:
         raise RuntimeError("Failed to integrate along field line")
     if len(result.t_events[0]) == 0:
         raise RuntimeError("Integration did not cross over expected end-point")
-    if not np.isclose(result.y[0, -1], south.x1, 1e-8, 1e-8) and not np.isclose(
-        result.y[1, -1], south.x2, 1e-8, 1e-8
+    # FIXME: This does not always work due to the refine_points procedure
+    if x_point == XPointLocation.NONE and not np.isclose(result.y[0, -1], end.x1, 1e-8, 1e-8) and not np.isclose(
+        result.y[1, -1], end.x2, 1e-8, 1e-8
     ):
-        raise RuntimeError("Integration did not converge on expected location")
+        raise RuntimeError("Integration did not converge on expected location; try lowering tolerances for hypnotoad mesh.")
     total_distance: float = result.t[-1]
 
-    @integrate_vectorized(tuple(north), total_distance, {total_distance: tuple(south)})
+    @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         return f(np.asarray(s) * total_distance, np.asarray(x))
-
+    
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
-        s = np.asarray(s)
-        R, Z = solution(s)
+        s = parameter(s)
+        # Hypnotoad's perpendicular surfaces near the x-point aren't
+        # entirely accurate, due to numerically difficulty if you get
+        # too close. As a result, if north or south are located at the
+        # x-point, we won't actually manage to integrate to be
+        # sufficiently close to them. To get around this, the solution
+        # is approximated as a linear combination of the integration
+        # and a straight line between north and south. The weight of
+        # the linaer component increases as the x-point is approached.
+        R_sol, Z_sol = solution(s)
+        if x_point == XPointLocation.NONE:
+            R = R_sol
+            Z = Z_sol
+        else:
+            m = s * s
+            R_lin = start.x1 * (1 - s) + end.x1 * s
+            Z_lin = start.x2 * (1 - s) + end.x2 * s
+            R = R_sol * (1 - m) + m * R_lin
+            Z = Z_sol * (1 - m) + m * Z_lin
         return SliceCoords(
             R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
         )
@@ -331,11 +379,36 @@ def smallest_angle_between(end_angle: float, start_angle: float) -> float:
 def flux_surface_edge(
     eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> AcrossFieldCurve:
+    """Returns a line following a flux surface.
+
+    This line will connect the two points on the poloidal plane. If
+    this is not possible, raise an exception.
+
+    .. warning::
+        If the points are seperated by a large angle along the flux
+        surface, there is a chance that the integration may fail. This
+        won't normally be a problem, as hypnotoad generates meshes
+        with points that are relatively close together, but it can be
+        if choosing arbitrary points.
+
+    Parameters
+    ----------
+    eq
+        A hypnotaod Equilibrium object describing the magnetic field
+    north
+        The starting point of the line
+    south
+        The end point of the line
+
+    """
     if north.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
     if south.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
 
+    # FIXME: I don't think this will be able to handle the inexact
+    # seperatrix you will get when doing a realistic connected double
+    # null
     psi_north = cast(float, eq.psi(north.x1, north.x2))
     psi_south = cast(float, eq.psi(south.x1, south.x2))
     if not np.isclose(psi_north, psi_south, 1e-10, 1e-10):
@@ -344,26 +417,51 @@ def flux_surface_edge(
             f"{psi_north} and {psi_south}"
         )
 
-    start_angle = np.arctan2(north.x2 - eq.o_point.Z, north.x1 - eq.o_point.R)
-    end_angle = np.arctan2(south.x2 - eq.o_point.Z, south.x1 - eq.o_point.R)
-    delta_angle = smallest_angle_between(end_angle, start_angle)
-
     # Work out whether we need to reverse the direction of travel
     # along the flux surfaces
-    sign = np.sign(delta_angle * eq.psi(north.x1, north.x2))
-
-    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+    # sign = np.sign(delta_angle * eq.psi(north.x1, north.x2))
+    def dpsi(x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
         dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
+        return dpsidR, dpsidZ
+
+    # Start from the location with the stronger poloidal magnetic
+    # field (as this will be farther from an x-point and thus less
+    # prone to numerical error)
+    if sum(x * x for x in dpsi(np.array(list(north)))) > sum(x * x for x in dpsi(np.array(list(south)))):
+        start = north
+        end = south
+        def parameter(s: npt.ArrayLike) -> npt.NDArray:
+            return np.asarray(s)
+    else:
+        start = south
+        end = north
+        def parameter(s: npt.ArrayLike) -> npt.NDArray:
+            return 1 - np.asarray(s)
+
+    def surface(x: npt.NDArray) -> npt.NDArray:
+        dpsidR, dpsidZ = dpsi(x)
         norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
-        return -sign * dpsidZ / norm, sign * dpsidR / norm
+        return np.array([-dpsidZ / norm, dpsidR / norm])
+
+
+    direction = surface(np.array(list(start)))
+    sign = float(np.sign(direction[0] * (end.x1 - start.x1) + direction[1] * (end.x2 - start.x2)))
+
+    def f(t: npt.NDArray, x: npt.NDArray) -> npt.NDArray:
+        return sign * surface(x)
+
+    end_orthogonal = (
+        eq.psi_func(end.x1, end.x2, dx=1, grid=False),
+        eq.psi_func(end.x1, end.x2, dy=1, grid=False)
+    )
 
     def terminus(t: float, x: npt.NDArray) -> float:
-        return float(
-            smallest_angle_between(
-                end_angle, np.arctan2(x[1] - eq.o_point.Z, x[0] - eq.o_point.R)
-            )
-        )
+        # Use the cross-product of the vector between the point and
+        # the target and the vector orthogonal to the flux surfaces at
+        # the target to determine which side of the target we are on
+        sign = np.sign(end_orthogonal[0] * (x[1] - end.x2) - end_orthogonal[1] * (x[0] - end.x1))
+        return float(sign*np.sqrt((x[0] - end.x1)**2 + (x[1] - end.x2)**2))
 
     terminus.terminal = True  # type: ignore
 
@@ -372,29 +470,31 @@ def flux_surface_edge(
     result = solve_ivp(
         f,
         (0.0, 1e2),
-        [north.x1, north.x2],
+        [start.x1, start.x2],
         method="DOP853",
         rtol=5e-14,
         atol=1e-14,
         events=terminus,
         vectorized=True,
     )
+    # FIXME: This is diverging from the flux surface in some situations, somehow.
     if not result.success:
         raise RuntimeError("Failed to integrate along field line")
     if len(result.t_events[0]) == 0:
         raise RuntimeError("Integration did not cross over expected end-point")
-    if not np.isclose(result.y[0, -1], south.x1, 1e-8, 1e-8) and not np.isclose(
-        result.y[1, -1], south.x2, 1e-8, 1e-8
+    if not np.isclose(result.y[0, -1], end.x1, 1e-8, 1e-8) and not np.isclose(
+        result.y[1, -1], end.x2, 1e-8, 1e-8
     ):
+        breakpoint()
         raise RuntimeError("Integration did not converge on expected location")
     total_distance: float = result.t[-1]
 
-    @integrate_vectorized(tuple(north), total_distance, {total_distance: tuple(south)})
+    @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
-        return f(np.asarray(s) * total_distance, np.asarray(x))
+        return f(np.asarray(s) * total_distance, np.asarray(x)),
 
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
-        s = np.asarray(s)
+        s = parameter(s)
         R, Z = solution(s)
         return SliceCoords(
             R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL

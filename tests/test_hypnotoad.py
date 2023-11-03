@@ -4,22 +4,28 @@ from collections import Counter
 from collections.abc import Iterable
 from enum import Enum
 from typing import Any, Callable, NamedTuple, cast
+import warnings
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Equilibrium, Point2D  # type: ignore
+from hypnotoad import Equilibrium, EquilibriumRegion, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
 from hypothesis import given, settings
 from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import (
+    booleans,
     builds,
+    composite,
     floats,
     integers,
+    just,
     lists,
     nothing,
     one_of,
     sampled_from,
+    shared,
+    tuples,
 )
 from pytest import fixture, mark
 from scipy.integrate import quad
@@ -27,6 +33,7 @@ from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad import (
+    XPointLocation,
     equilibrium_trace,
     flux_surface_edge,
     _get_region_boundaries,
@@ -72,6 +79,7 @@ class FakeEquilibrium(Equilibrium):
         self.a = a
         self.b = b
         self.q = q
+        self.x_points: list[Point2D] = []
 
     def psi_func(
         self,
@@ -226,8 +234,8 @@ class FakeEquilibrium(Equilibrium):
 fake_equilibria = builds(
     FakeEquilibrium,
     builds(Point2D, floats(1.0, 10.0), whole_numbers),
-    floats(0.1, 0.99),
-    floats(0.1, 2.0),
+    floats(0.25, 0.99),
+    floats(0.25, 2.0),
     floats(0.1, 10.0),
 )
 
@@ -262,14 +270,7 @@ def test_field_trace(
     assert np.all(distances * phis >= 0)
     sorted_distances = np.ravel(distances)[np.argsort(np.ravel(phis))]
     assert np.all(sorted_distances[:-1] <= sorted_distances[1:])
-
-
-class EquilibriumType(Enum):
-    LOWER_SINGLE_NULL = 0
-    UPPER_SINGLE_NULL = 1
-    CONNECTED_DOUBLE_NULL = 2
-    LOWER_DOUBLE_NULL = 3
-    UPPER_DOUBLE_NULL = 4
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), psi_start, 1e-8, 1e-8)
 
 
 class OPoint(NamedTuple):
@@ -277,9 +278,6 @@ class OPoint(NamedTuple):
     Z: float
     aspect_ratio: float
     magnitude: float
-
-
-SQRT2: float = np.sqrt(2.0)
 
 
 def create_equilibrium(
@@ -322,22 +320,34 @@ def create_equilibrium(
             np.full(nx, 0.5 * sum(z_lims)),
         )
 
+    dR = r_lims[1] - r_lims[0]
+    dZ = z_lims[1] - z_lims[0]
+
     return TokamakEquilibrium(
         r1d,
         z1d,
         psi_func(r2d, z2d),
         psi1d,
         np.linspace(0.0, 1.0, nx),  # fpol1d
+        wall=[
+            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ),
+            (r_lims[0] + 0.05 * dR, z_lims[1] - 0.05 * dZ),
+            (r_lims[1] - 0.05 * dR, z_lims[1] - 0.05 * dZ),
+            (r_lims[1] - 0.05 * dR, z_lims[0] + 0.05 * dZ),
+            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ)
+        ],
         make_regions=make_regions,
-        settings=options,
-    )
+        settings={"refine_atol": 1e-10} | options,
+        )
 
+MESH_SIZE = {'nx_core': 3, 'nx_sol': 3, 'ny_inner_divertor': 3, 'ny_outer_divertor': 3, 'ny_sol': 4}
 
 def lower_single_null() -> TokamakEquilibrium:
     """Creates an equilibrium with an X-point."""
     return create_equilibrium(
         o_points=[OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
         make_regions=True,
+        options=MESH_SIZE,
     )
 
 
@@ -345,6 +355,7 @@ def upper_single_null() -> TokamakEquilibrium:
     return create_equilibrium(
         o_points=[OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
         make_regions=True,
+        options=MESH_SIZE,
     )
 
 
@@ -356,6 +367,7 @@ def connected_double_null() -> TokamakEquilibrium:
             OPoint(1.5, 0.0, 1.0, 0.4),
         ],
         make_regions=True,
+        options=MESH_SIZE,
     )
 
 
@@ -367,7 +379,7 @@ def lower_double_null() -> TokamakEquilibrium:
             OPoint(1.5, 0.0, 1.0, 0.4),
         ],
         make_regions=True,
-        options={"nx_inter_sep": 3},
+        options=MESH_SIZE | {"nx_inter_sep": 3},
     )
 
 
@@ -379,7 +391,7 @@ def upper_double_null() -> TokamakEquilibrium:
             OPoint(1.5, 0.0, 1.0, 0.4),
         ],
         make_regions=True,
-        options={"nx_inter_sep": 3},
+        options=MESH_SIZE | {"nx_inter_sep": 3},
     )
 
 
@@ -410,6 +422,7 @@ def test_trace_outside_separatrix(x_point_equilibrium: TokamakEquilibrium) -> No
         assert R > r0
         assert Z > Z_prev
     assert np.any(positions.x2 > z0), "Did not integrate past X-point"
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), 1e-8, 1e-8)
 
 
 def test_trace_private_flux_region(x_point_equilibrium: TokamakEquilibrium) -> None:
@@ -434,6 +447,7 @@ def test_trace_private_flux_region(x_point_equilibrium: TokamakEquilibrium) -> N
         assert R < R_prev
         assert Z < z0
     assert np.any(positions.x1 < r0), "Did not integrate past X-point"
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), 1e-8, 1e-8)
 
 
 def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
@@ -445,7 +459,6 @@ def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
     r0 = eq.x_points[0].R
     z0 = eq.x_points[0].Z
     psi_val = eq.psi(r0, z0)
-    print(r0, z0)
 
     Z_sol = root_scalar(lambda Z: eq.psi(r0, Z) - psi_val, bracket=[eq.o_point.Z, 2])
     assert Z_sol.converged
@@ -485,6 +498,7 @@ def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
             assert Z > Z0
             R0_crossings += 1
     assert R0_crossings >= 2
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), 1e-8, 1e-8)
 
 
 def test_trace_x_point(x_point_equilibrium: TokamakEquilibrium) -> None:
@@ -499,6 +513,7 @@ def test_trace_x_point(x_point_equilibrium: TokamakEquilibrium) -> None:
     )
     np.testing.assert_allclose(positions.x1, r0, 1e-3, 1e-3)
     np.testing.assert_allclose(positions.x2, z0, 1e-3, 1e-3)
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(r0, z0), 1e-3, 1e-3)
 
 
 def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
@@ -509,11 +524,12 @@ def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
     R0 = eq.o_point.R
     Z0 = eq.o_point.Z
     positions, _ = equilibrium_trace(eq)(
-        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.1, 9)
+        SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 0.1, 9)
     )
     tol = 1e-6
     np.testing.assert_allclose(positions.x1, R0, tol, tol)
     np.testing.assert_allclose(positions.x2, Z0, tol, tol)
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), tol, tol)
 
 
 # TODO: Generate some fake EQDSK data so I can test the equilibrium reader
@@ -580,12 +596,13 @@ def test_perpendicular_edges(
 @settings(deadline=None)
 @given(
     fake_equilibria,
-    lists(
-        integers(0, 999).map(lambda x: x / 1000 * 2 * np.pi),
-        min_size=2,
-        max_size=2,
-        unique=True,
-    ),
+    floats(0., 2*np.pi).flatmap(lambda x: tuples(just(x), one_of(floats(0.005, 0.25*np.pi), floats(-0.25*np.pi, -0.001)).map(lambda y: y + x))),
+    # lists(
+    #     integers(0, 999).map(lambda x: x / 1000 * 2 * np.pi),
+    #     min_size=2,
+    #     max_size=2,
+    #     unique=True,
+    # ),
     psis,
     one_of(
         floats(-0.5, 1.0),
@@ -602,7 +619,7 @@ def test_perpendicular_edges(
 )
 def test_flux_surface_edges(
     eq: FakeEquilibrium,
-    start_end_points: list[float],
+    start_end_points: tuple[float, float],
     psi: float,
     positions: npt.NDArray,
 ) -> None:
@@ -620,10 +637,6 @@ def test_flux_surface_edges(
     # Calculate distances of points along ellipse and check they are
     # proportional to the normalised `position` parameter
 
-    # FIXME: Problem with my distance calculation is that I assume the
-    # shortest path is always used to connect two points, whereas
-    # actually they are connected by whatever direction a field line
-    # travels about the flux surface.
     a_prime = np.sqrt(eq.a * psi)
     b_prime = np.sqrt(eq.b * psi)
     semi_maj = max(a_prime, b_prime)
@@ -652,11 +665,20 @@ def test_flux_surface_edges(
     np.testing.assert_allclose(distances / total_arc, positions, 1e-8, 1e-8)
 
 
-LOWER_SINGLE_NULL = Mesh(lower_single_null(), {})
-UPPER_SINGLE_NULL = Mesh(upper_single_null(), {})
-CONNECTED_DOUBLE_NULL = Mesh(connected_double_null(), {})
-LOWER_DOUBLE_NULL = Mesh(lower_double_null(), {})
-UPPER_DOUBLE_NULL = Mesh(upper_double_null(), {})
+def to_mesh(eq: TokamakEquilibrium) -> Mesh:
+    m = Mesh(eq, {"follow_perpendicular_rtol": 1e-10, "follow_perpendicular_atol": 1e-10} | dict(eq.user_options))
+    m.calculateRZ()
+    return m
+
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", "divide by zero", RuntimeWarning, "hypnotoad.core.equilibrium")
+    warnings.filterwarnings("ignore", "invalid value encountered in divide", RuntimeWarning, "hypnotoad.core.equilibrium")
+    LOWER_SINGLE_NULL = to_mesh(lower_single_null())
+    UPPER_SINGLE_NULL = to_mesh(upper_single_null())
+    CONNECTED_DOUBLE_NULL = to_mesh(connected_double_null())
+    LOWER_DOUBLE_NULL = to_mesh(lower_double_null())
+    UPPER_DOUBLE_NULL = to_mesh(upper_double_null())
+
 sample_meshes = [
     LOWER_SINGLE_NULL,
     UPPER_SINGLE_NULL,
@@ -664,10 +686,108 @@ sample_meshes = [
     LOWER_DOUBLE_NULL,
     UPPER_DOUBLE_NULL,
 ]
-for m in sample_meshes:
-    m.calculateRZ()
 real_meshes = sampled_from(sample_meshes)
 mesh_regions = real_meshes.map(lambda x: list(x.regions.values())).flatmap(sampled_from)
+
+shared_mesh_regions = shared(mesh_regions, key=0)
+
+@composite
+def flux_surface_termini(draw: Any, region: MeshRegion) -> tuple[SliceCoord, SliceCoord]:
+    n, m = region.Rxy.corners.shape
+    i = draw(integers(0, n - 1))
+    j = draw(integers(0, m-2))
+    start = SliceCoord(region.Rxy.corners[i, j], region.Zxy.corners[i, j], CoordinateSystem.CYLINDRICAL)
+    end = SliceCoord(region.Rxy.corners[i, j + 1], region.Zxy.corners[i, j + 1], CoordinateSystem.CYLINDRICAL)
+    if draw(booleans()):
+        # Reverse direction of points
+        return end, start
+    else:
+        return start, end
+
+@composite
+def perpendicular_termini(draw: Any, region: MeshRegion) -> tuple[SliceCoord, SliceCoord]:
+    n, m = region.Rxy.corners.shape
+    i = draw(integers(0, n - 2))
+    j = draw(integers(0, m - 1))
+    start = SliceCoord(region.Rxy.corners[i, j], region.Zxy.corners[i, j], CoordinateSystem.CYLINDRICAL)
+    end = SliceCoord(region.Rxy.corners[i + 1, j], region.Zxy.corners[i + 1, j], CoordinateSystem.CYLINDRICAL)
+    if draw(booleans()):
+        # Reverse direction of points
+        return end, start
+    else:
+        return start, end
+
+@settings(deadline=None)
+@given(
+    shared_mesh_regions,
+    shared_mesh_regions.flatmap(flux_surface_termini),
+    one_of(
+        floats(0., 1.0),
+        arrays(
+            np.float64,
+            array_shapes(max_side=3),
+            # The scipy integration routines don't behave well if we have
+            # numbers that differ by around machine-epsilon, so we enforce
+            # larger differences between values
+            elements=integers(-50, 50).map(lambda x: (x + 50) / 100),
+            fill=nothing(),
+        ),
+    ),
+)
+def test_flux_surface_realistic_topology(
+    region: MeshRegion,
+    start_end_points: tuple[SliceCoord, SliceCoord],
+    positions: npt.NDArray,
+) -> None:
+    eq: TokamakEquilibrium = region.meshParent.equilibrium
+    start, end = start_end_points
+    curve = flux_surface_edge(eq, start, end)
+    psi = eq.psi(start.x1, start.x2)
+    assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-8, 1e-8)
+    # Check termini of curve
+    assert curve(0.0).to_coord() == start
+    assert curve(1.0).to_coord() == end
+    actual = curve(positions)
+    # Check all points have the correct psi value
+    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-8, 1e-8)
+
+
+@mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
+@given(
+    shared_mesh_regions,
+    shared_mesh_regions.flatmap(perpendicular_termini),
+    one_of(
+        floats(0., 1.0),
+        arrays(
+            np.float64,
+            array_shapes(max_side=3),
+            # The scipy integration routines don't behave well if we have
+            # numbers that differ by around machine-epsilon, so we enforce
+            # larger differences between values
+            elements=integers(-50, 50).map(lambda x: (x + 50) / 100),
+            fill=nothing(),
+        ),
+    ),
+)
+def test_perpendicular_edges_realistic_topology(
+    region: MeshRegion,
+    start_end_points: tuple[SliceCoord, SliceCoord],
+    positions: npt.NDArray,
+) -> None:
+    eq: TokamakEquilibrium = region.meshParent.equilibrium
+    start, end = start_end_points
+    psi_start = eq.psi(start.x1, start.x2)
+    psi_end = eq.psi(end.x1, end.x2)
+    assert psi_start != psi_end
+    curve = perpendicular_edge(eq, start, end)
+    # Check termini of curve
+    assert curve(0.0).to_coord() == start
+    assert curve(1.0).to_coord() == end
+    actual = curve(positions)
+    # Check all have psi values between those of start and end points
+    actual_psi = eq.psi(actual.x1, actual.x2)
+    assert np.all(actual_psi <= max(psi_start, psi_end) + 1e-10)
+    assert np.all(actual_psi >= min(psi_start, psi_end) - 1e-10)
 
 
 def check_coordinate_pairs_connected(
