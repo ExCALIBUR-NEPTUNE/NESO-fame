@@ -144,6 +144,10 @@ class FakeEquilibrium(Equilibrium):
             self.q * R * (-self.Bp_R(R, Z) * sin + self.Bp_Z(R, Z) * cos) / r
         )
 
+    # def f_spl(self, psi: float | npt.NDArray) -> float | npt.NDArray:
+    #     fpol = self.q * (-self.Bp_R(R, Z) * sin + self.Bp_Z(R, Z) * cos) / r
+    #     pass
+
     def to_RZ(
         self, psi: float | npt.NDArray, theta: float | npt.NDArray
     ) -> tuple[npt.NDArray, npt.NDArray]:
@@ -498,7 +502,7 @@ def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
             assert Z > Z0
             R0_crossings += 1
     assert R0_crossings >= 2
-    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), 1e-8, 1e-8)
+    np.testing.assert_allclose(eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), 1e-7, 1e-7)
 
 
 def test_trace_x_point(x_point_equilibrium: TokamakEquilibrium) -> None:

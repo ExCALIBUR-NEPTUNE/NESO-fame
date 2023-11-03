@@ -706,7 +706,6 @@ def test_subdivided_grid_3d() -> None:
     # Check corners of quads are in correct locations
     for index, hexa in enumerate(mesh):
         corners = hexa.corners()
-        print(index, corners)
         assert len(corners) == 8
         i = index // n // (m1 - 1)
         j = index // n % (m1 - 1)
@@ -792,11 +791,9 @@ def test_extruding_hypnotoad_mesh() -> None:
     mesh = generators.hypnotoad_mesh(hypno_mesh, (0., 0.125*np.pi), 8, 21)
     actual_nodes = frozenset(itertools.chain.from_iterable((q.shape(0.).to_coord(), q.shape(1.).to_coord()) for q in itertools.chain.from_iterable(mesh)))
     expected_nodes = frozenset(itertools.chain.from_iterable(SliceCoords(r.Rxy.corners, r.Zxy.corners, CoordinateSystem.CYLINDRICAL).iter_points() for r in hypno_mesh.regions.values()))
-    
     assert actual_nodes == expected_nodes
     lines = frozenset(itertools.chain.from_iterable((q.north, q.south) for q in itertools.chain.from_iterable(mesh)))
     for line in lines:
-        print(line)
         R, Z, _ = control_points(line, 8)
         # Ignore any values that leave the domain, as these won't be accurate
         in_domain = np.logical_and(np.logical_and(R <= eq.Rmax, R >= eq.Rmin), np.logical_and(Z <= eq.Zmax, Z >= eq.Zmin))

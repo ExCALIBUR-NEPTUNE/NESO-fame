@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from functools import reduce
 from tempfile import TemporaryDirectory
 from typing import Callable, Iterator, Type, TypeGuard, TypeVar, Union, cast
+from neso_fame.offset import Offset
 
 import numpy as np
 from hypothesis import given, settings
@@ -51,6 +52,10 @@ from neso_fame.mesh import (
     SliceCoords,
     StraightLineAcrossField,
     control_points,
+    is_3d_curve,
+    is_end_quad,
+    is_mesh_layer,
+    is_quad,
 )
 
 from .conftest import linear_field_trace, non_nans, quad_meshes
@@ -177,7 +182,7 @@ def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
 
 
 def test_circular_nektar_curve() -> None:
-    curve = FieldAlignedCurve(
+    curve = Offset(FieldAlignedCurve(
         FieldTracer(
             linear_field_trace(
                 0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
@@ -186,8 +191,8 @@ def test_circular_nektar_curve() -> None:
         ),
         SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
         np.pi,
-        x3_offset=np.pi / 2,
-    )
+    ),        x3_offset=np.pi / 2,
+        )
     nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 3, 0)
     assert_points_eq(
         nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.CARTESIAN)
@@ -305,8 +310,8 @@ def check_edges(
 ) -> None:
     if issubclass(
         mesh.element_type
-        if isinstance(mesh, MeshLayer)
-        else mesh.reference_layer.element_type,
+        if is_mesh_layer(mesh)
+        else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
         num_edges = 4
@@ -362,11 +367,12 @@ def check_face_composites(
     def comparable_item(
         item: NormalisedCurve | EndQuad,
     ) -> tuple[str, frozenset[Coord]]:
-        if isinstance(item, EndQuad):
+        if is_end_quad(item):
             return SD.QuadGeom.__name__, frozenset(
                 map(comparable_coord, item.corners().to_cartesian().iter_points())
             )
         else:
+            assert is_3d_curve(item)
             return SD.SegGeom.__name__, frozenset(
                 map(comparable_coord, item([0.0, 1.0]).to_cartesian().iter_points())
             )
@@ -383,7 +389,7 @@ def check_elements(
     actual_elements = comparable_set(actual)
     expected_elements = frozenset(
         (
-            comparable_quad(x) if isinstance(x, Quad) else comparable_hex(cast(Hex, x))
+            comparable_quad(x) if is_quad(x) else comparable_hex(cast(Hex, x))
             for x in expected
         )
     )
@@ -701,7 +707,7 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
     return elem
 
 
-QUAD = Quad(
+QUAD = Offset(Quad(
     StraightLineAcrossField(
         SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
         SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
@@ -718,7 +724,7 @@ QUAD = Quad(
         2,
     ),
     1.0,
-    x3_offset=0.5,
+),    x3_offset=0.5,
 )
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),

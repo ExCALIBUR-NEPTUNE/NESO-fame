@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import cache, cached_property
+from typing_extensions import assert_never
 from typing import (
+    Any,
     Callable,
     ClassVar,
     Generic,
@@ -16,14 +18,18 @@ from typing import (
     Optional,
     Protocol,
     Type,
+    TypeGuard,
     TypeVar,
     cast,
     overload,
 )
+from typing_extensions import Self
 
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
+
+from neso_fame.offset import LazyOffset, Offset, get_underlying_object, is_offset_instance
 
 
 class CoordinateSystem(Enum):
@@ -91,6 +97,13 @@ class SliceCoord:
         """Iterate over the coordinates of the point."""
         yield self.x1
         yield self.x2
+
+    def offset(self, dx3: float) -> Self:
+        """Returns itself.
+
+        x3 offsets are not meaningful for slice coordinates, which are
+        inherently 2D.  """
+        return self
 
     def round(self, figures: int = 8) -> SliceCoord:
         """Returns an object with coordinate values rounded to the
@@ -176,6 +189,13 @@ class SliceCoords:
         for array in np.broadcast_arrays(self.x1, self.x2):
             yield array
 
+    def offset(self, dx3: npt.ArrayLike) -> Self:
+        """Returns itself.
+
+        x3 offsets are not meaningful for slice coordinates, which are
+        inherently 2D."""
+        return self
+
     def __len__(self) -> int:
         """Returns the number of points contained in the object."""
         return np.broadcast(self.x1, self.x2).size
@@ -238,6 +258,10 @@ class Coord:
             float(x3),
             CoordinateSystem.CARTESIAN,
         )
+
+    def offset(self, dx3: float) -> "Coord":
+        """Changes the x3 coordinate by the specified ammount."""
+        return Coord(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def __iter__(self) -> Iterator[float]:
         """Iterate over the individual coordinates of the point."""
@@ -453,9 +477,6 @@ class _ElementLike(Protocol):
 
     """
 
-    def offset(self: T, offset: float) -> T:
-        ...
-
     def subdivide(self: T, num_divisions: int) -> Iterator[T]:
         ...
 
@@ -482,37 +503,22 @@ class FieldAlignedCurve:
     """The span of the curve in the x3-direction."""
     subdivision: int = 0
     num_divisions: int = 1
-    x3_offset: float = 0.0
 
     @cached_property
     def function(self) -> NormalisedCurve:
-        func = self.field.get_normalised_subdivision(
+        return self.field.get_normalised_subdivision(
             self.start,
             -0.5 * self.dx3,
             0.5 * self.dx3,
             self.subdivision,
             self.num_divisions,
         )
-        return lambda s: func(s).offset(self.x3_offset)
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Convenience function so that a FieldAlignedCurve is itself a
         :obj:`~neso_fame.mesh.NormalisedCurve`.
         """
         return self.function(s)
-
-    def offset(self, offset: float) -> "FieldAlignedCurve":
-        """Returns a new `FieldAlignedCurve` object which is identical except
-        offset by the specified ammount in the x3-direction.
-        """
-        return FieldAlignedCurve(
-            self.field,
-            self.start,
-            self.dx3,
-            self.subdivision,
-            self.num_divisions,
-            self.x3_offset + offset,
-        )
 
     def subdivide(self, num_divisions: int) -> Iterator[FieldAlignedCurve]:
         """Returns an iterator of curves created by splitting this one
@@ -528,8 +534,33 @@ class FieldAlignedCurve:
                     self.dx3,
                     self.subdivision * num_divisions + i,
                     self.num_divisions * num_divisions,
-                    self.x3_offset,
                 )
+
+
+def is_quad(element: Any) -> TypeGuard[Quad]:
+    return is_offset_instance(element, Quad)
+
+def is_end_quad(element: Any) -> TypeGuard[EndQuad]:
+    return is_offset_instance(element, EndQuad)
+
+def is_any_quad(element: Any) -> TypeGuard[Quad | EndQuad]:
+    return is_offset_instance(element, (Quad, EndQuad))
+
+def is_hex(element: Any) -> TypeGuard[Hex]:
+    return is_offset_instance(element, Hex)
+
+def is_higher_dimensional(element: Any) -> TypeGuard[Quad | EndQuad | Hex]:
+    return is_offset_instance(element, (Quad, EndQuad, Hex))
+
+def is_curve(element: Quad | EndQuad | Hex | AcrossFieldCurve | NormalisedCurve) -> TypeGuard[AcrossFieldCurve | NormalisedCurve]:
+    return callable(element)
+
+def is_3d_curve(element: Quad | EndQuad | Hex | NormalisedCurve) -> TypeGuard[NormalisedCurve]:
+    return callable(element)
+
+def is_mesh_layer(
+        mesh: MeshLayer | GenericMesh) -> TypeGuard[MeshLayer]:
+    return is_offset_instance(mesh, MeshLayer)
 
 
 @overload
@@ -540,7 +571,6 @@ def control_points(element: NormalisedCurve | Quad | EndQuad, order: int) -> Coo
 @overload
 def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords:
     ...
-
 
 @cache
 def control_points(
@@ -558,7 +588,7 @@ def control_points(
 
     """
     s = np.linspace(0.0, 1.0, order + 1)
-    if isinstance(element, Quad):
+    if is_quad(element):
         x1 = np.empty((order + 1, order + 1))
         x2 = np.empty((order + 1, order + 1))
         x3 = np.empty((order + 1, order + 1))
@@ -568,8 +598,8 @@ def control_points(
             x2[i, :] = coords.x2
             x3[i, :] = coords.x3
         return Coords(x1, x2, x3, coords.system)
-    else:
-        return element(s)
+    assert is_curve(element)
+    return element(s)
 
 
 @dataclass(frozen=True)
@@ -626,10 +656,9 @@ class Quad:
     """Representation of a four-sided polygon (quadrilateral).
 
     This is done using information about the shape of the magnetic
-    field and the line where the quad intersects the x3=0 plane. The
-    quad can be offset from x3=0. You can also choose the divide the
-    quad into a number of conformal sub-quads, evenely spaced in x3,
-    and pick one of them.
+    field and the line where the quad intersects the x3=0 plane. You
+    can choose to divide the quad into a number of conformal
+    sub-quads, evenely spaced in x3, and pick one of them.
 
     Group
     -----
@@ -650,8 +679,6 @@ class Quad:
     split into `num_divisions` in teh x3 direction."""
     num_divisions: int = 1
     """The number of conformal quads to split this into along the x3 direction."""
-    x3_offset: float = 0.0
-    """The offset of the quad(s) from x3=0, before subdividing."""
 
     def __iter__(self) -> Iterator[FieldAlignedCurve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
@@ -666,13 +693,11 @@ class Quad:
             self.dx3,
             self.subdivision,
             self.num_divisions,
-            self.x3_offset,
         )
 
     def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
         """Returns the line formed where the quad intersects the x1-x2
-        plane with the given x3 value. The value of x3 should be given
-        *without* accounting for any offset of the quad.
+        plane with the given x3 value.
         """
         x3_scaled = x3 / self.dx3 + 0.5
         x3 = (
@@ -682,8 +707,9 @@ class Quad:
         s = np.linspace(0.0, 1.0, self.field.resolution)
         x1_coord = np.empty(self.field.resolution)
         x2_coord = np.empty(self.field.resolution)
-        x3_coord = np.full(self.field.resolution, x3 + self.x3_offset)
+        x3_coord = np.full(self.field.resolution, x3)
         for i, start in enumerate(self.shape(s).iter_points()):
+            # FIXME: This is duplicating work in the case of the actual edges.
             coord = self.field.trace(start, x3)[0].to_coord()
             x1_coord[i] = coord.x1
             x2_coord[i] = coord.x2
@@ -751,20 +777,6 @@ class Quad:
             north_corners.system,
         )
 
-    def offset(self, offset: float) -> Quad:
-        """Returns a quad which is identical except that it is shifted
-        by the specified offset in the x3 direction.
-
-        """
-        return Quad(
-            self.shape,
-            self.field,
-            self.dx3,
-            self.subdivision,
-            self.num_divisions,
-            self.x3_offset + offset,
-        )
-
     def subdivide(self, num_divisions: int) -> Iterator[Quad]:
         """Returns an iterator of quad objects produced by splitting
         the bounding-line of this quad into the specified number of
@@ -782,7 +794,6 @@ class Quad:
                     self.dx3,
                     self.subdivision * num_divisions + i,
                     self.num_divisions * num_divisions,
-                    self.x3_offset,
                 )
 
 
@@ -901,18 +912,6 @@ class Hex:
             north_corners.system,
         )
 
-    def offset(self, offset: float) -> Hex:
-        """Returns a hex which is identical except that it is shifted
-        by the specified offset in the x3 direction.
-
-        """
-        return Hex(
-            self.north.offset(offset),
-            self.south.offset(offset),
-            self.east.offset(offset),
-            self.west.offset(offset),
-        )
-
     def subdivide(self, num_divisions: int) -> Iterator[Hex]:
         """Returns an iterator of hex objects produced by splitting
         the bounding-quads of this hex into the specified number of
@@ -955,17 +954,13 @@ class MeshLayer(Generic[E, B, C]):
     reference_elements: Sequence[E]
     """A colelction of the :class:`~neso_fame.mesh.Quad` or
     :class:`~neso_fame.mesh.Hex` elements making up the layer (without
-    any offset or subdivision)."""
+    any subdivision)."""
     bounds: Sequence[frozenset[B]]
     """An ordered collection of sets of :class:`~neso_fame.mesh.Curve`
     or :class:`~neso_fame.mesh.Quad` objects (faces or edges,
     repsectively). Each set describes a particular boundary regions of
     the layer. The near and far faces of the layer are not included in
     these."""
-    offset: Optional[float] = None
-    """The ammount by which the x3-coordinate of the elements and
-    boundaries should be changed from those in
-    :data:`~neso_fame.mesh.MeshLayer.reference_elements`."""
     subdivisions: int = 1
     """The number of elements deep the layer should be in the
     x3-direction."""
@@ -976,17 +971,17 @@ class MeshLayer(Generic[E, B, C]):
 
         """
         return self._iterate_elements(
-            self.reference_elements, self.offset, self.subdivisions
+            self.reference_elements, self.subdivisions
         )
 
     def __len__(self) -> int:
         """Returns the number of elements in this layer."""
         return len(self.reference_elements) * self.subdivisions
 
-    @cached_property
+    @property
     def element_type(self) -> Type[E]:
         """Returns the type object for the elements of the mesh layer."""
-        return type(next(iter(self.reference_elements)))
+        return type(get_underlying_object(next(iter(self.reference_elements))))
 
     def quads(self) -> Iterator[Quad]:
         """Iterates over teh `Quad` objects in the mesh. If the mesh
@@ -1014,7 +1009,7 @@ class MeshLayer(Generic[E, B, C]):
         return map(
             frozenset,
             (
-                self._iterate_elements(b, self.offset, self.subdivisions)
+                self._iterate_elements(b, self.subdivisions)
                 for b in self.bounds
             ),
         )
@@ -1029,7 +1024,7 @@ class MeshLayer(Generic[E, B, C]):
         """
         return (
             cast(C, e.near)
-            for e in self._iterate_elements(self.reference_elements, self.offset, 1)
+            for e in self._iterate_elements(self.reference_elements, 1)
         )
 
     def far_faces(self) -> Iterator[C]:
@@ -1048,40 +1043,34 @@ class MeshLayer(Generic[E, B, C]):
         """
         return (
             cast(C, e.far)
-            for e in self._iterate_elements(self.reference_elements, self.offset, 1)
+            for e in self._iterate_elements(self.reference_elements, 1)
         )
 
     @overload
     @staticmethod
     def _iterate_elements(
-        elements: Iterable[E], offset: Optional[float], subdivisions: int
+        elements: Iterable[E], subdivisions: int
     ) -> Iterator[E]:
         ...
 
     @overload
     @staticmethod
     def _iterate_elements(
-        elements: Iterable[B], offset: Optional[float], subdivisions: int
+        elements: Iterable[B], subdivisions: int
     ) -> Iterator[B]:
         ...
 
     @staticmethod
     def _iterate_elements(
-        elements: Iterable[_ElementLike], offset: Optional[float], subdivisions: int
+        elements: Iterable[_ElementLike], subdivisions: int
     ) -> Iterator[_ElementLike]:
         """Convenience method used by other iteration methods. It
-        handles offsets and subdivisions appropriately.
+        handles subdivisions appropriately.
 
         """
-        if isinstance(offset, float):
-            x = offset
-            return itertools.chain.from_iterable(
-                (e.offset(x).subdivide(subdivisions) for e in elements)
-            )
-        else:
-            return itertools.chain.from_iterable(
-                (e.subdivide(subdivisions) for e in elements)
-            )
+        return itertools.chain.from_iterable(
+            (e.subdivide(subdivisions) for e in elements)
+        )
 
 
 @dataclass(frozen=True)
@@ -1122,13 +1111,7 @@ class GenericMesh(Generic[E, B, C]):
         mesh.
 
         """
-        return (
-            MeshLayer(
-                self.reference_layer.reference_elements,
-                self.reference_layer.bounds,
-                off,
-                self.reference_layer.subdivisions,
-            )
+        return (Offset(self.reference_layer, off)
             for off in self.offsets
         )
 
@@ -1272,6 +1255,7 @@ class FieldTracer:
     ) -> NormalisedCurve:
         interp = interp1d((s - s[0]) / (s[-1] - s[0]), coords, order)
 
+        # FIXME: Does it really matter if I normalise this way? It significantly reduces accuracy of positions on the field line.
         def normalised_interpolator(s: npt.ArrayLike) -> Coords:
             locations = interp(s)
             return Coords(locations[0], locations[1], locations[2], system)

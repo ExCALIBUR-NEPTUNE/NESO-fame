@@ -16,6 +16,7 @@ from hypothesis.strategies import (
 )
 
 from neso_fame import mesh
+from neso_fame.offset import LazyOffset, Offset, get_offset, get_underlying_object, is_offset_instance
 
 from .conftest import (
     CARTESIAN_SYSTEMS,
@@ -545,7 +546,7 @@ def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> 
 
 @given(from_type(mesh.FieldAlignedCurve), whole_numbers, floats(0.0, 1.0))
 def test_curve_offset(curve: mesh.FieldAlignedCurve, offset: float, arg: float) -> None:
-    curve2 = curve.offset(offset)
+    curve2 = Offset(curve, offset)
     p1 = curve(arg)
     p2 = curve2(arg)
     np.testing.assert_allclose(p1.x1, p2.x1, atol=1e-12)
@@ -594,7 +595,7 @@ def test_curve_control_points_size(curve: mesh.FieldAlignedCurve, n: int) -> Non
 def test_curve_control_points_values() -> None:
     a = -2.0
     b = -0.5
-    curve = mesh.FieldAlignedCurve(
+    curve = Offset(mesh.FieldAlignedCurve(
         mesh.FieldTracer(
             lambda start, x: (
                 mesh.SliceCoords(
@@ -608,8 +609,8 @@ def test_curve_control_points_values() -> None:
         ),
         mesh.SliceCoord(0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
         -1.0,
-        x3_offset=-0.5,
-    )
+    ),        x3_offset=-0.5,)
+
     x1, x2, x3 = mesh.control_points(curve, 2)
     np.testing.assert_allclose(x1, [-1.0, 0.0, 1.0], atol=1e-12)
     np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
@@ -619,7 +620,8 @@ def test_curve_control_points_values() -> None:
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
-    x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - q.x3_offset)[0]
+    x3_offset = get_offset(q)
+    x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - x3_offset)[0]
     np.testing.assert_allclose(actual.x1, x1, rtol=2e-4, atol=1e-5)
     np.testing.assert_allclose(actual.x2, x2, rtol=2e-4, atol=1e-5)
 
@@ -627,7 +629,8 @@ def test_quad_north(q: mesh.Quad, s: float) -> None:
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
     actual = q.south(s)
-    x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - q.x3_offset)[0]
+    x3_offset = get_offset(q)
+    x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - x3_offset)[0]
     np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
 
@@ -642,6 +645,7 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
     s = np.linspace(0.0, 1.0, n)
     cp = q.near(s)
     start_points = q.shape(s)
+    x3_offset = get_offset(q)
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(
             q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
@@ -649,7 +653,7 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
     )(
         start_points.x1,
         start_points.x2,
-        cp.x3 - q.x3_offset,
+        cp.x3 - x3_offset,
     )
     np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
@@ -661,6 +665,7 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
     actual = frozenset(q.far(np.array([0.0, 1.0])).iter_points())
     expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
     assert expected == actual
+    x3_offset = get_offset(q)
     # Check points on edge on field lines that pass through the
     # reference shape for the quad
     s = np.linspace(0.0, 1.0, n)
@@ -673,7 +678,7 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
     )(
         start_points.x1,
         start_points.x2,
-        cp.x3 - q.x3_offset,
+        cp.x3 - x3_offset,
     )
     np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
@@ -723,6 +728,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     start_points = q.shape(np.linspace(0.0, 1.0, n + 1))
     x1_starts = np.expand_dims(start_points.x1, 1)
     x2_starts = np.expand_dims(start_points.x2, 1)
+    x3_offset = get_offset(q)
     distances = np.vectorize(
         lambda x1, x2, x3: q.field.trace(
             mesh.SliceCoord(x1, x2, start_points.system), x3
@@ -730,12 +736,13 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     )(
         x1_starts,
         x2_starts,
-        cp.x3 - q.x3_offset,
+        cp.x3 - x3_offset,
     )
     d_diff = distances[:, 1:] - distances[:, :-1]
     for i in range(n + 1):
         np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-6, atol=1e-7)
     # Check points fall along field lines that are equally spaced at the start position
+    x3_offset = get_offset(q)
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(
             q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
@@ -743,7 +750,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     )(
         x1_starts,
         x2_starts,
-        cp.x3 - q.x3_offset,
+        cp.x3 - x3_offset,
     )
     np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-6)
@@ -751,7 +758,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
 def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
-    actual = mesh.control_points(q.offset(x), n)
+    actual = mesh.control_points(Offset(q, x), n)
     expected = mesh.control_points(q, n).offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
@@ -846,7 +853,7 @@ def test_hex_get_quads(h: mesh.Hex) -> None:
 
 @given(from_type(mesh.Hex), whole_numbers)
 def test_hex_offset(h: mesh.Hex, x: float) -> None:
-    actual = h.offset(x).corners()
+    actual = Offset(h, x).corners()
     expected = h.corners().offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
@@ -886,7 +893,7 @@ def test_hex_subdivision(h: mesh.Hex, divisions: int) -> None:
 def test_mesh_layer_elements_no_offset(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]]
 ) -> None:
-    layer = mesh.MeshLayer(*args, None)
+    layer = mesh.MeshLayer(*args)
     for actual, expected in zip(layer, args[0]):
         assert actual is expected
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
@@ -896,10 +903,10 @@ def test_mesh_layer_elements_no_offset(
 def get_corners(
     shape: mesh.Hex | mesh.EndQuad | mesh.Quad | mesh.NormalisedCurve,
 ) -> mesh.Coords:
-    if isinstance(shape, (mesh.Hex, mesh.Quad, mesh.EndQuad)):
+    if mesh.is_higher_dimensional(shape):
         return shape.corners()
-    else:
-        return shape([0.0, 1.0])
+    assert mesh.is_3d_curve(shape)
+    return shape([0.0, 1.0])
 
 
 @settings(deadline=None)
@@ -907,10 +914,10 @@ def get_corners(
 def test_mesh_layer_elements_with_offset(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], offset: float
 ) -> None:
-    layer = mesh.MeshLayer(*args, offset)
+    layer = Offset(mesh.MeshLayer(*args), offset)
     for actual, expected in zip(layer, args[0]):
         actual_corners = actual.corners()
-        expected_corners = expected.offset(offset).corners()
+        expected_corners = Offset(expected, offset).corners()
         np.testing.assert_allclose(actual_corners.x1, expected_corners.x1, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
@@ -965,10 +972,10 @@ def test_mesh_layer_elements_with_subdivisions(
 
 
 def evaluate_element(element: mesh.Quad | mesh.Hex, s: float) -> list[mesh.Coord]:
-    if isinstance(element, mesh.Quad):
+    if mesh.is_quad(element):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
-    else:
-        return evaluate_element(element.north, s) + evaluate_element(element.south, s)
+    assert mesh.is_hex(element)
+    return evaluate_element(element.north, s) + evaluate_element(element.south, s)
 
 
 @given(mesh_arguments, whole_numbers, integers(1, 5))
@@ -977,10 +984,10 @@ def test_mesh_layer_near_faces(
     offset: float,
     subdivisions: int,
 ) -> None:
-    layer = mesh.MeshLayer(*args, offset, subdivisions)
+    layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
     expected = frozenset(
         itertools.chain.from_iterable(
-            (evaluate_element(x.offset(offset), 0.0) for x in args[0])
+            (evaluate_element(Offset(x, offset), 0.0) for x in args[0])
         ),
     )
     actual = frozenset(
@@ -997,10 +1004,10 @@ def test_mesh_layer_far_faces(
     offset: float,
     subdivisions: int,
 ) -> None:
-    layer = mesh.MeshLayer(*args, offset, subdivisions)
+    layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
     expected = frozenset(
         itertools.chain.from_iterable(
-            (evaluate_element(x.offset(offset), 1.0) for x in args[0])
+            (evaluate_element(Offset(x, offset), 1.0) for x in args[0])
         ),
     )
     actual = frozenset(
@@ -1080,8 +1087,8 @@ def test_mesh_layer_quads_for_hexes() -> None:
 @given(from_type(mesh.GenericMesh))
 def test_mesh_iter_layers(m: mesh.GenericMesh) -> None:
     for layer, offset in zip(m.layers(), m.offsets):
-        assert layer.reference_elements is m.reference_layer.reference_elements
-        assert layer.offset == offset
+        assert get_underlying_object(layer.reference_elements) is m.reference_layer.reference_elements
+        assert get_offset(layer) == offset
         assert layer.subdivisions == m.reference_layer.subdivisions
 
 

@@ -30,6 +30,7 @@ from hypothesis.strategies import (
     tuples,
 )
 
+from neso_fame.offset import Offset
 from neso_fame import mesh
 
 settings.register_profile("ci", max_examples=200, deadline=None)
@@ -220,14 +221,13 @@ def trapezoidal_quad(
         mesh.SliceCoord(starts[1][0], starts[1][1], c),
     )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
-    return mesh.Quad(
+    return Offset(mesh.Quad(
         shape,
         mesh.FieldTracer(trace, resolution),
         a3,
         division,
         num_divisions,
-        offset,
-    )
+    ), offset)
 
 
 def end_quad(
@@ -284,14 +284,13 @@ def trapezohedronal_hex(
             mesh.SliceCoord(point1[0], point1[1], c),
             mesh.SliceCoord(point2[0], point2[1], c),
         )
-        return mesh.Quad(
+        return Offset(mesh.Quad(
             shape,
             mesh.FieldTracer(trace, resolution),
             a3,
             division,
             num_divisions,
-            offset,
-        )
+        ), offset)
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),
@@ -361,14 +360,13 @@ def curved_quad(
         mesh.SliceCoord(x1_start[0], x2_centre, system),
         mesh.SliceCoord(x1_start[1], x2_centre, system),
     )
-    return mesh.Quad(
+    return Offset(mesh.Quad(
         shape,
         mesh.FieldTracer(trace, resolution),
         dx3,
         division,
         num_divisions,
-        offset,
-    )
+    ), offset)
 
 
 def curved_hex(
@@ -393,14 +391,13 @@ def curved_hex(
             mesh.SliceCoord(point1[0], point1[1], system),
             mesh.SliceCoord(point2[0], point2[1], system),
         )
-        return mesh.Quad(
+        return Offset(mesh.Quad(
             shape,
             mesh.FieldTracer(trace, resolution),
             dx3,
             division,
             num_divisions,
-            offset,
-        )
+        ), offset)
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),
@@ -451,7 +448,6 @@ def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
         q.dx3,
         q.subdivision,
         q.num_divisions,
-        q.x3_offset,
     )
 
 
@@ -466,7 +462,6 @@ def higher_dim_hex(h: mesh.Hex, angle: float) -> Optional[mesh.Hex]:
                 q.dx3,
                 q.subdivision,
                 q.num_divisions,
-                q.x3_offset,
             )
             for q in h
         ]
@@ -620,7 +615,6 @@ def straight_line_for_system(
         non_zero,
         _divisions,
         _num_divisions,
-        whole_numbers,
     )
 
 
@@ -647,7 +641,6 @@ def curved_line_for_system(
         _rad.map(abs).flatmap(lambda r: floats(0.01 * r, 1.99 * r)),  # type: ignore
         _divisions,
         _num_divisions,
-        whole_numbers,
     )
 
 
@@ -851,7 +844,6 @@ quad_mesh_layer = builds(
     mesh.MeshLayer,
     shared_quads,
     shared_quads.map(get_quad_boundaries),
-    one_of(none(), whole_numbers),
     integers(1, 3),
 )
 
@@ -875,7 +867,6 @@ hex_mesh_layer = builds(
     mesh.MeshLayer,
     shared_hex_mesh_args.map(lambda x: x[0]),
     shared_hex_mesh_args.map(lambda x: x[1]),
-    one_of(none(), whole_numbers),
     integers(1, 3),
 )
 
