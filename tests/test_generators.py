@@ -1,8 +1,12 @@
+import itertools
+
+import hypnotoad  # type: ignore
 import numpy as np
 
 from neso_fame import generators
 from neso_fame.fields import straight_field
-from neso_fame.mesh import CoordinateSystem, SliceCoords, control_points
+from neso_fame.mesh import CoordinateSystem, SliceCoords, SliceCoord, control_points, Quad
+from .test_hypnotoad import CONNECTED_DOUBLE_NULL, connected_double_null, to_mesh
 
 
 # Test for simple grid
@@ -780,3 +784,31 @@ def test_subdivided_grid_3d() -> None:
         assert actual_south == expected_south
         assert actual_east == expected_east
         assert actual_west == expected_west
+
+
+def test_extruding_hypnotoad_mesh() -> None:
+    hypno_mesh = CONNECTED_DOUBLE_NULL
+    eq = hypno_mesh.equilibrium
+    mesh = generators.hypnotoad_mesh(hypno_mesh, (0., 0.125*np.pi), 8, 21)
+    actual_nodes = frozenset(itertools.chain.from_iterable((q.shape(0.).to_coord(), q.shape(1.).to_coord()) for q in itertools.chain.from_iterable(mesh)))
+    expected_nodes = frozenset(itertools.chain.from_iterable(SliceCoords(r.Rxy.corners, r.Zxy.corners, CoordinateSystem.CYLINDRICAL).iter_points() for r in hypno_mesh.regions.values()))
+    
+    assert actual_nodes == expected_nodes
+    lines = frozenset(itertools.chain.from_iterable((q.north, q.south) for q in itertools.chain.from_iterable(mesh)))
+    for line in lines:
+        print(line)
+        R, Z, _ = control_points(line, 8)
+        # Ignore any values that leave the domain, as these won't be accurate
+        in_domain = np.logical_and(np.logical_and(R <= eq.Rmax, R >= eq.Rmin), np.logical_and(Z <= eq.Zmax, Z >= eq.Zmin))
+        psis = np.asarray(eq.psi(R, Z))[in_domain]
+        np.testing.assert_allclose(psis, psis[0], 1e-5, 1e-5)
+    # Get a list all boundaries. Each entry in the list will be
+    # another list containing the portions of that boundary in each
+    # layer.
+    bounds = list(zip(*(list(l.boundaries()) for l in mesh.layers())))
+    for bound in bounds:
+        sizes = {len(b) for b in bound}
+        # Check that the boundary is the same size in each layer
+        assert len(sizes) == 1
+        # Check that the boundary is not empty
+        assert all(s > 0 for s in sizes)

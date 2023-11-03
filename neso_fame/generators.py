@@ -11,8 +11,7 @@ from typing import Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Mesh as HypnoMesh  # type: ignore
-from hypnotoad import MeshRegion as HypnoMeshRegion
+from hypnotoad import Mesh as HypnoMesh, MeshRegion as HypnoMeshRegion  # type: ignore
 
 from neso_fame.hypnotoad import (
     equilibrium_trace,
@@ -485,7 +484,7 @@ def field_aligned_3d(
 
 def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
-    extrusion_limits: tuple[float, float] = (0.0, 1.0),
+    extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
@@ -526,6 +525,18 @@ def hypnotoad_mesh(
     generator
 
     """
+    # FIXME: Perpendicular boundaries aren't going to work properly;
+    # they need to be fixed in space. Think I will need to generate
+    # them first, I guess with a different function. Then check if
+    # already generated using a dict, I guess?
+    #
+    # Will freezing the edges be enough? Will I potentially need to
+    # merge multiple elements to keep them from going down to 0?
+    #
+    # Or should I just fill in the spaces with additional elements
+    # after the fact?
+    if not hasattr(next(iter(hypnotoad_poloidal_mesh.regions.values())), "Rxy"):
+        hypnotoad_poloidal_mesh.calculateRZ()
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
