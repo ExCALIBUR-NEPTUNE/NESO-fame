@@ -3,15 +3,15 @@ in using hypnotoad.
 
 """
 
-from enum import Enum
 import itertools
+from enum import Enum
 from functools import reduce
 from pathlib import Path
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Equilibrium, Mesh, MeshRegion  # type: ignore
+from hypnotoad import Mesh, MeshRegion  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ignore
 from scipy.integrate import solve_ivp
 
@@ -246,8 +246,8 @@ def eqdsk_equilibrium(
 
 
 class XPointLocation(Enum):
-    """Indicates if either end of a perpendicular edge ias an X-point.
-    """
+    """Indicates if either end of a perpendicular edge ias an X-point."""
+
     NONE = 0
     NORTH = 1
     SOUTH = 2
@@ -279,20 +279,28 @@ def perpendicular_edge(
     # x-points lie within the hypnotoad regions, it would be more
     # efficient identify them in advance rather than have to check
     # every point.
-    if any(np.isclose(north.x1, x.R, 1e-8, 1e-8) and np.isclose(north.x2, x.Z, 1e-8, 1e-8) for x in eq.x_points):
+    if any(
+        np.isclose(north.x1, x.R, 1e-8, 1e-8) and np.isclose(north.x2, x.Z, 1e-8, 1e-8)
+        for x in eq.x_points
+    ):
         x_point = XPointLocation.NORTH
-    elif any(np.isclose(south.x1, x.R, 1e-8, 1e-8) and np.isclose(south.x2, x.Z, 1e-8, 1e-8) for x in eq.x_points):
+    elif any(
+        np.isclose(south.x1, x.R, 1e-8, 1e-8) and np.isclose(south.x2, x.Z, 1e-8, 1e-8)
+        for x in eq.x_points
+    ):
         x_point = XPointLocation.SOUTH
     else:
         x_point = XPointLocation.NONE
     if x_point == XPointLocation.NORTH:
         start = south
         end = north
+
         def parameter(s: npt.ArrayLike) -> npt.NDArray:
             return 1 - np.asarray(s)
     else:
         start = north
         end = south
+
         def parameter(s: npt.ArrayLike) -> npt.NDArray:
             return np.asarray(s)
 
@@ -328,16 +336,20 @@ def perpendicular_edge(
     if len(result.t_events[0]) == 0:
         raise RuntimeError("Integration did not cross over expected end-point")
     # FIXME: This does not always work due to the refine_points procedure
-    if x_point == XPointLocation.NONE and not np.isclose(result.y[0, -1], end.x1, 1e-8, 1e-8) and not np.isclose(
-        result.y[1, -1], end.x2, 1e-8, 1e-8
+    if (
+        x_point == XPointLocation.NONE
+        and not np.isclose(result.y[0, -1], end.x1, 1e-8, 1e-8)
+        and not np.isclose(result.y[1, -1], end.x2, 1e-8, 1e-8)
     ):
-        raise RuntimeError("Integration did not converge on expected location; try lowering tolerances for hypnotoad mesh.")
+        raise RuntimeError(
+            "Integration did not converge on expected location; try lowering tolerances for hypnotoad mesh."
+        )
     total_distance: float = result.t[-1]
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         return f(np.asarray(s) * total_distance, np.asarray(x))
-    
+
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)
         # Hypnotoad's perpendicular surfaces near the x-point aren't
@@ -428,14 +440,18 @@ def flux_surface_edge(
     # Start from the location with the stronger poloidal magnetic
     # field (as this will be farther from an x-point and thus less
     # prone to numerical error)
-    if sum(x * x for x in dpsi(np.array(list(north)))) > sum(x * x for x in dpsi(np.array(list(south)))):
+    if sum(x * x for x in dpsi(np.array(list(north)))) > sum(
+        x * x for x in dpsi(np.array(list(south)))
+    ):
         start = north
         end = south
+
         def parameter(s: npt.ArrayLike) -> npt.NDArray:
             return np.asarray(s)
     else:
         start = south
         end = north
+
         def parameter(s: npt.ArrayLike) -> npt.NDArray:
             return 1 - np.asarray(s)
 
@@ -444,24 +460,27 @@ def flux_surface_edge(
         norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
         return np.array([-dpsidZ / norm, dpsidR / norm])
 
-
     direction = surface(np.array(list(start)))
-    sign = float(np.sign(direction[0] * (end.x1 - start.x1) + direction[1] * (end.x2 - start.x2)))
+    sign = float(
+        np.sign(direction[0] * (end.x1 - start.x1) + direction[1] * (end.x2 - start.x2))
+    )
 
     def f(t: npt.NDArray, x: npt.NDArray) -> npt.NDArray:
         return sign * surface(x)
 
     end_orthogonal = (
         eq.psi_func(end.x1, end.x2, dx=1, grid=False),
-        eq.psi_func(end.x1, end.x2, dy=1, grid=False)
+        eq.psi_func(end.x1, end.x2, dy=1, grid=False),
     )
 
     def terminus(t: float, x: npt.NDArray) -> float:
         # Use the cross-product of the vector between the point and
         # the target and the vector orthogonal to the flux surfaces at
         # the target to determine which side of the target we are on
-        sign = np.sign(end_orthogonal[0] * (x[1] - end.x2) - end_orthogonal[1] * (x[0] - end.x1))
-        return float(sign*np.sqrt((x[0] - end.x1)**2 + (x[1] - end.x2)**2))
+        sign = np.sign(
+            end_orthogonal[0] * (x[1] - end.x2) - end_orthogonal[1] * (x[0] - end.x1)
+        )
+        return float(sign * np.sqrt((x[0] - end.x1) ** 2 + (x[1] - end.x2) ** 2))
 
     terminus.terminal = True  # type: ignore
 
@@ -491,7 +510,7 @@ def flux_surface_edge(
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
-        return f(np.asarray(s) * total_distance, np.asarray(x)),
+        return (f(np.asarray(s) * total_distance, np.asarray(x)),)
 
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)

@@ -9,7 +9,6 @@ from collections.abc import Iterable
 from functools import reduce
 from tempfile import TemporaryDirectory
 from typing import Callable, Iterator, Type, TypeGuard, TypeVar, Union, cast
-from neso_fame.offset import Offset
 
 import numpy as np
 from hypothesis import given, settings
@@ -57,6 +56,7 @@ from neso_fame.mesh import (
     is_mesh_layer,
     is_quad,
 )
+from neso_fame.offset import Offset
 
 from .conftest import linear_field_trace, non_nans, quad_meshes
 
@@ -182,17 +182,19 @@ def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
 
 
 def test_circular_nektar_curve() -> None:
-    curve = Offset(FieldAlignedCurve(
-        FieldTracer(
-            linear_field_trace(
-                0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
+    curve = Offset(
+        FieldAlignedCurve(
+            FieldTracer(
+                linear_field_trace(
+                    0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
+                ),
+                4,
             ),
-            4,
+            SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
+            np.pi,
         ),
-        SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
-        np.pi,
-    ),        x3_offset=np.pi / 2,
-        )
+        x3_offset=np.pi / 2,
+    )
     nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 3, 0)
     assert_points_eq(
         nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.CARTESIAN)
@@ -707,24 +709,26 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
     return elem
 
 
-QUAD = Offset(Quad(
-    StraightLineAcrossField(
-        SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
-        SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-    ),
-    FieldTracer(
-        lambda start, x3: (
-            SliceCoords(
-                np.full_like(x3, start.x1),
-                np.full_like(x3, start.x2),
-                CoordinateSystem.CARTESIAN,
-            ),
-            np.asarray(x3),
+QUAD = Offset(
+    Quad(
+        StraightLineAcrossField(
+            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
         ),
-        2,
+        FieldTracer(
+            lambda start, x3: (
+                SliceCoords(
+                    np.full_like(x3, start.x1),
+                    np.full_like(x3, start.x2),
+                    CoordinateSystem.CARTESIAN,
+                ),
+                np.asarray(x3),
+            ),
+            2,
+        ),
+        1.0,
     ),
-    1.0,
-),    x3_offset=0.5,
+    x3_offset=0.5,
 )
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),

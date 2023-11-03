@@ -8,14 +8,12 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import cache, cached_property
-from typing_extensions import assert_never
 from typing import (
     Any,
     Callable,
     ClassVar,
     Generic,
     Literal,
-    Optional,
     Protocol,
     Type,
     TypeGuard,
@@ -23,13 +21,17 @@ from typing import (
     cast,
     overload,
 )
-from typing_extensions import Self
 
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
+from typing_extensions import Self
 
-from neso_fame.offset import LazyOffset, Offset, get_underlying_object, is_offset_instance
+from neso_fame.offset import (
+    Offset,
+    get_underlying_object,
+    is_offset_instance,
+)
 
 
 class CoordinateSystem(Enum):
@@ -102,7 +104,8 @@ class SliceCoord:
         """Returns itself.
 
         x3 offsets are not meaningful for slice coordinates, which are
-        inherently 2D.  """
+        inherently 2D.
+        """
         return self
 
     def round(self, figures: int = 8) -> SliceCoord:
@@ -193,7 +196,8 @@ class SliceCoords:
         """Returns itself.
 
         x3 offsets are not meaningful for slice coordinates, which are
-        inherently 2D."""
+        inherently 2D.
+        """
         return self
 
     def __len__(self) -> int:
@@ -540,26 +544,36 @@ class FieldAlignedCurve:
 def is_quad(element: Any) -> TypeGuard[Quad]:
     return is_offset_instance(element, Quad)
 
+
 def is_end_quad(element: Any) -> TypeGuard[EndQuad]:
     return is_offset_instance(element, EndQuad)
+
 
 def is_any_quad(element: Any) -> TypeGuard[Quad | EndQuad]:
     return is_offset_instance(element, (Quad, EndQuad))
 
+
 def is_hex(element: Any) -> TypeGuard[Hex]:
     return is_offset_instance(element, Hex)
+
 
 def is_higher_dimensional(element: Any) -> TypeGuard[Quad | EndQuad | Hex]:
     return is_offset_instance(element, (Quad, EndQuad, Hex))
 
-def is_curve(element: Quad | EndQuad | Hex | AcrossFieldCurve | NormalisedCurve) -> TypeGuard[AcrossFieldCurve | NormalisedCurve]:
+
+def is_curve(
+    element: Quad | EndQuad | Hex | AcrossFieldCurve | NormalisedCurve
+) -> TypeGuard[AcrossFieldCurve | NormalisedCurve]:
     return callable(element)
 
-def is_3d_curve(element: Quad | EndQuad | Hex | NormalisedCurve) -> TypeGuard[NormalisedCurve]:
+
+def is_3d_curve(
+    element: Quad | EndQuad | Hex | NormalisedCurve
+) -> TypeGuard[NormalisedCurve]:
     return callable(element)
 
-def is_mesh_layer(
-        mesh: MeshLayer | GenericMesh) -> TypeGuard[MeshLayer]:
+
+def is_mesh_layer(mesh: MeshLayer | GenericMesh) -> TypeGuard[MeshLayer]:
     return is_offset_instance(mesh, MeshLayer)
 
 
@@ -571,6 +585,7 @@ def control_points(element: NormalisedCurve | Quad | EndQuad, order: int) -> Coo
 @overload
 def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords:
     ...
+
 
 @cache
 def control_points(
@@ -970,9 +985,7 @@ class MeshLayer(Generic[E, B, C]):
         which make up this layer of the mesh.
 
         """
-        return self._iterate_elements(
-            self.reference_elements, self.subdivisions
-        )
+        return self._iterate_elements(self.reference_elements, self.subdivisions)
 
     def __len__(self) -> int:
         """Returns the number of elements in this layer."""
@@ -1008,10 +1021,7 @@ class MeshLayer(Generic[E, B, C]):
         """
         return map(
             frozenset,
-            (
-                self._iterate_elements(b, self.subdivisions)
-                for b in self.bounds
-            ),
+            (self._iterate_elements(b, self.subdivisions) for b in self.bounds),
         )
 
     def near_faces(self) -> Iterator[C]:
@@ -1023,8 +1033,7 @@ class MeshLayer(Generic[E, B, C]):
 
         """
         return (
-            cast(C, e.near)
-            for e in self._iterate_elements(self.reference_elements, 1)
+            cast(C, e.near) for e in self._iterate_elements(self.reference_elements, 1)
         )
 
     def far_faces(self) -> Iterator[C]:
@@ -1042,22 +1051,17 @@ class MeshLayer(Generic[E, B, C]):
 
         """
         return (
-            cast(C, e.far)
-            for e in self._iterate_elements(self.reference_elements, 1)
+            cast(C, e.far) for e in self._iterate_elements(self.reference_elements, 1)
         )
 
     @overload
     @staticmethod
-    def _iterate_elements(
-        elements: Iterable[E], subdivisions: int
-    ) -> Iterator[E]:
+    def _iterate_elements(elements: Iterable[E], subdivisions: int) -> Iterator[E]:
         ...
 
     @overload
     @staticmethod
-    def _iterate_elements(
-        elements: Iterable[B], subdivisions: int
-    ) -> Iterator[B]:
+    def _iterate_elements(elements: Iterable[B], subdivisions: int) -> Iterator[B]:
         ...
 
     @staticmethod
@@ -1111,9 +1115,7 @@ class GenericMesh(Generic[E, B, C]):
         mesh.
 
         """
-        return (Offset(self.reference_layer, off)
-            for off in self.offsets
-        )
+        return (Offset(self.reference_layer, off) for off in self.offsets)
 
     def __iter__(self) -> Iterator[E]:
         """Iterate through all of the elements contained in this mesh."""

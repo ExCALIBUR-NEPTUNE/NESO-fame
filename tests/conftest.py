@@ -22,7 +22,6 @@ from hypothesis.strategies import (
     from_type,
     integers,
     just,
-    none,
     one_of,
     register_type_strategy,
     sampled_from,
@@ -30,8 +29,8 @@ from hypothesis.strategies import (
     tuples,
 )
 
-from neso_fame.offset import Offset
 from neso_fame import mesh
+from neso_fame.offset import Offset
 
 settings.register_profile("ci", max_examples=200, deadline=None)
 settings.register_profile(
@@ -221,13 +220,16 @@ def trapezoidal_quad(
         mesh.SliceCoord(starts[1][0], starts[1][1], c),
     )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
-    return Offset(mesh.Quad(
-        shape,
-        mesh.FieldTracer(trace, resolution),
-        a3,
-        division,
-        num_divisions,
-    ), offset)
+    return Offset(
+        mesh.Quad(
+            shape,
+            mesh.FieldTracer(trace, resolution),
+            a3,
+            division,
+            num_divisions,
+        ),
+        offset,
+    )
 
 
 def end_quad(
@@ -284,13 +286,16 @@ def trapezohedronal_hex(
             mesh.SliceCoord(point1[0], point1[1], c),
             mesh.SliceCoord(point2[0], point2[1], c),
         )
-        return Offset(mesh.Quad(
-            shape,
-            mesh.FieldTracer(trace, resolution),
-            a3,
-            division,
-            num_divisions,
-        ), offset)
+        return Offset(
+            mesh.Quad(
+                shape,
+                mesh.FieldTracer(trace, resolution),
+                a3,
+                division,
+                num_divisions,
+            ),
+            offset,
+        )
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),
@@ -360,13 +365,16 @@ def curved_quad(
         mesh.SliceCoord(x1_start[0], x2_centre, system),
         mesh.SliceCoord(x1_start[1], x2_centre, system),
     )
-    return Offset(mesh.Quad(
-        shape,
-        mesh.FieldTracer(trace, resolution),
-        dx3,
-        division,
-        num_divisions,
-    ), offset)
+    return Offset(
+        mesh.Quad(
+            shape,
+            mesh.FieldTracer(trace, resolution),
+            dx3,
+            division,
+            num_divisions,
+        ),
+        offset,
+    )
 
 
 def curved_hex(
@@ -391,13 +399,16 @@ def curved_hex(
             mesh.SliceCoord(point1[0], point1[1], system),
             mesh.SliceCoord(point2[0], point2[1], system),
         )
-        return Offset(mesh.Quad(
-            shape,
-            mesh.FieldTracer(trace, resolution),
-            dx3,
-            division,
-            num_divisions,
-        ), offset)
+        return Offset(
+            mesh.Quad(
+                shape,
+                mesh.FieldTracer(trace, resolution),
+                dx3,
+                division,
+                num_divisions,
+            ),
+            offset,
+        )
 
     return mesh.Hex(
         make_quad(sorted_starts[0], sorted_starts[1]),

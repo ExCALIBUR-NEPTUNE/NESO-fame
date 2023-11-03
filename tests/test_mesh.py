@@ -16,7 +16,11 @@ from hypothesis.strategies import (
 )
 
 from neso_fame import mesh
-from neso_fame.offset import LazyOffset, Offset, get_offset, get_underlying_object, is_offset_instance
+from neso_fame.offset import (
+    Offset,
+    get_offset,
+    get_underlying_object,
+)
 
 from .conftest import (
     CARTESIAN_SYSTEMS,
@@ -595,21 +599,24 @@ def test_curve_control_points_size(curve: mesh.FieldAlignedCurve, n: int) -> Non
 def test_curve_control_points_values() -> None:
     a = -2.0
     b = -0.5
-    curve = Offset(mesh.FieldAlignedCurve(
-        mesh.FieldTracer(
-            lambda start, x: (
-                mesh.SliceCoords(
-                    np.asarray(x) * a,
-                    np.asarray(x) * b,
-                    mesh.CoordinateSystem.CARTESIAN,
+    curve = Offset(
+        mesh.FieldAlignedCurve(
+            mesh.FieldTracer(
+                lambda start, x: (
+                    mesh.SliceCoords(
+                        np.asarray(x) * a,
+                        np.asarray(x) * b,
+                        mesh.CoordinateSystem.CARTESIAN,
+                    ),
+                    np.sqrt(5.25) * np.asarray(x),
                 ),
-                np.sqrt(5.25) * np.asarray(x),
+                5,
             ),
-            5,
+            mesh.SliceCoord(0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+            -1.0,
         ),
-        mesh.SliceCoord(0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
-        -1.0,
-    ),        x3_offset=-0.5,)
+        x3_offset=-0.5,
+    )
 
     x1, x2, x3 = mesh.control_points(curve, 2)
     np.testing.assert_allclose(x1, [-1.0, 0.0, 1.0], atol=1e-12)
@@ -1087,7 +1094,10 @@ def test_mesh_layer_quads_for_hexes() -> None:
 @given(from_type(mesh.GenericMesh))
 def test_mesh_iter_layers(m: mesh.GenericMesh) -> None:
     for layer, offset in zip(m.layers(), m.offsets):
-        assert get_underlying_object(layer.reference_elements) is m.reference_layer.reference_elements
+        assert (
+            get_underlying_object(layer.reference_elements)
+            is m.reference_layer.reference_elements
+        )
         assert get_offset(layer) == offset
         assert layer.subdivisions == m.reference_layer.subdivisions
 

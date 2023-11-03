@@ -11,7 +11,8 @@ from typing import Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Mesh as HypnoMesh, MeshRegion as HypnoMeshRegion  # type: ignore
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad import MeshRegion as HypnoMeshRegion
 
 from neso_fame.hypnotoad import (
     equilibrium_trace,
