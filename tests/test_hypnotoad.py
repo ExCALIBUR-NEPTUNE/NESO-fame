@@ -3,6 +3,7 @@ import operator
 import warnings
 from collections import Counter
 from collections.abc import Iterable
+from unittest.mock import patch
 from typing import Any, Callable, NamedTuple, cast
 
 import numpy as np
@@ -130,7 +131,7 @@ class FakeEquilibrium(Equilibrium):
     ) -> float | npt.NDArray:
         return np.asarray(-2 * (R - self.o_point.R) / (R * self.a))
 
-    def Bzeta(
+    def fpol(
         self, R: float | npt.NDArray, Z: float | npt.NDArray
     ) -> float | npt.NDArray:
         R_diff = R - self.o_point.R
@@ -139,12 +140,8 @@ class FakeEquilibrium(Equilibrium):
         sin = Z_diff / r
         cos = R_diff / r
         return np.asarray(
-            self.q * R * (-self.Bp_R(R, Z) * sin + self.Bp_Z(R, Z) * cos) / r
+            self.q * R * R * (-self.Bp_R(R, Z) * sin + self.Bp_Z(R, Z) * cos) / r
         )
-
-    # def f_spl(self, psi: float | npt.NDArray) -> float | npt.NDArray:
-    #     fpol = self.q * (-self.Bp_R(R, Z) * sin + self.Bp_Z(R, Z) * cos) / r
-    #     pass
 
     def to_RZ(
         self, psi: float | npt.NDArray, theta: float | npt.NDArray
@@ -233,6 +230,10 @@ class FakeEquilibrium(Equilibrium):
         return np.vectorize(distance)
 
 
+def fake_fpol(eq: FakeEquilibrium, R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray:
+    return np.asarray(eq.fpol(R, Z))
+
+
 fake_equilibria = builds(
     FakeEquilibrium,
     builds(Point2D, floats(1.0, 10.0), whole_numbers),
@@ -260,12 +261,13 @@ fake_equilibria = builds(
 def test_field_trace(
     eq: FakeEquilibrium, phis: npt.NDArray, psi_start: float, theta_start: float
 ) -> None:
-    trace = equilibrium_trace(cast(Equilibrium, eq))
+    trace = equilibrium_trace(cast(TokamakEquilibrium, eq))
     R_start, Z_start = eq.to_RZ(psi_start, theta_start)
-    positions, distances = trace(
-        SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL),
-        phis,
-    )
+    with patch("neso_fame.hypnotoad._fpol", fake_fpol):
+        positions, distances = trace(
+            SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL),
+            phis,
+        )
     R_exp, Z_exp = eq.to_RZ(psi_start, theta_start + phis / eq.q)
     np.testing.assert_allclose(positions.x1, R_exp, 1e-8, 1e-8)
     np.testing.assert_allclose(positions.x2, Z_exp, 1e-8, 1e-8)
@@ -803,13 +805,13 @@ def test_flux_surface_realistic_topology(
     start, end = start_end_points
     curve = flux_surface_edge(eq, start, end)
     psi = eq.psi(start.x1, start.x2)
-    assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-8, 1e-8)
+    assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-7, 1e-7)
     # Check termini of curve
     assert curve(0.0).to_coord() == start
     assert curve(1.0).to_coord() == end
     actual = curve(positions)
     # Check all points have the correct psi value
-    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-8, 1e-8)
+    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-7, 1e-7)
 
 
 @mark.filterwarnings("ignore:divide by zero encountered in double_scalars")

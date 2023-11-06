@@ -178,7 +178,8 @@ def integrate_vectorized(
             if zero is not None:
                 result_tmp[:, zero] = start
             return tuple(
-                result_tmp[i, invert_s].reshape(s.shape) for i in range(cast(npt.NDArray, start).size)
+                result_tmp[i, invert_s].reshape(s.shape)
+                for i in range(cast(npt.NDArray, start).size)
             )
 
         return wrapper
@@ -186,7 +187,12 @@ def integrate_vectorized(
     return wrap
 
 
-def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
+def _fpol(eq: TokamakEquilibrium, R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray:
+    return np.asarray(eq.f_spl(
+        eq.psi_func(R, Z, grid=False) * eq.f_psi_sign
+    ))
+
+def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
     """Return a field trace corresponding to the hypnotoad equilibrium
     object.
 
@@ -200,9 +206,10 @@ def equilibrium_trace(equilibrium: Equilibrium) -> FieldTrace:
         def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
             R = y[0]
             Z = y[1]
-            R_over_B_t = R / equilibrium.Bzeta(R, Z)
-            dR_dphi = equilibrium.Bp_R(R, Z) * R_over_B_t
-            dZ_dphi = equilibrium.Bp_Z(R, Z) * R_over_B_t
+            # Use low-level functions on equilibrium in order to avoid overheads
+            inverse_B_tor = R / _fpol(equilibrium, R, Z)
+            dR_dphi = equilibrium.psi_func(R, Z, dy=1, grid=False) * inverse_B_tor
+            dZ_dphi = -equilibrium.psi_func(R, Z, dx=1, grid=False) * inverse_B_tor
             return (
                 dR_dphi,
                 dZ_dphi,
