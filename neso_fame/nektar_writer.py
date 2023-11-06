@@ -19,10 +19,6 @@ from .mesh import (
     NormalisedCurve,
     Quad,
     control_points,
-    is_3d_curve,
-    is_any_quad,
-    is_end_quad,
-    is_quad,
 )
 
 UNSET_ID = -1
@@ -324,7 +320,7 @@ def nektar_quad(
     """
     north, north_termini = nektar_edge(quad.north, order, spatial_dim, layer_id)
     south, south_termini = nektar_edge(quad.south, order, spatial_dim, layer_id)
-    if is_end_quad(quad):
+    if isinstance(quad, EndQuad):
         east, east_termini = nektar_edge(quad.east, order, spatial_dim, layer_id)
         west, west_termini = nektar_edge(quad.west, order, spatial_dim, layer_id)
         points = frozenset(north_termini + south_termini + east_termini + west_termini)
@@ -332,7 +328,6 @@ def nektar_quad(
             raise RuntimeError("Ill-formed quad; edges do not join into 4 corners")
         edges = (north, east, south, west)
     else:
-        assert is_quad(quad)
         edges = (
             north,
             nektar_edge(quad.near, order, spatial_dim, layer_id)[0],
@@ -341,7 +336,7 @@ def nektar_quad(
         )
         points = frozenset(north_termini + south_termini)
     # FIXME: Pretty sure I should refactor so I can get curved surfaces for end quads
-    if order > 1 and is_quad(quad):
+    if order > 1 and isinstance(quad, Quad):
         curve, _ = nektar_curve(quad, order, spatial_dim, layer_id)
     else:
         curve = None
@@ -447,7 +442,7 @@ def nektar_layer_elements(
             spatial_dim: int,
             layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
-            assert is_3d_curve(item)
+            assert not isinstance(item, (Quad, EndQuad))
             return nektar_edge(item, order, spatial_dim, layer_id)[0]
 
     else:
@@ -462,7 +457,7 @@ def nektar_layer_elements(
             spatial_dim: int,
             layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
-            assert is_any_quad(item)
+            assert isinstance(item, (Quad, EndQuad))
             return next(iter(nektar_quad(item, order, spatial_dim, layer_id)[0]))
 
     layer_composite = SD.Composite(list(elements))

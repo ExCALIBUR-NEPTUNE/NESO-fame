@@ -27,11 +27,7 @@ import numpy.typing as npt
 from scipy.interpolate import interp1d
 from typing_extensions import Self
 
-from neso_fame.offset import (
-    Offset,
-    get_underlying_object,
-    is_offset_instance,
-)
+from neso_fame.offset import Offset, LazilyOffsetable
 
 
 class CoordinateSystem(Enum):
@@ -99,14 +95,6 @@ class SliceCoord:
         """Iterate over the coordinates of the point."""
         yield self.x1
         yield self.x2
-
-    def offset(self, dx3: float) -> Self:
-        """Returns itself.
-
-        x3 offsets are not meaningful for slice coordinates, which are
-        inherently 2D.
-        """
-        return self
 
     def round(self, figures: int = 8) -> SliceCoord:
         """Returns an object with coordinate values rounded to the
@@ -191,14 +179,6 @@ class SliceCoords:
         """Iterate over the coordinates of the points."""
         for array in np.broadcast_arrays(self.x1, self.x2):
             yield array
-
-    def offset(self, dx3: npt.ArrayLike) -> Self:
-        """Returns itself.
-
-        x3 offsets are not meaningful for slice coordinates, which are
-        inherently 2D.
-        """
-        return self
 
     def __len__(self) -> int:
         """Returns the number of points contained in the object."""
@@ -486,7 +466,7 @@ class _ElementLike(Protocol):
 
 
 @dataclass(frozen=True)
-class FieldAlignedCurve:
+class FieldAlignedCurve(LazilyOffsetable):
     """Represents a curve in 3D space which traces a field line.
 
     A curve is defined by a function which takes a single argument, 0
@@ -541,42 +521,6 @@ class FieldAlignedCurve:
                 )
 
 
-def is_quad(element: Any) -> TypeGuard[Quad]:
-    return is_offset_instance(element, Quad)
-
-
-def is_end_quad(element: Any) -> TypeGuard[EndQuad]:
-    return is_offset_instance(element, EndQuad)
-
-
-def is_any_quad(element: Any) -> TypeGuard[Quad | EndQuad]:
-    return is_offset_instance(element, (Quad, EndQuad))
-
-
-def is_hex(element: Any) -> TypeGuard[Hex]:
-    return is_offset_instance(element, Hex)
-
-
-def is_higher_dimensional(element: Any) -> TypeGuard[Quad | EndQuad | Hex]:
-    return is_offset_instance(element, (Quad, EndQuad, Hex))
-
-
-def is_curve(
-    element: Quad | EndQuad | Hex | AcrossFieldCurve | NormalisedCurve
-) -> TypeGuard[AcrossFieldCurve | NormalisedCurve]:
-    return callable(element)
-
-
-def is_3d_curve(
-    element: Quad | EndQuad | Hex | NormalisedCurve
-) -> TypeGuard[NormalisedCurve]:
-    return callable(element)
-
-
-def is_mesh_layer(mesh: MeshLayer | GenericMesh) -> TypeGuard[MeshLayer]:
-    return is_offset_instance(mesh, MeshLayer)
-
-
 @overload
 def control_points(element: NormalisedCurve | Quad | EndQuad, order: int) -> Coords:
     ...
@@ -603,7 +547,7 @@ def control_points(
 
     """
     s = np.linspace(0.0, 1.0, order + 1)
-    if is_quad(element):
+    if isinstance(element, Quad):
         x1 = np.empty((order + 1, order + 1))
         x2 = np.empty((order + 1, order + 1))
         x3 = np.empty((order + 1, order + 1))
@@ -613,12 +557,11 @@ def control_points(
             x2[i, :] = coords.x2
             x3[i, :] = coords.x3
         return Coords(x1, x2, x3, coords.system)
-    assert is_curve(element)
     return element(s)
 
 
 @dataclass(frozen=True)
-class StraightLineAcrossField:
+class StraightLineAcrossField(LazilyOffsetable):
     """A straight line that connects two points in the x1-x2 plane. It
     is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
 
@@ -642,7 +585,7 @@ class StraightLineAcrossField:
 
 
 @dataclass(frozen=True)
-class StraightLine:
+class StraightLine(LazilyOffsetable):
     """A straight line that connects two points. It
     is a :obj:`~neso_fame.mesh.NormalisedCurve`.
 
@@ -667,7 +610,7 @@ class StraightLine:
 
 
 @dataclass(frozen=True)
-class Quad:
+class Quad(LazilyOffsetable):
     """Representation of a four-sided polygon (quadrilateral).
 
     This is done using information about the shape of the magnetic
@@ -813,7 +756,7 @@ class Quad:
 
 
 @dataclass(frozen=True)
-class EndQuad:
+class EndQuad(LazilyOffsetable):
     """Represents a quad that is either the near or far end of a
     :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
     four curved edges. However, it is always flat.
@@ -861,7 +804,7 @@ class EndQuad:
 
 
 @dataclass(frozen=True)
-class Hex:
+class Hex(LazilyOffsetable):
     """Representation of a six-sided solid (hexahedron).
 
     This is represented by four quads making up its faces. The
@@ -952,7 +895,7 @@ C = TypeVar("C", NormalisedCurve, EndQuad)
 
 
 @dataclass(frozen=True)
-class MeshLayer(Generic[E, B, C]):
+class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     """Representation of a single "layer" of the mesh.
 
     A layer is a region of the mesh where the elements are conformal
@@ -994,7 +937,7 @@ class MeshLayer(Generic[E, B, C]):
     @property
     def element_type(self) -> Type[E]:
         """Returns the type object for the elements of the mesh layer."""
-        return type(get_underlying_object(next(iter(self.reference_elements))))
+        return type(next(iter(self.reference_elements)))
 
     def quads(self) -> Iterator[Quad]:
         """Iterates over teh `Quad` objects in the mesh. If the mesh

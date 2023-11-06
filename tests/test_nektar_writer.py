@@ -51,10 +51,6 @@ from neso_fame.mesh import (
     SliceCoords,
     StraightLineAcrossField,
     control_points,
-    is_3d_curve,
-    is_end_quad,
-    is_mesh_layer,
-    is_quad,
 )
 from neso_fame.offset import Offset
 
@@ -312,7 +308,7 @@ def check_edges(
 ) -> None:
     if issubclass(
         mesh.element_type
-        if is_mesh_layer(mesh)
+        if isinstance(mesh, MeshLayer)
         else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
@@ -369,12 +365,11 @@ def check_face_composites(
     def comparable_item(
         item: NormalisedCurve | EndQuad,
     ) -> tuple[str, frozenset[Coord]]:
-        if is_end_quad(item):
+        if isinstance(item, EndQuad):
             return SD.QuadGeom.__name__, frozenset(
                 map(comparable_coord, item.corners().to_cartesian().iter_points())
             )
         else:
-            assert is_3d_curve(item)
             return SD.SegGeom.__name__, frozenset(
                 map(comparable_coord, item([0.0, 1.0]).to_cartesian().iter_points())
             )
@@ -391,7 +386,7 @@ def check_elements(
     actual_elements = comparable_set(actual)
     expected_elements = frozenset(
         (
-            comparable_quad(x) if is_quad(x) else comparable_hex(cast(Hex, x))
+            comparable_quad(x) if isinstance(x, Quad) else comparable_hex(cast(Hex, x))
             for x in expected
         )
     )
@@ -709,8 +704,7 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
     return elem
 
 
-QUAD = Offset(
-    Quad(
+QUAD = Quad(
         StraightLineAcrossField(
             SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
             SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
@@ -727,12 +721,10 @@ QUAD = Offset(
             2,
         ),
         1.0,
-    ),
-    x3_offset=0.5,
 )
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),
-    np.array([0.0]),
+    np.array([0.5]),
 )
 
 

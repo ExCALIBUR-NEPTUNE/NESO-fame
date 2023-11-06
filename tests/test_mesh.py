@@ -18,8 +18,6 @@ from hypothesis.strategies import (
 from neso_fame import mesh
 from neso_fame.offset import (
     Offset,
-    get_offset,
-    get_underlying_object,
 )
 
 from .conftest import (
@@ -627,7 +625,7 @@ def test_curve_control_points_values() -> None:
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - x3_offset)[0]
     np.testing.assert_allclose(actual.x1, x1, rtol=2e-4, atol=1e-5)
     np.testing.assert_allclose(actual.x2, x2, rtol=2e-4, atol=1e-5)
@@ -636,7 +634,7 @@ def test_quad_north(q: mesh.Quad, s: float) -> None:
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
     actual = q.south(s)
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - x3_offset)[0]
     np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
     np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
@@ -652,7 +650,7 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
     s = np.linspace(0.0, 1.0, n)
     cp = q.near(s)
     start_points = q.shape(s)
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(
             q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
@@ -672,7 +670,7 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
     actual = frozenset(q.far(np.array([0.0, 1.0])).iter_points())
     expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
     assert expected == actual
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     # Check points on edge on field lines that pass through the
     # reference shape for the quad
     s = np.linspace(0.0, 1.0, n)
@@ -735,7 +733,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     start_points = q.shape(np.linspace(0.0, 1.0, n + 1))
     x1_starts = np.expand_dims(start_points.x1, 1)
     x2_starts = np.expand_dims(start_points.x2, 1)
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     distances = np.vectorize(
         lambda x1, x2, x3: q.field.trace(
             mesh.SliceCoord(x1, x2, start_points.system), x3
@@ -749,7 +747,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     for i in range(n + 1):
         np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-6, atol=1e-7)
     # Check points fall along field lines that are equally spaced at the start position
-    x3_offset = get_offset(q)
+    x3_offset = q.x3_offset
     x1, x2 = np.vectorize(
         lambda x1, x2, x3: tuple(
             q.field.trace(mesh.SliceCoord(x1, x2, start_points.system), x3)[0]
@@ -910,9 +908,8 @@ def test_mesh_layer_elements_no_offset(
 def get_corners(
     shape: mesh.Hex | mesh.EndQuad | mesh.Quad | mesh.NormalisedCurve,
 ) -> mesh.Coords:
-    if mesh.is_higher_dimensional(shape):
+    if isinstance(shape, (mesh.Hex, mesh.Quad, mesh.EndQuad)):
         return shape.corners()
-    assert mesh.is_3d_curve(shape)
     return shape([0.0, 1.0])
 
 
@@ -979,9 +976,8 @@ def test_mesh_layer_elements_with_subdivisions(
 
 
 def evaluate_element(element: mesh.Quad | mesh.Hex, s: float) -> list[mesh.Coord]:
-    if mesh.is_quad(element):
+    if isinstance(element, mesh.Quad):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
-    assert mesh.is_hex(element)
     return evaluate_element(element.north, s) + evaluate_element(element.south, s)
 
 
@@ -1095,10 +1091,10 @@ def test_mesh_layer_quads_for_hexes() -> None:
 def test_mesh_iter_layers(m: mesh.GenericMesh) -> None:
     for layer, offset in zip(m.layers(), m.offsets):
         assert (
-            get_underlying_object(layer.reference_elements)
+            layer.get_underlying_object().reference_elements
             is m.reference_layer.reference_elements
         )
-        assert get_offset(layer) == offset
+        assert layer.x3_offset == offset
         assert layer.subdivisions == m.reference_layer.subdivisions
 
 
