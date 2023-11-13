@@ -9,14 +9,12 @@ from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import cache, cached_property
 from typing import (
-    Any,
     Callable,
     ClassVar,
     Generic,
     Literal,
     Protocol,
     Type,
-    TypeGuard,
     TypeVar,
     cast,
     overload,
@@ -25,9 +23,8 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
-from typing_extensions import Self
 
-from neso_fame.offset import Offset, LazilyOffsetable
+from neso_fame.offset import LazilyOffsetable, Offset
 
 
 class CoordinateSystem(Enum):
@@ -73,8 +70,7 @@ def _round_to_sig_figs(x: float, figures: int) -> float:
 
 @dataclass(frozen=True)
 class SliceCoord:
-    """Representation of a point in a poloidal slice (or
-    analogous).
+    """Representation of a point in a poloidal slice (or analogous).
 
     Group
     -----
@@ -96,10 +92,8 @@ class SliceCoord:
         yield self.x1
         yield self.x2
 
-    def round(self, figures: int = 8) -> SliceCoord:
-        """Returns an object with coordinate values rounded to the
-        desired number of significant figures.
-        """
+    def round_to(self, figures: int = 8) -> SliceCoord:
+        """Round coordinate values to the desired number of significant figures."""
         return SliceCoord(
             float(_round_to_sig_figs(self.x1, figures)),
             float(_round_to_sig_figs(self.x2, figures)),
@@ -107,6 +101,12 @@ class SliceCoord:
         )
 
     def __hash__(self) -> int:
+        """Hash the SliceCoord object.
+
+        Hashing is done so that floats are the same to the number of
+        significant figures set by TOLERANCE will have the same hash
+        value.
+        """
         decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
         context = Context(decimal_places)
 
@@ -134,12 +134,11 @@ class SliceCoord:
         return hash((x1, x2, self.system))
 
     def to_3d_coord(self, x3: float) -> Coord:
-        """Create a 3D coordinate object from this 2D one, by
-        specifying the location in the third dimension.
-        """
+        """Create a 3D coordinate object from this 2D one."""
         return Coord(self.x1, self.x2, x3, self.system)
 
     def __eq__(self, other: object) -> bool:
+        """Check equality of coordinates within the the TOLERANCE."""
         if not isinstance(other, self.__class__):
             return False
         return self.system == other.system and cast(
@@ -154,8 +153,7 @@ Index = int | tuple[int, ...]
 
 @dataclass
 class SliceCoords:
-    """Representation of a collection of points in a poloidal slice (or
-    analogous).
+    """Representation of a collection of points in an x1-x2 plane.
 
     Group
     -----
@@ -181,7 +179,7 @@ class SliceCoords:
             yield array
 
     def __len__(self) -> int:
-        """Returns the number of points contained in the object."""
+        """Return the number of points contained in the object."""
         return np.broadcast(self.x1, self.x2).size
 
     def __getitem__(self, idx: Index) -> SliceCoord:
@@ -189,10 +187,8 @@ class SliceCoords:
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
-    def round(self, figures: int = 8) -> SliceCoords:
-        """Returns an object with coordinate values rounded to the
-        desired number of significant figures.
-        """
+    def round_to(self, figures: int = 8) -> SliceCoords:
+        """Round coordinate values to the desired number of significant figures."""
         return SliceCoords(
             _round_to_sig_figs(self.x1, figures),
             _round_to_sig_figs(self.x2, figures),
@@ -200,15 +196,15 @@ class SliceCoords:
         )
 
     def to_coord(self) -> SliceCoord:
-        """Tries to convert the object to a `SliceCoord` object. This will
-        only work if the collection contains exactly one point.
+        """Convert the object to a `SliceCoord` object.
+
+        This will only work if the collection contains exactly one
+        point. Otherwise, an exception is raised.
         """
         return SliceCoord(float(self.x1), float(self.x2), self.system)
 
     def to_3d_coords(self, x3: float) -> Coords:
-        """Create a 3D coordinates object from this 2D one, by
-        specifying the location in the third dimension.
-        """
+        """Create a 3D coordinates object from this 2D one."""
         return Coords(self.x1, self.x2, np.asarray(x3), self.system)
 
 
@@ -244,7 +240,7 @@ class Coord:
         )
 
     def offset(self, dx3: float) -> "Coord":
-        """Changes the x3 coordinate by the specified ammount."""
+        """Change the x3 coordinate by the specified ammount."""
         return Coord(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def __iter__(self) -> Iterator[float]:
@@ -253,10 +249,8 @@ class Coord:
         yield self.x2
         yield self.x3
 
-    def round(self, figures: int = 8) -> Coord:
-        """Returns an object with coordinate values rounded to the
-        desired number of significant figures.
-        """
+    def round_to(self, figures: int = 8) -> Coord:
+        """Round coordinate values to the desired number of significant figures."""
         return Coord(
             float(_round_to_sig_figs(self.x1, figures)),
             float(_round_to_sig_figs(self.x2, figures)),
@@ -265,6 +259,12 @@ class Coord:
         )
 
     def __hash__(self) -> int:
+        """Hash the Coord object.
+
+        Hashing is done so that floats are the same to the number of
+        significant figures set by TOLERANCE will have the same hash
+        value.
+        """
         decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
         context = Context(decimal_places)
 
@@ -294,6 +294,7 @@ class Coord:
         return hash((x1, x2, x3, self.system))
 
     def __eq__(self, other: object) -> bool:
+        """Check equality of coordinates within the the TOLERANCE."""
         if not isinstance(other, self.__class__):
             return False
         return self.system == other.system and cast(
@@ -331,11 +332,11 @@ class Coords:
             yield Coord(float(x1), float(x2), float(x3), self.system)
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords":
-        """Changes the x3 coordinate by the specified ammount."""
+        """Change the x3 coordinate by the specified ammount."""
         return Coords(self.x1, self.x2, self.x3 + dx3, self.system)
 
     def to_cartesian(self) -> "Coords":
-        """Converts the points to be in Cartesian coordiantes."""
+        """Convert the points to be in Cartesian coordiantes."""
         x1, x2, x3 = COORDINATE_TRANSFORMS[self.system](self.x1, self.x2, self.x3)
         return Coords(
             x1,
@@ -350,24 +351,24 @@ class Coords:
             yield array
 
     def __len__(self) -> int:
-        """Returns the number of poitns present in the collection."""
+        """Return the number of points present in the collection."""
         return np.broadcast(self.x1, self.x2, self.x3).size
 
     def __getitem__(self, idx: Index) -> Coord:
-        """Returns the coordinates of an individual point."""
+        """Return the coordinates of an individual point."""
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
 
     def to_coord(self) -> Coord:
-        """Tries to convert the object to a `Coord` object. This will
-        only work if the collection contains exactly one point.
+        """Convert the object to a `Coord` object.
+
+        This will only work if the collection contains exactly one
+        point. Otherwise, an exception is raised.
         """
         return Coord(float(self.x1), float(self.x2), float(self.x3), self.system)
 
-    def round(self, figures: int = 8) -> Coords:
-        """Returns an object with coordinate values rounded to the
-        desired number of significant figures.
-        """
+    def round_to(self, figures: int = 8) -> Coords:
+        """Round coordinate values to the desired number of significant figures."""
         return Coords(
             _round_to_sig_figs(self.x1, figures),
             _round_to_sig_figs(self.x2, figures),
@@ -456,9 +457,9 @@ T = TypeVar("T")
 
 
 class _ElementLike(Protocol):
-    """Protocal defining the methods that can be used to manipulate
-    mesh components. Exists for internal type-checking.
+    """Protocal defining the methods for manipulating mesh components.
 
+    Exists for internal type-checking purposes.
     """
 
     def subdivide(self: T, num_divisions: int) -> Iterator[T]:
@@ -490,6 +491,7 @@ class FieldAlignedCurve(LazilyOffsetable):
 
     @cached_property
     def function(self) -> NormalisedCurve:
+        """Return the function representing this curve."""
         return self.field.get_normalised_subdivision(
             self.start,
             -0.5 * self.dx3,
@@ -499,14 +501,19 @@ class FieldAlignedCurve(LazilyOffsetable):
         )
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
-        """Convenience function so that a FieldAlignedCurve is itself a
+        """Calculate coordinates of position `s` on the curve.
+
+        Convenience function so that a FieldAlignedCurve is itself a
         :obj:`~neso_fame.mesh.NormalisedCurve`.
         """
         return self.function(s)
 
     def subdivide(self, num_divisions: int) -> Iterator[FieldAlignedCurve]:
-        """Returns an iterator of curves created by splitting this one
-        up into equal-length segments.
+        """Split this curve into equal-length segments.
+
+        Returns
+        -------
+        An iterator over each of the segments.
         """
         if num_divisions <= 1:
             yield self
@@ -535,10 +542,10 @@ def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords:
 def control_points(
     element: AcrossFieldCurve | NormalisedCurve | Quad, order
 ) -> SliceCoords | Coords:
-    """Returns a set of locations on the line or quad which can be
-    used to represent it to the specified order of accuracy. These
-    points will be equally spaced. In the case of Quads, the order of
-    the points in memor corresponds to that expected by Nektar++ when
+    """Return locations to represent the shape to the specified order of accuracy.
+
+    These points will be equally spaced. In the case of Quads, the order of
+    the points in memory corresponds to that expected by Nektar++ when
     defining curved faces.
 
     Group
@@ -562,8 +569,9 @@ def control_points(
 
 @dataclass(frozen=True)
 class StraightLineAcrossField(LazilyOffsetable):
-    """A straight line that connects two points in the x1-x2 plane. It
-    is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
+    """A straight line that connects two points in the x1-x2 plane.
+
+    It is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
 
     Group
     -----
@@ -575,7 +583,7 @@ class StraightLineAcrossField(LazilyOffsetable):
     south: SliceCoord
 
     def __call__(self, s: npt.ArrayLike) -> SliceCoords:
-        """Function returning a position on the curve."""
+        """Calculate a position on the curve."""
         s = np.asarray(s)
         return SliceCoords(
             self.north.x1 + (self.south.x1 - self.north.x1) * s,
@@ -586,8 +594,9 @@ class StraightLineAcrossField(LazilyOffsetable):
 
 @dataclass(frozen=True)
 class StraightLine(LazilyOffsetable):
-    """A straight line that connects two points. It
-    is a :obj:`~neso_fame.mesh.NormalisedCurve`.
+    """A straight line that connects two points.
+
+    It is a :obj:`~neso_fame.mesh.NormalisedCurve`.
 
     Group
     -----
@@ -599,7 +608,7 @@ class StraightLine(LazilyOffsetable):
     south: Coord
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
-        """Function returning a position on the curve."""
+        """Calculate a position on the curve."""
         s = np.asarray(s)
         return Coords(
             self.north.x1 + (self.south.x1 - self.north.x1) * s,
@@ -644,6 +653,7 @@ class Quad(LazilyOffsetable):
         yield self.south
 
     def get_field_line(self, s: float) -> FieldAlignedCurve:
+        """Get the field lign passing through location ``s`` of `Quad.shape`."""
         start = self.shape(s).to_coord()
         return FieldAlignedCurve(
             self.field,
@@ -654,9 +664,7 @@ class Quad(LazilyOffsetable):
         )
 
     def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
-        """Returns the line formed where the quad intersects the x1-x2
-        plane with the given x3 value.
-        """
+        """Return the 1-D shape the quad makes at the given x3 value."""
         x3_scaled = x3 / self.dx3 + 0.5
         x3 = (
             self.dx3 / self.num_divisions * (self.subdivision + x3_scaled)
@@ -695,37 +703,26 @@ class Quad(LazilyOffsetable):
 
     @cached_property
     def north(self) -> FieldAlignedCurve:
-        """Field-aligned curve which defines one edge of the
-        quadrilateral. It passes through `self.shape(0.)`.
-        """
+        """Edge of the quadrilateral passing through ``self.shape(0.)``."""
         return self.get_field_line(0.0)
 
     @cached_property
     def south(self) -> FieldAlignedCurve:
-        """Field-aligned curve which defines one edge of the
-        quadrilateral. It passes through `self.shape(1.)`.
-        """
+        """Edge of the quadrilateral passing through ``self.shape(1.)``."""
         return self.get_field_line(1.0)
 
     @cached_property
     def near(self) -> NormalisedCurve:
-        """Returns a curve connecting the starting points (s=0) of the
-        curves defining the boundaries of the quadrilateral.
-
-        """
-        # FIXME: Doesn't handle self.shape being something other than a straight line
+        """Cross-field edge of the quadrilateral with the smallest x3-value."""
         return self._get_line_at_x3(-0.5 * self.dx3)
 
     @cached_property
     def far(self) -> NormalisedCurve:
-        """Returns a curve connecting the end-points (s=1) of the
-        curves defining the boundaries of the quadrilateral.
-
-        """
+        """Cross-field edge of the quadrilateral with the largest x3-value."""
         return self._get_line_at_x3(0.5 * self.dx3)
 
     def corners(self) -> Coords:
-        """Returns the points corresponding to the corners of the quadrilateral."""
+        """Return the points corresponding to the corners of the quadrilateral."""
         north_corners = control_points(self.north, 1)
         south_corners = control_points(self.south, 1)
         return Coords(
@@ -736,7 +733,9 @@ class Quad(LazilyOffsetable):
         )
 
     def subdivide(self, num_divisions: int) -> Iterator[Quad]:
-        """Returns an iterator of quad objects produced by splitting
+        """Split the quad into the specified number of pieces.
+
+        Returns an iterator of quad objects produced by splitting
         the bounding-line of this quad into the specified number of
         equally-sized segments. This has the effect of splitting the
         quad equally in the x3 direction.
@@ -757,7 +756,9 @@ class Quad(LazilyOffsetable):
 
 @dataclass(frozen=True)
 class EndQuad(LazilyOffsetable):
-    """Represents a quad that is either the near or far end of a
+    """Represents a quad in an x3 plane.
+
+    It is either the near or far end of a
     :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
     four curved edges. However, it is always flat.
 
@@ -766,11 +767,6 @@ class EndQuad(LazilyOffsetable):
     elements
 
     """
-
-    # FIXME: Need to be able to provide control points for this too,
-    # even though it is constrained to the x1-x2 plane. Possibly
-    # should generate everything here JIT from the underlying field
-    # objects? Not sure... Maybe should do that for Hex too.
 
     north: NormalisedCurve
     """A shape defining one edge of the quad"""
@@ -789,10 +785,7 @@ class EndQuad(LazilyOffsetable):
         yield self.west
 
     def corners(self) -> Coords:
-        """Returns the points corresponding to the vertices of the
-        quadrilateral.
-
-        """
+        """Return the points corresponding to the vertices of the quadrilateral."""
         north_corners = control_points(self.north, 1)
         south_corners = control_points(self.south, 1)
         return Coords(
@@ -839,27 +832,16 @@ class Hex(LazilyOffsetable):
 
     @cached_property
     def near(self) -> EndQuad:
-        """Returns a quad made from the near edges of the
-        quadrilaterals defining this hexahedron. This corresponds to a
-        face of the hexahedron normal to x3.
-
-        """
+        """The face of the Hex in the x3 plane with the smallest x3 value."""
         return EndQuad(self.north.near, self.south.near, self.east.near, self.west.near)
 
     @cached_property
     def far(self) -> EndQuad:
-        """Returns a quad made from the far edges of the
-        quadrilaterals defining this hexahedron. This corresponds to a
-        face of the hexahedron normal to x3.
-
-        """
+        """The face of the Hex in the x3 plane with the largest x3 value."""
         return EndQuad(self.north.far, self.south.far, self.east.far, self.west.far)
 
     def corners(self) -> Coords:
-        """Returns the points corresponding to the vertices of the
-        quadrilateral.
-
-        """
+        """Return the points corresponding to the vertices of the hexahedron."""
         north_corners = self.north.corners()
         south_corners = self.south.corners()
         # TODO Check that east and west corners are the same as north and south
@@ -871,7 +853,9 @@ class Hex(LazilyOffsetable):
         )
 
     def subdivide(self, num_divisions: int) -> Iterator[Hex]:
-        """Returns an iterator of hex objects produced by splitting
+        """Split the hex into the specified number of pieces.
+
+        Returns an iterator of hex objects produced by splitting
         the bounding-quads of this hex into the specified number of
         equally-sized parts. This has the effect of splitting the
         hex equally in the x3 direction.
@@ -924,26 +908,25 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     x3-direction."""
 
     def __iter__(self) -> Iterator[E]:
-        """Iterate over all of hte elements (`Quad` or `Hex` objects)
-        which make up this layer of the mesh.
-
-        """
+        """Iterate over all of the elements making up this layer of the mesh."""
         return self._iterate_elements(self.reference_elements, self.subdivisions)
 
     def __len__(self) -> int:
-        """Returns the number of elements in this layer."""
+        """Return the number of elements in this layer."""
         return len(self.reference_elements) * self.subdivisions
 
     @property
     def element_type(self) -> Type[E]:
-        """Returns the type object for the elements of the mesh layer."""
+        """Return the type of the elements of the mesh layer."""
         return type(next(iter(self.reference_elements)))
 
     def quads(self) -> Iterator[Quad]:
-        """Iterates over teh `Quad` objects in the mesh. If the mesh
-        is made up of quads then this is the same as iterating over
-        the elements. Otherwise, it iterates over the quads defining
-        the boundaries of the constituent `Hex` elements.
+        """Iterate over the `Quad` objects in the layer.
+
+        If the mesh is made up of quads then this is the same as
+        iterating over the elements. Otherwise, it iterates over the
+        quads defining the boundaries of the constituent `Hex`
+        elements.
 
         """
         if len(self.reference_elements) > 0 and issubclass(self.element_type, Quad):
@@ -954,9 +937,10 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
             )
 
     def boundaries(self) -> Iterator[frozenset[B]]:
-        """Iterates over the boundary regions in this layer. This
-        excludes boundaries normal to the x3-direction. There may be
-        any number of boundary regions. If the mesh is made up of
+        """Iterate over the boundary regions in this layer.
+
+        This excludes boundaries normal to the x3-direction. There may
+        be any number of boundary regions. If the mesh is made up of
         `Quad` elements then the boundaries are sets of `Curve`
         objects. If the mesh is made up of `Hex` elements, then the
         boundaries are sets of `Quad` objects.
@@ -968,11 +952,12 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
         )
 
     def near_faces(self) -> Iterator[C]:
-        """Iterates over the near faces of the elements in the
-        layer. If the layer is subdivided (i.e., is more than one
-        element deep in the x3-direction) then only the near faces of
-        the first subdivision will be returned. This constitutes one
-        of the boundaries normal to the x3-direction.
+        """Iterate over the near faces of the elements in the layer.
+
+        If the layer is subdivided (i.e., is more than one element
+        deep in the x3-direction) then only the near faces of the
+        first subdivision will be returned. This constitutes one of
+        the boundaries normal to the x3-direction.
 
         """
         return (
@@ -980,17 +965,18 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
         )
 
     def far_faces(self) -> Iterator[C]:
-        """Iterates over the far faces of the elements in the
-        layer. If the layer is subdivided (i.e., is more than one
-        element deep in the x3-direction) then only the far faces of
-        the last subdivision will be returned. This constitutes one
-        of the boundaries normal to the x3-direction.
+        """Iterate over the far faces of the elements in the layer.
+
+        If the layer is subdivided (i.e., is more than one element
+        deep in the x3-direction) then only the far faces of the last
+        subdivision will be returned. This constitutes one of the
+        boundaries normal to the x3-direction.
 
         Note
         ----
         This won't necessarily be bit-wise identical to the last
-        subdivision. However, as round coordinates to 8 decimal places
-        when creating Nektar++ objects, it won't matter.
+        subdivision. However, as coordinates are rounded to 8 decimal
+        places when creating Nektar++ objects, it won't matter.
 
         """
         return (
@@ -1011,8 +997,10 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     def _iterate_elements(
         elements: Iterable[_ElementLike], subdivisions: int
     ) -> Iterator[_ElementLike]:
-        """Convenience method used by other iteration methods. It
-        handles subdivisions appropriately.
+        """Iterate over elements of the layer.
+
+        This is a convenience method used by other iteration
+        methods. It handles subdivisions appropriately.
 
         """
         return itertools.chain.from_iterable(
@@ -1054,18 +1042,15 @@ class GenericMesh(Generic[E, B, C]):
     """The x3 offset for each layer of the mesh."""
 
     def layers(self) -> Iterable[MeshLayer[E, B, C]]:
-        """Iterate through the `MeshLayer` objects which make up this
-        mesh.
-
-        """
+        """Iterate over the layers of this mesh."""
         return (Offset(self.reference_layer, off) for off in self.offsets)
 
     def __iter__(self) -> Iterator[E]:
-        """Iterate through all of the elements contained in this mesh."""
+        """Iterate over all of the elements contained in this mesh."""
         return itertools.chain.from_iterable(map(iter, self.layers()))
 
     def __len__(self) -> int:
-        """Returns the number of elements in this mesh."""
+        """Return the number of elements in this mesh."""
         return len(self.reference_layer) * self.offsets.size
 
 
@@ -1114,7 +1099,9 @@ def normalise_field_line(
     x3_max: float,
     resolution: int = 10,
 ) -> NormalisedCurve:
-    """Takes a function defining a magnetic field and returns a new
+    """Trace a magnetic field-line from a starting point.
+
+    Takes a function defining a magnetic field and returns a new
     function tracing a field line within it.
 
     Parameters
@@ -1241,8 +1228,10 @@ class FieldTracer:
         division: int,
         total_divisions: int,
     ) -> NormalisedCurve:
-        """Normalises a field trace to return a function describing
-        the field line within a given division of a quad.
+        """Normalises a field trace.
+
+        Return a function describing the field line within a given
+        division of a quad.
 
         Parameters
         ----------

@@ -73,8 +73,8 @@ def test_slice_coord_round(
     coord1: mesh.SliceCoord, coord2: mesh.SliceCoord, places: int
 ) -> None:
     assert coord1 != coord2
-    assert coord1.round(places) == coord2.round(places)
-    assert coord1.round(places + 1) != coord2.round(places + 1)
+    assert coord1.round_to(places) == coord2.round_to(places)
+    assert coord1.round_to(places + 1) != coord2.round_to(places + 1)
 
 
 @pytest.mark.parametrize(
@@ -229,8 +229,8 @@ def test_slice_coords_round(
         )
 
     assert not coords_equal(coord1, coord2)
-    assert coords_equal(coord1.round(places), coord2.round(places))
-    assert not coords_equal(coord1.round(places + 1), coord2.round(places + 1))
+    assert coords_equal(coord1.round_to(places), coord2.round_to(places))
+    assert not coords_equal(coord1.round_to(places + 1), coord2.round_to(places + 1))
 
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
@@ -266,8 +266,8 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
 )
 def test_coord_round(coord1: mesh.Coord, coord2: mesh.Coord, places: int) -> None:
     assert coord1 != coord2
-    assert coord1.round(places) == coord2.round(places)
-    assert coord1.round(places + 1) != coord2.round(places + 1)
+    assert coord1.round_to(places) == coord2.round_to(places)
+    assert coord1.round_to(places + 1) != coord2.round_to(places + 1)
 
 
 @given(builds(mesh.Coord), builds(mesh.Coord))
@@ -542,8 +542,8 @@ def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> 
         )
 
     assert not coords_equal(coord1, coord2)
-    assert coords_equal(coord1.round(places), coord2.round(places))
-    assert not coords_equal(coord1.round(places + 1), coord2.round(places + 1))
+    assert coords_equal(coord1.round_to(places), coord2.round_to(places))
+    assert not coords_equal(coord1.round_to(places + 1), coord2.round_to(places + 1))
 
 
 @given(from_type(mesh.FieldAlignedCurve), whole_numbers, floats(0.0, 1.0))
@@ -713,7 +713,7 @@ def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
     corners = q.corners()
     x1_max, x2_max, x3_max = map(np.max, corners)
     x1_min, x2_min, x3_min = map(np.min, corners)
-    cp = mesh.control_points(q, n).round(12)
+    cp = mesh.control_points(q, n).round_to(12)
     assert len(cp) == (n + 1) ** 2
     assert cp.x1.ndim == 2
     assert cp.x2.ndim == 2
