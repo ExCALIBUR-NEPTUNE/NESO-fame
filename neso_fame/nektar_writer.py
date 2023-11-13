@@ -442,9 +442,6 @@ def nektar_layer_elements(
 
         def make_face(
             item: NormalisedCurve | EndQuad | Quad,
-            order: int,
-            spatial_dim: int,
-            layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
             assert not isinstance(item, (Quad, EndQuad))
             return nektar_edge(item, order, spatial_dim, layer_id)[0]
@@ -457,24 +454,14 @@ def nektar_layer_elements(
 
         def make_face(
             item: NormalisedCurve | EndQuad | Quad,
-            order: int,
-            spatial_dim: int,
-            layer_id: int,
         ) -> SD.SegGeom | SD.QuadGeom:
             assert isinstance(item, (Quad, EndQuad))
             return next(iter(nektar_quad(item, order, spatial_dim, layer_id)[0]))
 
     layer_composite = SD.Composite(list(elements))
-    near_face = SD.Composite(
-        [make_face(f, order, spatial_dim, layer_id) for f in layer.near_faces()]
-    )
-    far_face = SD.Composite(
-        [make_face(f, order, spatial_dim, layer_id) for f in layer.far_faces()]
-    )
-    bounds = [
-        frozenset((make_face(y, 1, spatial_dim, layer_id) for y in x))
-        for x in layer.boundaries()
-    ]
+    near_face = SD.Composite([make_face(f) for f in layer.near_faces()])
+    far_face = SD.Composite([make_face(f) for f in layer.far_faces()])
+    bounds = [frozenset(make_face(y) for y in x) for x in layer.boundaries()]
     if issubclass(layer.element_type, Quad):
         return NektarLayer2D(
             points,
@@ -498,24 +485,30 @@ def nektar_layer_elements(
         )
 
 
+def _enumerate_layers(layers: Iterable[MeshLayer]) -> Iterator[tuple[int, MeshLayer]]:
+    for i, ly in enumerate(layers):
+        print(f"Processing layer centred at x3 = {ly.x3_offset}")
+        yield i, ly
+
+
 def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
-    """Creates a collection of Nektar++ objects representing the given
-    mesh.
+    """Create a collection of Nektar++ objects representing the mesh.
 
     Group
     -----
     public nektar
     """
+    print("Converting FAME mesh to NekPy objects")
     return NektarElements(
         [
             nektar_layer_elements(cast(MeshLayer, layer), order, spatial_dim, i)
-            for i, layer in enumerate(mesh.layers())
+            for i, layer in _enumerate_layers(mesh.layers())
         ]
     )
 
 
 def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:
-    """Creates Nektar++ CompositeMap objects containing a single composite.
+    """Create Nektar++ CompositeMap objects containing a single composite.
 
     Group
     -----
