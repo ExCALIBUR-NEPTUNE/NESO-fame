@@ -520,6 +520,84 @@ def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeM
     return comp_map
 
 
+def _assign_points(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+    points = meshgraph.GetAllPointGeoms()
+    for i, point in enumerate(elements.points()):
+        point.SetGlobalID(i)
+        points[i] = point
+
+
+def _assign_segments(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+    segments = meshgraph.GetAllSegGeoms()
+    curved_edges = meshgraph.GetCurvedEdges()
+    for i, seg in enumerate(elements.segments()):
+        seg.SetGlobalID(i)
+        segments[i] = seg
+        curve = seg.GetCurve()
+        if curve is not None:
+            curve.curveID = i
+            curved_edges[i] = curve
+
+
+def _assign_faces(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+    """Assign faces to a MeshGraph object."""
+    tris = meshgraph.GetAllTriGeoms()
+    quads = meshgraph.GetAllQuadGeoms()
+    curved_faces = meshgraph.GetCurvedFaces()
+    for i, face in enumerate(elements.faces()):
+        face.SetGlobalID(i)
+        if isinstance(face, SD.TriGeom):
+            tris[i] = face
+        elif isinstance(face, SD.QuadGeom):
+            quads[i] = face
+        else:
+            raise RuntimeError(f"Unexpected face geometry type {type(face)}.")
+        curve = face.GetCurve()
+        if curve is not None:
+            curve.curveID = i
+            curved_faces[i] = curve
+
+
+
+def _assign_face_curve(curved_faces: SD.NekMap[SD.Curve], element: SD.Geometry, i: int) -> None:
+    if isinstance(element, SD.Geometry2D):
+        curve = element.GetCurve()
+        if curve is not None:
+            curve.curveID = i
+            curved_faces[i] = curve
+    
+
+
+def _assign_elements(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+    """Assign elements to a MeshGraph object."""
+    segments = meshgraph.GetAllSegGeoms()
+    tris = meshgraph.GetAllTriGeoms()
+    quads = meshgraph.GetAllQuadGeoms()
+    curved_faces = meshgraph.GetCurvedFaces()
+    tets = meshgraph.GetAllTetGeoms()
+    prisms = meshgraph.GetAllPrismGeoms()
+    pyrs = meshgraph.GetAllPyrGeoms()
+    hexes = meshgraph.GetAllHexGeoms()
+    for i, element in enumerate(elements.elements()):
+        element.SetGlobalID(i)
+        if isinstance(element, SD.SegGeom):
+            segments[i] = element
+        elif isinstance(element, SD.TriGeom):
+            tris[i] = element
+        elif isinstance(element, SD.QuadGeom):
+            quads[i] = element
+        elif isinstance(element, SD.TetGeom):
+            tets[i] = element
+        elif isinstance(element, SD.PrismGeom):
+            prisms[i] = element
+        elif isinstance(element, SD.PyrGeom):
+            pyrs[i] = element
+        elif isinstance(element, SD.HexGeom):
+            hexes[i] = element
+        else:
+            raise RuntimeError(f"Unexpected face geometry type {type(element)}.")
+        _assign_face_curve(curved_faces, element, i)
+
 def nektar_mesh(
     elements: NektarElements,
     mesh_dim: int,
@@ -573,72 +651,18 @@ def nektar_mesh(
         if compressed
         else SD.MeshGraphXml(mesh_dim, spatial_dim)
     )
-    points = meshgraph.GetAllPointGeoms()
-    segments = meshgraph.GetAllSegGeoms()
-    curved_edges = meshgraph.GetCurvedEdges()
-    tris = meshgraph.GetAllTriGeoms()
-    quads = meshgraph.GetAllQuadGeoms()
-    curved_faces = meshgraph.GetCurvedFaces()
-    tets = meshgraph.GetAllTetGeoms()
-    prisms = meshgraph.GetAllPrismGeoms()
-    pyrs = meshgraph.GetAllPyrGeoms()
-    hexes = meshgraph.GetAllHexGeoms()
+    print("Assigning verticse")
+    _assign_points(elements, meshgraph)
+    print("Assigning segments")
+    _assign_segments(elements, meshgraph)
+    print("Assigning faces")
+    _assign_faces(elements, meshgraph)
+    print("Assigning elements")
+    _assign_elements(elements, meshgraph)
+
     composites = meshgraph.GetComposites()
     domains = meshgraph.GetDomain()
     movement = meshgraph.GetMovement()
-
-    print("Assigning verticse")
-    for i, point in enumerate(elements.points()):
-        point.SetGlobalID(i)
-        points[i] = point
-    print("Assigning segments")
-    for i, seg in enumerate(elements.segments()):
-        seg.SetGlobalID(i)
-        segments[i] = seg
-        curve = seg.GetCurve()
-        if curve is not None:
-            curve.curveID = i
-            curved_edges[i] = curve
-    print("Assigning faces")
-    for i, face in enumerate(elements.faces()):
-        face.SetGlobalID(i)
-        if isinstance(face, SD.TriGeom):
-            tris[i] = face
-        elif isinstance(face, SD.QuadGeom):
-            quads[i] = face
-        else:
-            raise RuntimeError(f"Unexpected face geometry type {type(face)}.")
-        curve = face.GetCurve()
-        if curve is not None:
-            curve.curveID = i
-            curved_faces[i] = curve
-    print("Assigning elements")
-    for i, element in enumerate(elements.elements()):
-        element.SetGlobalID(i)
-        if isinstance(element, SD.SegGeom):
-            segments[i] = element
-        elif isinstance(element, SD.TriGeom):
-            tris[i] = element
-        elif isinstance(element, SD.QuadGeom):
-            quads[i] = element
-        elif isinstance(element, SD.TetGeom):
-            tets[i] = element
-        elif isinstance(element, SD.PrismGeom):
-            prisms[i] = element
-        elif isinstance(element, SD.PyrGeom):
-            pyrs[i] = element
-        elif isinstance(element, SD.HexGeom):
-            hexes[i] = element
-        else:
-            raise RuntimeError(f"Unexpected face geometry type {type(element)}.")
-        if isinstance(element, SD.Geometry2D):
-            curve = element.GetCurve()
-            if curve is not None:
-                curve.curveID = i
-                curved_faces[i] = curve
-
-    # FIXME: The stuff related to Movement can probably be put in a
-    # separate function, for tidiness, and/or use caching.
     print("Assigning domains")
     i = -1
     for i, layer in enumerate(elements.layers()):
@@ -647,9 +671,7 @@ def nektar_mesh(
         domains[i] = domain
         if write_movement:
             movement.AddZone(SD.ZoneFixed(i, i, domain, 3))
-
     n = elements.num_layers()
-
     print("Assigning interfaces between layers")
     near_faces: Iterator[tuple[int, SD.Composite]] = enumerate(elements.near_faces(), n)
     first_near = next(near_faces)
