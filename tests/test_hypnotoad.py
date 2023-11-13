@@ -32,13 +32,13 @@ from scipy.integrate import quad
 from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
-from neso_fame.hypnotoad import (
+from neso_fame.hypnotoad_interface import (
     _get_region_boundaries,
+    _smallest_angle_between,
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
     perpendicular_edge,
-    smallest_angle_between,
 )
 from neso_fame.mesh import (
     CoordinateSystem,

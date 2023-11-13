@@ -14,7 +14,7 @@ import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion
 
-from neso_fame.hypnotoad import (
+from neso_fame.hypnotoad_interface import (
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,

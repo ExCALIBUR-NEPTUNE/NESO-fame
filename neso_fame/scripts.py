@@ -1,18 +1,18 @@
 """Functions for building meshes from the command line."""
 
-from io import StringIO, TextIOBase, TextIOWrapper
+from io import StringIO, TextIOBase
 from sys import argv
 
 import click
-from hypnotoad import Mesh as HypnoMesh
-from neso_fame.hypnotoad import eqdsk_equilibrium
 import numpy as np
+import yaml
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
 from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
+from neso_fame.hypnotoad_interface import eqdsk_equilibrium
 from neso_fame.mesh import CoordinateSystem, SliceCoords
 from neso_fame.nektar_writer import write_nektar
-import yaml
 
 
 @click.group()
