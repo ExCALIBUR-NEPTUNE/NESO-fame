@@ -225,6 +225,10 @@ def integrate_vectorized(
     can be useful if you need to enforce the end-point of a curve to
     within a very high level of precision.
 
+    Group
+    -----
+    hypnotoad
+
     """
     start = np.asarray(start)
     if start.ndim > 1:
@@ -291,7 +295,13 @@ def _fpol(eq: TokamakEquilibrium, R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray
 
 
 def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
-    """Return a field trace from the hypnotoad equilibrium object."""
+    """Return a field trace from the hypnotoad equilibrium object.
+
+    Group
+    -----
+    hypnotoad
+
+    """
 
     def trace(start: SliceCoord, phi: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
         if start.system != CoordinateSystem.CYLINDRICAL:
@@ -334,6 +344,10 @@ def eqdsk_equilibrium(
         <https://hypnotoad.readthedocs.io/en/latest/_temp/options.html>`_
         and `Nonorthogonal Options
         <https://hypnotoad.readthedocs.io/en/latest/_temp/nonorthogonal-options.html>`_.
+
+    Group
+    -----
+    hypnotoad
 
     """
     possible_options = list(TokamakEquilibrium.user_options_factory.defaults) + list(
@@ -439,6 +453,10 @@ def perpendicular_edge(
         The starting point of the line
     south
         The end point of the line
+
+    Group
+    -----
+    hypnotoad
 
     """
     if north.system != CoordinateSystem.CYLINDRICAL:
@@ -559,6 +577,10 @@ def flux_surface_edge(
         The starting point of the line
     south
         The end point of the line
+
+    Group
+    -----
+    hypnotoad
 
     """
     if north.system != CoordinateSystem.CYLINDRICAL:
@@ -791,6 +813,10 @@ def get_mesh_boundaries(
     #. Outer lower divertor
     #. Inner upper divertor
     #. Outer upper divertor
+
+    Group
+    -----
+    hypnotoad
 
     """
 
