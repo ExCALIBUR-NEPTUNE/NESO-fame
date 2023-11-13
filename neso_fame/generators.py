@@ -79,6 +79,57 @@ def _is_bound(bound: BoundType) -> bool:
     return bound
 
 
+def _get_reference(
+    shape: StraightLineAcrossField, north_fixed: bool, south_fixed: bool
+) -> SliceCoord:
+    if north_fixed:
+        return shape(0.0).to_coord()
+    elif south_fixed:
+        return shape(1.0).to_coord()
+    else:
+        return SliceCoord(0.0, 0.0, shape.north.system)
+
+
+def _get_vec(
+    north_bound: BoundType,
+    south_bound: BoundType,
+    north_planar: bool,
+    south_planar: bool,
+) -> tuple[Optional[tuple[float, float]], Optional[float]]:
+    if north_planar:
+        vec: Optional[tuple[float, float]] = cast(tuple[float, float], north_bound)
+    elif south_planar:
+        vec = cast(tuple[float, float], south_bound)
+    else:
+        return None, None
+    normed_vec = vec[0] * vec[0] + vec[1] * vec[1]
+    return vec, normed_vec
+
+
+def _get_factors(
+    pos_on_shape: float,
+    north_fixed: bool,
+    south_fixed: bool,
+    north_planar: bool,
+    south_planar: bool,
+) -> tuple[float, float]:
+    if south_fixed:
+        factor_fixed = 1 - pos_on_shape
+    elif north_fixed:
+        factor_fixed = pos_on_shape
+    else:
+        factor_fixed = 1.0
+    if south_planar and north_planar:
+        factor_planar = 0.0
+    elif north_planar:
+        factor_planar = pos_on_shape
+    elif south_planar:
+        factor_planar = 1 - pos_on_shape
+    else:
+        factor_planar = 1.0
+    return factor_fixed * factor_fixed, factor_planar
+
+
 def _boundary_tracer(
     field: FieldTrace,
     shape: StraightLineAcrossField,
@@ -106,7 +157,9 @@ def _boundary_tracer(
         boundary and how it conforms
 
     """
-    if _is_fixed(north_bound) and _is_fixed(south_bound):
+    north_fixed = _is_fixed(north_bound)
+    south_fixed = _is_fixed(south_bound)
+    if north_fixed and south_fixed:
         return lambda start, x3: (
             SliceCoords(
                 np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
@@ -117,27 +170,10 @@ def _boundary_tracer(
     if not _is_bound(north_bound) and not _is_bound(south_bound):
         return field
 
-    north_fixed = _is_fixed(north_bound)
-    south_fixed = _is_fixed(south_bound)
+    reference = _get_reference(shape, north_fixed, south_fixed)
     north_planar = _is_planar(north_bound)
     south_planar = _is_planar(south_bound)
-    if north_fixed:
-        reference = shape(0.0).to_coord()
-    elif south_fixed:
-        reference = shape(1.0).to_coord()
-    else:
-        reference = SliceCoord(0.0, 0.0, shape.north.system)
-
-    if north_planar:
-        vec: Optional[tuple[float, float]] = cast(tuple[float, float], north_bound)
-    elif south_planar:
-        vec = cast(tuple[float, float], south_bound)
-    else:
-        vec = None
-        normed_vec: Optional[float] = None
-
-    if vec is not None:
-        normed_vec = vec[0] * vec[0] + vec[1] * vec[1]
+    vec, normed_vec = _get_vec(north_bound, south_bound, north_planar, south_planar)
 
     dx = (shape.south.x1 - shape.north.x1, shape.south.x2 - shape.north.x2)
 
@@ -149,21 +185,9 @@ def _boundary_tracer(
 
     def func(start: SliceCoord, x3: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
         pos_on_shape = get_position_on_shape(start)
-        if south_fixed:
-            factor_fixed = 1 - pos_on_shape
-        elif north_fixed:
-            factor_fixed = pos_on_shape
-        else:
-            factor_fixed = 1.0
-        if south_planar and north_planar:
-            factor_planar = 0.0
-        elif north_planar:
-            factor_planar = pos_on_shape
-        elif south_planar:
-            factor_planar = 1 - pos_on_shape
-        else:
-            factor_planar = 1.0
-        factor_fixed *= factor_fixed
+        factor_fixed, factor_planar = _get_factors(
+            pos_on_shape, north_fixed, south_fixed, north_planar, south_planar
+        )
         x3 = np.asarray(x3)
         position, distance = field(start, x3)
         if factor_planar < 1:
