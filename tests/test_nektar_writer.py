@@ -472,7 +472,13 @@ NekType = Union[SD.Curve, SD.Geometry]
 N = TypeVar("N", SD.Curve, SD.Geometry)
 
 
-# TODO: Write some unit tests for the iterator methods on NektarElements
+# TODO: Write some unit tests for the iterator methods on
+# NektarElements. In particular, check that it doesn't return any
+# boundary composites that are empty.
+
+# TODO: Check that boundary elements already exist.
+
+
 def extract_and_merge(nek_type: Type[N], *items: Iterator[NekType]) -> Iterable[N]:
     return filter(
         cast(Callable[[NekType], TypeGuard[N]], lambda y: isinstance(y, nek_type)),
@@ -705,22 +711,22 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 
 
 QUAD = Quad(
-        StraightLineAcrossField(
-            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
-            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-        ),
-        FieldTracer(
-            lambda start, x3: (
-                SliceCoords(
-                    np.full_like(x3, start.x1),
-                    np.full_like(x3, start.x2),
-                    CoordinateSystem.CARTESIAN,
-                ),
-                np.asarray(x3),
+    StraightLineAcrossField(
+        SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+        SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
+    ),
+    FieldTracer(
+        lambda start, x3: (
+            SliceCoords(
+                np.full_like(x3, start.x1),
+                np.full_like(x3, start.x2),
+                CoordinateSystem.CARTESIAN,
             ),
-            2,
+            np.asarray(x3),
         ),
-        1.0,
+        2,
+    ),
+    1.0,
 )
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),

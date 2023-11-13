@@ -3,8 +3,8 @@ import operator
 import warnings
 from collections import Counter
 from collections.abc import Iterable
-from unittest.mock import patch
 from typing import Any, Callable, NamedTuple, cast
+from unittest.mock import patch
 
 import numpy as np
 import numpy.typing as npt
@@ -263,7 +263,7 @@ def test_field_trace(
 ) -> None:
     trace = equilibrium_trace(cast(TokamakEquilibrium, eq))
     R_start, Z_start = eq.to_RZ(psi_start, theta_start)
-    with patch("neso_fame.hypnotoad._fpol", fake_fpol):
+    with patch("neso_fame.hypnotoad_interface._fpol", fake_fpol):
         positions, distances = trace(
             SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL),
             phis,
@@ -680,7 +680,7 @@ def test_flux_surface_edges(
         a_prime * (start.x2 - eq.o_point.Z), b_prime * (start.x1 - eq.o_point.R)
     )
     end_parameter = (
-        smallest_angle_between(
+        _smallest_angle_between(
             np.arctan2(
                 a_prime * (end.x2 - eq.o_point.Z), b_prime * (end.x1 - eq.o_point.R)
             ),
@@ -688,7 +688,7 @@ def test_flux_surface_edges(
         )
         + start_parameter
     )
-    t = smallest_angle_between(parameters, start_parameter) + start_parameter
+    t = _smallest_angle_between(parameters, start_parameter) + start_parameter
     offset = 0.5 * np.pi if eq.b < eq.a else 0.0
     start_distance = ellipeinc(start_parameter - offset, m)
     distances = ellipeinc(t - offset, m) - start_distance
