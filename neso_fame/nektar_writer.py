@@ -5,7 +5,7 @@ from ctypes import ArgumentError
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
-from typing import Iterator, Optional, Sequence, cast
+from typing import Iterable, Iterator, Optional, Sequence, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
@@ -528,8 +528,7 @@ def nektar_mesh(
     periodic_interfaces: bool = True,
     compressed: bool = True,
 ) -> SD.MeshGraphXml | SD.MeshGraphXmlCompressed:
-    """Creates a Nektar++ MeshGraphXml object from a collection of
-    Nektar++ geometry objects.
+    """Create a Nektar++ MeshGraphXml from Nektar++ geometry objects.
 
     Parameters
     ----------
