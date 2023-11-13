@@ -12,7 +12,7 @@ from typing import Optional, TypeVar, cast
 import numpy as np
 import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
-from hypnotoad import MeshRegion as HypnoMeshRegion
+from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
     equilibrium_trace,
@@ -97,7 +97,7 @@ def _get_vec(
     south_planar: bool,
 ) -> tuple[Optional[tuple[float, float]], Optional[float]]:
     if north_planar:
-        vec: Optional[tuple[float, float]] = cast(tuple[float, float], north_bound)
+        vec = cast(tuple[float, float], north_bound)
     elif south_planar:
         vec = cast(tuple[float, float], south_bound)
     else:

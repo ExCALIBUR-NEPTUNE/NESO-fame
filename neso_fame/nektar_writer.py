@@ -177,8 +177,8 @@ class NektarElements:
         )
 
         def combine_bounds(
-            bounds: Sequence[frozenset[SD.SegGeom] | frozenset[SD.Geometry2D]]
-        ) -> list[SD.SegGeom | SD.Geometry2D]:
+            bounds: Sequence[frozenset[SD.Geometry]]
+        ) -> list[SD.Geometry]:
             return list(reduce(or_, bounds))
 
         return map(SD.Composite, filter(len, map(combine_bounds, zipped_bounds)))
