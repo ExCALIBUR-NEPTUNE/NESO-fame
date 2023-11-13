@@ -825,7 +825,7 @@ def test_extruding_hypnotoad_mesh() -> None:
     # Get a list all boundaries. Each entry in the list will be
     # another list containing the portions of that boundary in each
     # layer.
-    bounds = list(zip(*(list(l.boundaries()) for l in mesh.layers())))
+    bounds = list(zip(*(list(layer.boundaries()) for layer in mesh.layers())))
     for bound in bounds:
         sizes = {len(b) for b in bound}
         # Check that the boundary is the same size in each layer

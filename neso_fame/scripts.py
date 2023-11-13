@@ -25,8 +25,10 @@ NONNEGATIVE = click.IntRange(0)
 
 
 def _validate_layers(layers: int, nx: int) -> int:
-    """Check that the specified direction can be evenly divided into the
-    specified number of layers.
+    """Get the number of layers to divide the mesh into.
+
+    If the number of elements in the x3-direction can not be evenly
+    divided into this many layers, an exception will be raised.
     """
     if layers == 0:
         return nx
@@ -119,8 +121,9 @@ def simple_2d(
     compress: bool,
     meshfile: str,
 ) -> None:
-    """Generate a simple 2D Cartesian mesh aligned to straight field
-    lines. These field lines can be at an angle to the x1 direction
+    """Generate a simple 2D Cartesian mesh aligned to straight field lines.
+
+    These field lines can be at an angle to the x1 direction
     (although 90 degrees is singular and will cause the script to
     fail). The mesh will be written to MESHFILE in the Nektar++
     uncompressed XML format.
@@ -254,8 +257,9 @@ def simple_3d(
     compress: bool,
     meshfile: str,
 ) -> None:
-    """Generate a simple 3D Cartesian mesh aligned to straight field
-    lines. These field lines can be at an angle relative to the x1
+    """Generate a simple 3D Cartesian mesh aligned to straight field lines.
+
+    These field lines can be at an angle relative to the x1
     direction (although 90 degrees is singular and will cause the
     script to fail). The mesh will be written to MESHFILE in the
     Nektar++ uncompressed XML format.
@@ -354,11 +358,13 @@ def hypnotoad(
     config: TextIOBase,
     meshfile: str,
 ) -> None:
-    """Generate a 3D mesh from the GEQDSK file. This is done by first
-    generating a 2D mesh using hypnotoad and then following each node in that mesh
-    along the magnetic field lines. The mesh will be written to
-    MESHFILE in the Nektar++ uncompressed XML format. Note that only
-    orthogonal meshes are allowed.
+    """Generate a 3D mesh from a GEQDSK file.
+
+    This is done by first generating a 2D mesh using hypnotoad and
+    then following each node in that mesh along the magnetic field
+    lines. The mesh will be written to MESHFILE in the Nektar++
+    uncompressed XML format. Note that only orthogonal meshes are
+    allowed.
 
     """
     layers = _validate_layers(layers, n)
