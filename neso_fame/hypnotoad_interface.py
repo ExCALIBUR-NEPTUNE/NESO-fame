@@ -36,7 +36,7 @@ x : :obj:`numpy.typing.ArrayLike`
 
 Returns
 -------
-:class:`tuple`\ [\ :obj:`numpy.typing.ArrayLike`\ , ...]
+:class:`tuple`\\[:obj:`numpy.typing.ArrayLike`\\, ...]
     The derivative of `x` with respect to `t`.
 
 Group
@@ -61,7 +61,7 @@ t : :obj:`numpy.typing.ArrayLike`
 
 Returns
 -------
-:class:`tuple`\ [\ :obj:`numpy.typing.ArrayLike`\ , ...]
+:class:`tuple`\\[:obj:`numpy.typing.ArrayLike`\\, ...]
     The value of `x` at `t`.
 
 Group
@@ -295,7 +295,7 @@ def integrate_vectorized(
 
     Returns
     -------
-    :class:`~collections.abc.Callable`\ [[\ :obj:`~neso_fame.hypnotoad_interface.Integrand`]\ , :obj:`~neso_fame.hypnotoad_interface.IntegratedFunction`\ ]
+    :class:`~collections.abc.Callable`\\[[:obj:`~neso_fame.hypnotoad_interface.Integrand`], :obj:`~neso_fame.hypnotoad_interface.IntegratedFunction`\\]
         A decorator that will take an integrand a return a function that
         is the solution of the ODE.
 
