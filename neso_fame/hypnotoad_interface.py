@@ -23,7 +23,7 @@ from .mesh import (
 )
 
 Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]
-"""A (possibly vector) function producing a derivative with respect to `t`.
+r"""A (possibly vector) function producing a derivative with respect to `t`.
 
 It can be integrated using an ODE solver.
 
@@ -36,7 +36,7 @@ x : :obj:`numpy.typing.ArrayLike`
 
 Returns
 -------
-:class:`tuple`\\[:obj:`numpy.typing.ArrayLike`\\, ...]
+:class:`tuple`\[:obj:`numpy.typing.ArrayLike`\, ...]
     The derivative of `x` with respect to `t`.
 
 Group
@@ -48,7 +48,7 @@ integration
 """
 
 IntegratedFunction = Callable[[npt.ArrayLike], tuple[npt.NDArray, ...]]
-"""The solution to an ODE.
+r"""The solution to an ODE.
 
 This is the result of integrating an
 :obj:`~neso_fame.hypnotoad_interface.Integrand` object using an ODE
@@ -61,7 +61,7 @@ t : :obj:`numpy.typing.ArrayLike`
 
 Returns
 -------
-:class:`tuple`\\[:obj:`numpy.typing.ArrayLike`\\, ...]
+:class:`tuple`\[:obj:`numpy.typing.ArrayLike`\, ...]
     The value of `x` at `t`.
 
 Group
@@ -263,7 +263,7 @@ def integrate_vectorized(
     atol: float = 1e-14,
     vectorize_integrand_calls: bool = True,
 ) -> Callable[[Integrand], IntegratedFunction]:
-    """Return a vectorised numerically-integrated function.
+    r"""Return a vectorised numerically-integrated function.
 
     Decorator that will numerically integrate an ODE and return
     a callable that is vectorised. The integration will start from
@@ -295,7 +295,7 @@ def integrate_vectorized(
 
     Returns
     -------
-    :class:`~collections.abc.Callable`\\[[:obj:`~neso_fame.hypnotoad_interface.Integrand`], :obj:`~neso_fame.hypnotoad_interface.IntegratedFunction`\\]
+    :class:`~collections.abc.Callable`\[[:obj:`~neso_fame.hypnotoad_interface.Integrand`], :obj:`~neso_fame.hypnotoad_interface.IntegratedFunction`\]
         A decorator that will take an integrand a return a function that
         is the solution of the ODE.
 
