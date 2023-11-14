@@ -496,8 +496,8 @@ def find_item(i: int, geoms: frozenset[SD.Geometry]) -> SD.Geometry:
 def check_curved_edges(
     order: int,
     elements: nektar_writer.NektarElements,
-    curved_edges: SD.NekMap[SD.Curve],
-    actual_segments: SD.NekMap[SD.SegGeom],
+    curved_edges: SD.CurveMap,
+    actual_segments: SD.SegGeomMap,
 ) -> None:
     n_curve = len(curved_edges)
     if order == 1:
@@ -531,9 +531,9 @@ def check_curved_edges(
 def check_curved_faces(
     order: int,
     elements: nektar_writer.NektarElements,
-    curved_faces: SD.NekMap[SD.Curve],
-    actual_triangles: SD.NekMap[SD.TriGeom],
-    actual_quads: SD.NekMap[SD.QuadGeom],
+    curved_faces: SD.CurveMap,
+    actual_triangles: SD.TriGeomMap,
+    actual_quads: SD.QuadGeomMap,
 ) -> None:
     if order == 1:
         assert len(curved_faces) == 0
@@ -564,6 +564,8 @@ def check_curved_faces(
                     ).GetCurve()
                 )
 
+
+GeomMap = SD.PointGeomMap | SD.SegGeomMap | SD.TriGeomMap | SD.QuadGeomMap | SD.TetGeomMap | SD.PrismGeomMap | SD.PyrGeomMap | SD.HexGeomMap
 
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
@@ -596,7 +598,7 @@ def test_nektar_mesh(
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
-    actual_geometries: list[SD.NekMap] = [
+    actual_geometries: list[GeomMap] = [
         meshgraph.GetAllPointGeoms(),
         actual_segments,
         actual_triangles,
