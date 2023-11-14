@@ -1,6 +1,7 @@
 # Testing
 pytest
 hypothesis
+pytest-cov
 
 # Linting
 mypy
