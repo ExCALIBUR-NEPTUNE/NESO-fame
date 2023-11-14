@@ -907,6 +907,38 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     """The number of elements deep the layer should be in the
     x3-direction."""
 
+    @classmethod
+    def QuadMeshLayer(
+        cls,
+        reference_elements: Sequence[Quad],
+        bounds: Sequence[frozenset[FieldAlignedCurve]],
+        subdivisions: int = 1,
+    ) -> QuadMeshLayer:
+        """Construct a MeshLayer object made up of quads.
+
+        This method isn't really necessary but can be useful to
+        reassure the type-checker that it is a QuadMeshLayer that is being
+        constructed.
+
+        """
+        return cls(reference_elements, bounds, subdivisions)  # type: ignore
+
+    @classmethod
+    def HexMeshLayer(
+        cls,
+        reference_elements: Sequence[Hex],
+        bounds: Sequence[frozenset[Quad]],
+        subdivisions: int = 1,
+    ) -> HexMeshLayer:
+        """Construct a MeshLayer object made up of hexes, in a type-safe way.
+
+        This method isn't really necessary but can be useful to
+        reassure the type-checker that it is a HexMeshLayer that is being
+        constructed.
+
+        """
+        return cls(reference_elements, bounds, subdivisions)  # type: ignore
+
     def __iter__(self) -> Iterator[E]:
         """Iterate over all of the elements making up this layer of the mesh."""
         return self._iterate_elements(self.reference_elements, self.subdivisions)

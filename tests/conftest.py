@@ -852,7 +852,7 @@ quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_quad_boundaries(x
 quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_quads = shared(quad_mesh_elements)
 quad_mesh_layer = builds(
-    mesh.MeshLayer,
+    mesh.MeshLayer.QuadMeshLayer,
     shared_quads,
     shared_quads.map(get_quad_boundaries),
     integers(1, 3),
@@ -875,7 +875,7 @@ hex_mesh_arguments = cast(
 hex_mesh_layer_no_divisions = hex_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_hex_mesh_args = shared(hex_mesh_arguments)
 hex_mesh_layer = builds(
-    mesh.MeshLayer,
+    mesh.MeshLayer.HexMeshLayer,
     shared_hex_mesh_args.map(lambda x: x[0]),
     shared_hex_mesh_args.map(lambda x: x[1]),
     integers(1, 3),
