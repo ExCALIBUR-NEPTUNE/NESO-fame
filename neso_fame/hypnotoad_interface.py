@@ -494,6 +494,7 @@ def _get_integration_distance(
     terminus: Callable[[float, npt.NDArray], float],
     start: SliceCoord,
     end: SliceCoord,
+    check_end_close: bool,
 ) -> float:
     terminus.terminal = True  # type: ignore
     # Integrate until reaching the terminus, to work out the distance
@@ -506,21 +507,21 @@ def _get_integration_distance(
         rtol=5e-14,
         atol=1e-14,
         events=terminus,
-        vectorized=True,
+        vectorized=False,
     )
     # FIXME: This is diverging from the flux surface in some situations, somehow.
     if not result.success:
         raise RuntimeError("Integration failed")
     if len(result.t_events[0]) == 0:
         raise RuntimeError("Integration did not cross over expected end-point")
-    if not np.isclose(result.y[0, -1], end.x1, 1e-5, 1e-5) and not np.isclose(
+    if check_end_close and not np.isclose(result.y[0, -1], end.x1, 1e-5, 1e-5) and not np.isclose(
         result.y[1, -1], end.x2, 1e-5, 1e-5
     ):
         raise RuntimeError("Integration did not converge on expected location")
     total_distance: float = result.t[-1]
     return total_distance
 
-
+    
 def perpendicular_edge(
     eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> AcrossFieldCurve:
@@ -568,7 +569,7 @@ def perpendicular_edge(
     def terminus(t: float, x: npt.NDArray) -> float:
         return float(eq.psi(x[0], x[1])) - psi_end
 
-    total_distance = _get_integration_distance(f, terminus, start, end)
+    total_distance = _get_integration_distance(f, terminus, start, end, x_point == _XPointLocation.NONE)
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
@@ -689,18 +690,19 @@ def flux_surface_edge(
     # along the flux surfaces
     start, end, parameter = _determine_integration_direction(dpsi, north, south)
 
-    def surface(x: npt.NDArray) -> npt.NDArray:
+    def surface(x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         dpsidR, dpsidZ = dpsi(x)
         norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
-        return np.array([-dpsidZ / norm, dpsidR / norm])
+        return -dpsidZ / norm, dpsidR / norm
 
     direction = surface(np.array(list(start)))
     sign = float(
         np.sign(direction[0] * (end.x1 - start.x1) + direction[1] * (end.x2 - start.x2))
     )
 
-    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray]:
-        return (sign * surface(x),)
+    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+        x1, x2 = surface(x)
+        return sign * x1, sign*x2
 
     end_orthogonal = (
         eq.psi_func(end.x1, end.x2, dx=1, grid=False),
@@ -716,7 +718,7 @@ def flux_surface_edge(
         )
         return float(sign * np.sqrt((x[0] - end.x1) ** 2 + (x[1] - end.x2) ** 2))
 
-    total_distance = _get_integration_distance(f, terminus, start, end)
+    total_distance = _get_integration_distance(f, terminus, start, end, True)
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
