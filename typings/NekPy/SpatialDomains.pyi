@@ -131,7 +131,6 @@ class _NekMap(Generic[T]):
     def __contains__(self, key: int) -> bool: ...
     def __iter__(self) -> Iterator[_NekMapItem]: ...
 
-
 PointGeomMap = _NekMap[PointGeom]
 SegGeomMap = _NekMap[SegGeom]
 TriGeomMap = _NekMap[TriGeom]
@@ -142,7 +141,6 @@ PyrGeomMap = _NekMap[PyrGeom]
 HexGeomMap = _NekMap[HexGeom]
 CurveMap = _NekMap[Curve]
 CompositeMap = _NekMap[Composite]
-
 
 class MeshGraph:
     @staticmethod

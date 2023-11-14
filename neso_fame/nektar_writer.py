@@ -558,9 +558,7 @@ def _assign_faces(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
             curved_faces[i] = curve
 
 
-def _assign_face_curve(
-    curved_faces: SD.CurveMap, element: SD.Geometry, i: int
-) -> None:
+def _assign_face_curve(curved_faces: SD.CurveMap, element: SD.Geometry, i: int) -> None:
     if isinstance(element, SD.Geometry2D):
         curve = element.GetCurve()
         if curve is not None:

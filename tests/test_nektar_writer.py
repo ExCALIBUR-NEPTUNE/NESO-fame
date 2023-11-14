@@ -565,7 +565,17 @@ def check_curved_faces(
                 )
 
 
-GeomMap = SD.PointGeomMap | SD.SegGeomMap | SD.TriGeomMap | SD.QuadGeomMap | SD.TetGeomMap | SD.PrismGeomMap | SD.PyrGeomMap | SD.HexGeomMap
+GeomMap = (
+    SD.PointGeomMap
+    | SD.SegGeomMap
+    | SD.TriGeomMap
+    | SD.QuadGeomMap
+    | SD.TetGeomMap
+    | SD.PrismGeomMap
+    | SD.PyrGeomMap
+    | SD.HexGeomMap
+)
+
 
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those

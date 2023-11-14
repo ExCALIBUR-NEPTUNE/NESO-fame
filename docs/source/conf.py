@@ -195,7 +195,17 @@ object_description_options = [
 
 
 current_module = None
-filtered_docs = {"__setattr__", "__delattr__", "Connectivity", "NektarQuadGeomElements", "NodePair", "NektarOrderedQuadGeomElements", "NektarHexGeomElements", "HypnoMesh", "HypnoMeshRegion"}
+filtered_docs = {
+    "__setattr__",
+    "__delattr__",
+    "Connectivity",
+    "NektarQuadGeomElements",
+    "NodePair",
+    "NektarOrderedQuadGeomElements",
+    "NektarHexGeomElements",
+    "HypnoMesh",
+    "HypnoMeshRegion",
+}
 
 
 def autodoc_skip_member(app, what, name, obj, skip, options):

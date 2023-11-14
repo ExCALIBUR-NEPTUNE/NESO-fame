@@ -501,8 +501,8 @@ def test_trace_core(x_point_equilibrium: TokamakEquilibrium) -> None:
         SliceCoord(R0, Z0, CoordinateSystem.CYLINDRICAL), np.linspace(0.0, 2.0, 31)
     )
     R0_crossings = (
-        -1
-    )  # First iteration will show as a crossing, but don't want to count it
+        -1  # First iteration will show as a crossing, but don't want to count it
+    )
     for R, R_prev, Z, Z_prev in zip(
         positions.x1[1:], positions.x1[:-1], positions.x2[1:], positions.x2[:-1]
     ):

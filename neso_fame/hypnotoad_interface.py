@@ -70,7 +70,6 @@ integration
 
 
 .. rubric:: Alias
-
 """
 
 
@@ -514,14 +513,16 @@ def _get_integration_distance(
         raise RuntimeError("Integration failed")
     if len(result.t_events[0]) == 0:
         raise RuntimeError("Integration did not cross over expected end-point")
-    if check_end_close and not np.isclose(result.y[0, -1], end.x1, 1e-5, 1e-5) and not np.isclose(
-        result.y[1, -1], end.x2, 1e-5, 1e-5
+    if (
+        check_end_close
+        and not np.isclose(result.y[0, -1], end.x1, 1e-5, 1e-5)
+        and not np.isclose(result.y[1, -1], end.x2, 1e-5, 1e-5)
     ):
         raise RuntimeError("Integration did not converge on expected location")
     total_distance: float = result.t[-1]
     return total_distance
 
-    
+
 def perpendicular_edge(
     eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> AcrossFieldCurve:
@@ -569,7 +570,9 @@ def perpendicular_edge(
     def terminus(t: float, x: npt.NDArray) -> float:
         return float(eq.psi(x[0], x[1])) - psi_end
 
-    total_distance = _get_integration_distance(f, terminus, start, end, x_point == _XPointLocation.NONE)
+    total_distance = _get_integration_distance(
+        f, terminus, start, end, x_point == _XPointLocation.NONE
+    )
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
@@ -702,7 +705,7 @@ def flux_surface_edge(
 
     def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         x1, x2 = surface(x)
-        return sign * x1, sign*x2
+        return sign * x1, sign * x2
 
     end_orthogonal = (
         eq.psi_func(end.x1, end.x2, dx=1, grid=False),
