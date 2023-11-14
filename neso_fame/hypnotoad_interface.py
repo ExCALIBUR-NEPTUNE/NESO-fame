@@ -252,7 +252,7 @@ def _handle_integration(
             raise RuntimeError("Failed to integrate along field line")
         for i, v in fixed_positions.items():
             result.y[:, i] = v
-            output[:, result_slice] = result.y
+        output[:, result_slice] = result.y
 
 
 def integrate_vectorized(
