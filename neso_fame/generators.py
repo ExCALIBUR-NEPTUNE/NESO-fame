@@ -530,15 +530,16 @@ def hypnotoad_mesh(
         A mesh object created by hypnotoad from an equilibrium
         magnetic field.
     extrusion_limits
-        The lower and upper limits of the domain in the x3-direction.
+        The lower and upper limits of the domain in the toroidal
+        direction (in radians).
     n
         Number of layers to generate in the x3 direction
     spatial_interp_resolution
         Number of points used to interpolate distances along the field
         line.
     subdivisions
-        Depth of cells in x3-direction in each layer
-    .
+        Depth of cells in x3-direction in each layer.
+
 
     Returns
     -------

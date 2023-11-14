@@ -1,4 +1,5 @@
 """Functions for working with GEQDSK data processed using hypnotoad."""
+from __future__ import annotations
 
 import itertools
 from enum import Enum
@@ -21,8 +22,56 @@ from .mesh import (
     SliceCoords,
 )
 
-IntegratedFunction = Callable[[npt.ArrayLike], tuple[npt.NDArray, ...]]
 Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]
+"""A (possibly vector) function producing a derivative with respect to `t`.
+
+It can be integrated using an ODE solver.
+
+Parameters
+----------
+t : :obj:`numpy.typing.ArrayLike`
+    The variable with respect to which the derivative is taken.
+x : :obj:`numpy.typing.ArrayLike`
+    The value of the variable being differentiated.
+
+Returns
+-------
+:class:`tuple`\ [\ :obj:`numpy.typing.ArrayLike`\ , ...]
+    The derivative of `x` with respect to `t`.
+
+Group
+-----
+integration
+
+
+.. rubric:: Alias
+"""
+
+IntegratedFunction = Callable[[npt.ArrayLike], tuple[npt.NDArray, ...]]
+"""The solution to an ODE.
+
+This is the result of integrating an
+:obj:`~neso_fame.hypnotoad_interface.Integrand` object using an ODE
+solver.
+
+Parameters
+----------
+t : :obj:`numpy.typing.ArrayLike`
+    The variable over which the integration was performed.
+
+Returns
+-------
+:class:`tuple`\ [\ :obj:`numpy.typing.ArrayLike`\ , ...]
+    The value of `x` at `t`.
+
+Group
+-----
+integration
+
+
+.. rubric:: Alias
+
+"""
 
 
 def _process_integrate_vectorize_array_inputs(
@@ -216,7 +265,7 @@ def integrate_vectorized(
 ) -> Callable[[Integrand], IntegratedFunction]:
     """Return a vectorised numerically-integrated function.
 
-    Decorator that will numerically integrate a function and return
+    Decorator that will numerically integrate an ODE and return
     a callable that is vectorised. The integration will start from
     t=0. You must specify the y-value at that starting point. You may
     optionally specify additional "fixed points" which should fall
@@ -225,9 +274,34 @@ def integrate_vectorized(
     can be useful if you need to enforce the end-point of a curve to
     within a very high level of precision.
 
+    Arguments
+    ---------
+    start
+        The starting point for the integration
+    scale
+        By default the integration will be performed between 0 and 1,
+        but you can increase or decrease it by a factor of `scale`
+    fixed_points
+        Keys are values of the integration variable at which the
+        solution is assumed to be the corresponding value in the
+        dictionary. Useful to make sure end-points are respected
+        exactly.
+    rtol
+        Relative tolerance to use for the integration.
+    atol
+        Absolute tolerance to use for hte integration.
+    vectorize_integrand_calls
+        Whether calls to the integrand can be done in a vectorised manner.
+
+    Returns
+    -------
+    :class:`~collections.abc.Callable`\ [[\ :obj:`~neso_fame.hypnotoad_interface.Integrand`]\ , :obj:`~neso_fame.hypnotoad_interface.IntegratedFunction`\ ]
+        A decorator that will take an integrand a return a function that
+        is the solution of the ODE.
+
     Group
     -----
-    hypnotoad
+    integration
 
     """
     start = np.asarray(start)
@@ -297,6 +371,11 @@ def _fpol(eq: TokamakEquilibrium, R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray
 def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
     """Return a field trace from the hypnotoad equilibrium object.
 
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.FieldTrace`
+        Function following a magnetic field line.
+
     Group
     -----
     hypnotoad
@@ -345,9 +424,14 @@ def eqdsk_equilibrium(
         and `Nonorthogonal Options
         <https://hypnotoad.readthedocs.io/en/latest/_temp/nonorthogonal-options.html>`_.
 
+    Returns
+    -------
+    :class:`hypnotoad.cases.tokamak.TokamakEquilibrium`
+        The equilibrium magnetic field contained in the file.
+
     Group
     -----
-    hypnotoad
+    eqdsk
 
     """
     possible_options = list(TokamakEquilibrium.user_options_factory.defaults) + list(
@@ -360,7 +444,7 @@ def eqdsk_equilibrium(
         return read_geqdsk(f, options, options)
 
 
-class XPointLocation(Enum):
+class _XPointLocation(Enum):
     """Indicates if either end of a perpendicular edge ias an X-point."""
 
     NONE = 0
@@ -371,7 +455,7 @@ class XPointLocation(Enum):
 def _handle_x_points(
     eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> tuple[
-    XPointLocation, SliceCoord, SliceCoord, Callable[[npt.ArrayLike], npt.NDArray]
+    _XPointLocation, SliceCoord, SliceCoord, Callable[[npt.ArrayLike], npt.NDArray]
 ]:
     # TODO: Refactor so that this can be passed in. As we know where the
     # x-points lie within the hypnotoad regions, it would be more
@@ -381,15 +465,15 @@ def _handle_x_points(
         np.isclose(north.x1, x.R, 1e-8, 1e-8) and np.isclose(north.x2, x.Z, 1e-8, 1e-8)
         for x in eq.x_points
     ):
-        x_point = XPointLocation.NORTH
+        x_point = _XPointLocation.NORTH
     elif any(
         np.isclose(south.x1, x.R, 1e-8, 1e-8) and np.isclose(south.x2, x.Z, 1e-8, 1e-8)
         for x in eq.x_points
     ):
-        x_point = XPointLocation.SOUTH
+        x_point = _XPointLocation.SOUTH
     else:
-        x_point = XPointLocation.NONE
-    if x_point == XPointLocation.NORTH:
+        x_point = _XPointLocation.NONE
+    if x_point == _XPointLocation.NORTH:
         start = south
         end = north
 
@@ -454,6 +538,12 @@ def perpendicular_edge(
     south
         The end point of the line
 
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.AcrossFieldCurve`
+        Curve that is perpendicular to the magnetic field, connecting
+        the two input points.
+
     Group
     -----
     hypnotoad
@@ -495,7 +585,7 @@ def perpendicular_edge(
         # and a straight line between north and south. The weight of
         # the linaer component increases as the x-point is approached.
         R_sol, Z_sol = solution(s)
-        if x_point == XPointLocation.NONE:
+        if x_point == _XPointLocation.NONE:
             R = R_sol
             Z = Z_sol
         else:
@@ -509,17 +599,6 @@ def perpendicular_edge(
         )
 
     return solution_coords
-
-
-@np.vectorize
-def _smallest_angle_between(end_angle: float, start_angle: float) -> float:
-    delta_angle = end_angle - start_angle
-    # Deal with cases where the angles stradle the atan2 discontinuity
-    if delta_angle < -np.pi:
-        return delta_angle + 2 * np.pi
-    elif delta_angle > np.pi:
-        return delta_angle - 2 * np.pi
-    return delta_angle
 
 
 def _dpsi(eq: TokamakEquilibrium, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
@@ -577,6 +656,11 @@ def flux_surface_edge(
         The starting point of the line
     south
         The end point of the line
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.AcrossFieldCurve`
+        Curve following a flux surface, connecting the two input points.
 
     Group
     -----
@@ -686,20 +770,20 @@ def _get_region_boundaries(
 
     Returns
     -------
-    A list of boundaries. Each boundary is represented by a frozenset
-    of Quad objects. If that boundary is not present on the given
-    region object, then the set will be empty. The order of the
-    boundaries in the list is:
+        A list of boundaries. Each boundary is represented by a frozenset
+        of Quad objects. If that boundary is not present on the given
+        region object, then the set will be empty. The order of the
+        boundaries in the list is:
 
-    #. Centre of the core region
-    #. Inner edge of the plasma (or entire edge, for single-null)
-    #. Outer edge of the plasma
-    #. Internal edge of the upper private flux region
-    #. Internal edge of hte lower private flux region
-    #. Inner lower divertor
-    #. Outer lower divertor
-    #. Inner upper divertor
-    #. Outer upper divertor
+        #. Centre of the core region
+        #. Inner edge of the plasma (or entire edge, for single-null)
+        #. Outer edge of the plasma
+        #. Internal edge of the upper private flux region
+        #. Internal edge of hte lower private flux region
+        #. Inner lower divertor
+        #. Outer lower divertor
+        #. Inner upper divertor
+        #. Outer upper divertor
 
     """
     name = region.equilibriumRegion.name
@@ -788,7 +872,7 @@ def get_mesh_boundaries(
 
     Parameters
     ----------
-    region
+    mesh
         The hypnotoad mesh object for which to return boundaries.
     flux_surface_quad
         A function to produce an appropriate :class:`neso_fame.mesh.Quad`
@@ -799,20 +883,21 @@ def get_mesh_boundaries(
 
     Returns
     -------
-    A list of boundaries. Each boundary is represented by a frozenset
-    of Quad objects. If that boundary is not present on the given
-    mesh object, then the set will be empty. The order of the
-    boundaries in the list is:
+    :
+        A list of boundaries. Each boundary is represented by a frozenset
+        of Quad objects. If that boundary is not present on the given
+        mesh object, then the set will be empty. The order of the
+        boundaries in the list is:
 
-    #. Centre of the core region
-    #. Inner edge of the plasma (or entire edge, for single-null)
-    #. Outer edge of the plasma
-    #. Internal edge of the upper private flux region
-    #. Internal edge of hte lower private flux region
-    #. Inner lower divertor
-    #. Outer lower divertor
-    #. Inner upper divertor
-    #. Outer upper divertor
+        #. Centre of the core region
+        #. Inner edge of the plasma (or entire edge, for single-null)
+        #. Outer edge of the plasma
+        #. Internal edge of the upper private flux region
+        #. Internal edge of hte lower private flux region
+        #. Inner lower divertor
+        #. Outer lower divertor
+        #. Inner upper divertor
+        #. Outer upper divertor
 
     Group
     -----

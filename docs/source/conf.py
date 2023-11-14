@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 # -- Project information -----------------------------------------------------
 
 project = "NESO-fame"
-copyright = "2023, UK Atomic Energy Authority"
+copyright = "2023, Crown Copyright"
 author = "Chris MacMackin"
 
 
@@ -119,6 +119,7 @@ html_domain_indices = True
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "hypnotoad": ("https://hypnotoad.readthedocs.io/en/latest/", None),
 }
 
 autodoc_typehints = "signature"
@@ -132,8 +133,13 @@ autodoc_type_aliases = {
     "HexMesh": "neso_fame.mesh.HexMesh",
     "Mesh": "neso_fame.mesh.Mesh",
     "FieldTrace": "neso_fame.mesh.FieldTrace",
-    "NormalisedFieldLine": "neso_fame.mesh.NormalisedFieldLine",
+    "NormalisedCurve": "neso_fame.mesh.NormalisedCurve",
+    "AcrossFieldCurve": "neso_fame.mesh.AcrossFieldCurve",
     "NektarLayer": "neso_fame.nektar_writer.NektarLayer",
+    "HypnoMesh": "hypnotoad.core.mesh.Mesh",
+    "HypnoMeshRegion": "hypnotoad.core.mesh.MeshRegion",
+    "Integrand": "neso_fame.hypnotoad_interface.Integrand",
+    "IntegratedFunction": "neso_fame.hypnotoad_interface.IntegratedFunction",
 }
 
 # FIXME: Need to improve display of ArrayLike
@@ -146,6 +152,8 @@ python_apigen_modules = {
     "neso_fame.fields": "api/autogen/fields/",
     "neso_fame.generators": "api/autogen/generators/",
     "neso_fame.nektar_writer": "api/autogen/nektar_writer/",
+    "neso_fame.hypnotoad_interface": "api/autogen/hypnotoad/",
+    "neso_fame.offset": "api/autogen/offset",
 }
 python_apigen_default_groups = [
     ("class:.*", "Classes"),
@@ -187,7 +195,7 @@ object_description_options = [
 
 
 current_module = None
-filtered_docs = {"__setattr__", "__delattr__", "Connectivity", "NektarQuadGeomElements"}
+filtered_docs = {"__setattr__", "__delattr__", "Connectivity", "NektarQuadGeomElements", "NodePair", "NektarOrderedQuadGeomElements", "NektarHexGeomElements", "HypnoMesh", "HypnoMeshRegion"}
 
 
 def autodoc_skip_member(app, what, name, obj, skip, options):
@@ -215,31 +223,5 @@ def autodoc_skip_member(app, what, name, obj, skip, options):
     return skip
 
 
-def autodoc_process_signature(
-    app, what, name, obj, options, signature, return_annotation
-):
-    signature = modify_type_hints(signature)
-    return_annotation = modify_type_hints(return_annotation)
-    return signature, return_annotation
-
-
-def modify_type_hints(signature):
-    """
-    Fix shortening numpy type annotations in string annotations created with
-    `from __future__ import annotations` that Sphinx can't process before Python
-    3.10.
-
-    See https://github.com/jbms/sphinx-immaterial/issues/161
-    """
-    if signature:
-        # if "numpy" in signature or "np" in signature:
-        #     print(signature)
-        if "ndarray" in signature:
-            print(signature)
-        # signature = signature.replace("np", "~numpy")
-    return signature
-
-
 def setup(app):
     app.connect("autodoc-skip-member", autodoc_skip_member)
-    # app.connect("autodoc-process-signature", autodoc_process_signature)

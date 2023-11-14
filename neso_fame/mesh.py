@@ -1127,7 +1127,7 @@ def normalise_field_line(
 
     Returns
     -------
-    :obj:`~neso_fame.mesh.NormalisedFieldLine`
+    :obj:`~neso_fame.mesh.NormalisedCurve`
         A function taking an argument ``s`` between 0 and 1 and returning
         a coordinate along the field line. The distance of the point from
         the start of the field line is directly proportional to
@@ -1250,7 +1250,7 @@ class FieldTracer:
 
         Returns
         -------
-        :obj:`~neso_fame.mesh.NormalisedFieldLine`
+        :obj:`~neso_fame.mesh.NormalisedCurve`
             The segment of the field line passing through `start` which is
             within the specified subdivision of the quad.
 
