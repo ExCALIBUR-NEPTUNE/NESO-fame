@@ -42,8 +42,6 @@ mypy==1.7.0
     # via -r dev-requirements.txt.in
 mypy-extensions==1.0.0
     # via mypy
-numpy==1.26.2
-    # via hypothesis
 packaging==23.2
     # via
     #   pytest

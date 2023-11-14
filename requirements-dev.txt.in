@@ -1,6 +1,6 @@
 # Testing
 pytest
-hypothesis[numpy]
+hypothesis
 
 # Linting
 mypy
