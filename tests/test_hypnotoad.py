@@ -34,7 +34,6 @@ from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad_interface import (
     _get_region_boundaries,
-    _smallest_angle_between,
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
@@ -615,6 +614,17 @@ def test_perpendicular_edges(
     )
     for d, e, p in np.nditer([dist, total_err, positions]):
         np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
+
+
+@np.vectorize
+def _smallest_angle_between(end_angle: float, start_angle: float) -> float:
+    delta_angle = end_angle - start_angle
+    # Deal with cases where the angles stradle the atan2 discontinuity
+    if delta_angle < -np.pi:
+        return delta_angle + 2 * np.pi
+    elif delta_angle > np.pi:
+        return delta_angle - 2 * np.pi
+    return delta_angle
 
 
 @settings(deadline=None)
