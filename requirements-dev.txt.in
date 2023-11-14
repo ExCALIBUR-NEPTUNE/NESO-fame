@@ -1,0 +1,13 @@
+# Testing
+pytest
+hypothesis[numpy]
+
+# Linting
+mypy
+types-PyYAML
+ruff
+
+# Documentation
+sphinx
+sphinxcontrib-napoleon
+sphinx-immaterial

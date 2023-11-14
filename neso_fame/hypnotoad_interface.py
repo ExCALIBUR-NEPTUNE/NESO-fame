@@ -304,10 +304,10 @@ def integrate_vectorized(
     integration
 
     """
-    start = np.asarray(start)
-    if start.ndim > 1:
+    start_array = np.asarray(start)
+    if start_array.ndim > 1:
         raise ValueError("`start` must be 0- or 1-dimensional")
-    pos_fixed, neg_fixed = _process_fixed_points(start, fixed_points)
+    pos_fixed, neg_fixed = _process_fixed_points(start_array, fixed_points)
 
     def wrap(func: Integrand) -> IntegratedFunction:
         def wrapper(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
@@ -327,10 +327,10 @@ def integrate_vectorized(
                 pos_fixed_positions,
                 neg_fixed_positions,
             ) = _process_integrate_vectorize_inputs(s_sorted, pos_fixed, neg_fixed)
-            result_tmp = np.empty((cast(npt.NDArray, start).size, s_sorted.size))
+            result_tmp = np.empty((cast(npt.NDArray, start_array).size, s_sorted.size))
             _handle_integration(
                 func,
-                start,
+                start_array,
                 neg,
                 neg_limit,
                 rtol,
@@ -342,7 +342,7 @@ def integrate_vectorized(
             )
             _handle_integration(
                 func,
-                start,
+                start_array,
                 pos,
                 pos_limit,
                 rtol,
@@ -353,10 +353,10 @@ def integrate_vectorized(
                 result_tmp,
             )
             if zero is not None:
-                result_tmp[:, zero] = start
+                result_tmp[:, zero] = start_array
             return tuple(
                 result_tmp[i, invert_s].reshape(s.shape)
-                for i in range(cast(npt.NDArray, start).size)
+                for i in range(cast(npt.NDArray, start_array).size)
             )
 
         return wrapper
