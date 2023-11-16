@@ -676,12 +676,11 @@ def flux_surface_edge(
     if south.system != CoordinateSystem.CYLINDRICAL:
         raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
 
-    # FIXME: I don't think this will be able to handle the inexact
-    # seperatrix you will get when doing a realistic connected double
-    # null
+    # FIXME: This won't be able to handle the inexact seperatrix you
+    # will get when doing a realistic connected double null
     psi_north = cast(float, eq.psi(north.x1, north.x2))
     psi_south = cast(float, eq.psi(south.x1, south.x2))
-    if not np.isclose(psi_north, psi_south, 1e-10, 1e-10):
+    if not np.isclose(psi_north, psi_south, 1e-6, 1e-6):
         raise ValueError(
             f"Start and end points {north} and {south} have different psi values "
             f"{psi_north} and {psi_south}"

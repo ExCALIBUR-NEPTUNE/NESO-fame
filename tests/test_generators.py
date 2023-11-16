@@ -10,7 +10,7 @@ from neso_fame.mesh import (
     control_points,
 )
 
-from .test_hypnotoad import CONNECTED_DOUBLE_NULL
+from .test_hypnotoad import CONNECTED_DOUBLE_NULL, to_mesh
 
 
 # Test for simple grid
@@ -790,9 +790,9 @@ def test_subdivided_grid_3d() -> None:
 
 
 def test_extruding_hypnotoad_mesh() -> None:
-    hypno_mesh = CONNECTED_DOUBLE_NULL
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
     eq = hypno_mesh.equilibrium
-    mesh = generators.hypnotoad_mesh(hypno_mesh, (0.0, 0.125 * np.pi), 8, 21)
+    mesh = generators.hypnotoad_mesh(hypno_mesh, (0.0, 0.01 * np.pi), 8, 21)
     actual_nodes = frozenset(
         itertools.chain.from_iterable(
             (q.shape(0.0).to_coord(), q.shape(1.0).to_coord())

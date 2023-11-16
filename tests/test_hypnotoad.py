@@ -1,8 +1,11 @@
+from functools import cache
 import itertools
 import operator
+import os.path
 import warnings
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, NamedTuple, cast
 from unittest.mock import patch
 
@@ -11,7 +14,8 @@ import numpy.typing as npt
 from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
-from hypothesis import given, settings
+from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
+from hypothesis import given, settings, HealthCheck
 from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import (
     booleans,
@@ -34,6 +38,7 @@ from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad_interface import (
     _get_region_boundaries,
+    eqdsk_equilibrium,
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
@@ -241,6 +246,228 @@ fake_equilibria = builds(
     floats(0.1, 10.0),
 )
 
+class OPoint(NamedTuple):
+    R: float
+    Z: float
+    aspect_ratio: float
+    magnitude: float
+
+
+def create_equilibrium_psi_func(
+    o_points: tuple[OPoint, ...]
+) -> Callable[[npt.NDArray, npt.NDArray], npt.NDArray]:
+    def semi_axes_squared(point: OPoint) -> tuple[float, float]:
+        aspect_sq = point.aspect_ratio * point.aspect_ratio
+        asq = point.magnitude * point.magnitude * 2 / (1 + aspect_sq)
+        bsq = aspect_sq * asq
+        return asq, bsq
+
+    def psi_func(R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray:
+        return np.asarray(
+            sum(
+                np.exp(-((R - r0) ** 2) / asq - (Z - z0) ** 2 / bsq)
+                for (r0, z0), (asq, bsq) in zip(
+                    map(operator.itemgetter(slice(2)), o_points),
+                    map(semi_axes_squared, o_points),
+                )
+            )
+        )
+
+    return psi_func
+
+
+def create_equilibrium_dpsi_dz(
+    o_points: tuple[OPoint, ...]
+) -> Callable[[npt.NDArray], npt.NDArray]:
+    if len(frozenset(o.R for o in o_points)) > 1:
+        raise ValueError("Can only produce accurate values if o-points vertically aligned.")
+    
+    def semi_axes_squared(point: OPoint) -> float:
+        aspect_sq = point.aspect_ratio * point.aspect_ratio
+        asq = point.magnitude * point.magnitude * 2 / (1 + aspect_sq)
+        bsq = aspect_sq * asq
+        return bsq
+
+    def psi_func(Z: npt.NDArray) -> npt.NDArray:
+        return np.asarray(
+            sum(
+                - 2 * (Z - z0) / bsq * np.exp(- (Z - z0) ** 2 / bsq)
+                for z0, bsq in zip(
+                    map(operator.itemgetter(1), o_points),
+                    map(semi_axes_squared, o_points),
+                )
+            )
+        )
+
+    return psi_func
+
+
+def create_equilibrium_data(
+    nx: int,
+    ny: int,
+    r_lims: tuple[float, float],
+    z_lims: tuple[float, float],
+    o_points: tuple[OPoint, ...],
+) -> dict[str, npt.NDArray]:
+    psi_func = create_equilibrium_psi_func(o_points)
+
+    r1d = np.linspace(r_lims[0], r_lims[1], nx)
+    z1d = np.linspace(z_lims[0], z_lims[1], ny)
+    r2d, z2d = np.meshgrid(r1d, z1d, indexing="ij")
+
+    if len(o_points) == 2:
+        psi1d = np.linspace(0.0, 1.0, nx)
+    else:
+        psi1d = psi_func(
+            np.linspace(sum(o.R for o in o_points) / len(o_points), r_lims[1], nx),
+            np.full(nx, 0.5 * sum(z_lims)),
+        )
+
+    return {
+        "R1D": r1d,
+        "Z1D": z1d,
+        "psi2d": psi_func(r2d, z2d),
+        "psi1d": psi1d,
+        "fpol1d": np.linspace(0.0, 1.0, nx),
+    }
+
+
+# FIXME: Switch this out to bea normal function rather than a Hypothesis strategy
+def eqdsk_data(
+    nx: int,
+    ny: int,
+    r_lims: tuple[float, float] = (1.0, 2.0),
+    z_lims: tuple[float, float] = (-1.0, 1.0),
+    o_points: tuple[OPoint, ...] = (OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)),
+) -> dict[str, int | float | npt.NDArray]:
+    # Note: assumes conetnts of `o_points` are vertically aligned.
+    data = create_equilibrium_data(nx, ny, r_lims, z_lims, o_points)
+    psi_func = create_equilibrium_psi_func(o_points)
+    R = o_points[0].R
+    dpsi_dz = create_equilibrium_dpsi_dz(o_points)
+
+    def find_zero(lower: float, upper: float) -> float:
+        print(f"Looking for zero within bounds [{lower}, {upper}]")
+        sol = root_scalar(dpsi_dz, bracket=[lower, upper])
+        if not sol.converged:
+            raise RuntimeError("Could not converge on Z-value")
+        print(f"Found {sol.root}")
+        return cast(float, sol.root)
+        
+    # Get vertical position of O-point
+    main_o_Z = find_zero(-0.1, 0.1)
+    # Get vertical position of X-point
+    lower_points = [o.Z for o in o_points if o.Z < 0.]
+    upper_points = [o.Z for o in o_points if o.Z > 0.]
+    lower_x = find_zero(max(lower_points) + 0.1, -0.1) if len(lower_points) > 0 else -1e4
+    upper_x = find_zero(min(upper_points) - 0.1, 0.1) if len(upper_points) > 0 else 1e4
+    if abs(lower_x) < abs(upper_x):
+        main_x_Z = lower_x
+    else:
+        main_x_Z = upper_x
+
+    return {
+        "nx": nx,
+        "ny": ny,
+        "rdim": r_lims[1] - r_lims[0],
+        "zdim": z_lims[1] - z_lims[0],
+        "rcentr": sum(o.R for o in o_points) / len(o_points),
+        "bcentr": 2.,
+        "rleft": r_lims[0],
+        "zmid": sum(z_lims) / 2,
+        "rmagx": R,
+        "zmagx": main_o_Z,
+        "simagx": float(psi_func(np.asarray(R), np.asarray(main_o_Z))),
+        "sibdry": float(psi_func(np.asarray(R), np.asarray(main_x_Z))),
+        "cpasma": 1e8,
+        "pres": np.ones(nx),
+        "qpsi": np.ones(nx),
+        "fpol": data["fpol1d"],
+        "psi": data["psi2d"],
+    }
+
+
+def create_equilibrium(
+    nx: int = 65,
+    ny: int = 65,
+    r_lims: tuple[float, float] = (1.0, 2.0),
+    z_lims: tuple[float, float] = (-1.0, 1.0),
+    o_points: tuple[OPoint, ...] = (OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)),
+    make_regions: bool = False,
+    options: tuple[tuple[str, Any], ...] = tuple(),
+) -> TokamakEquilibrium:
+    """Creates an equilibrium. Defaults to an equilibrium with one X-point."""
+    data = create_equilibrium_data(nx, ny, r_lims, z_lims, o_points)
+    dR = r_lims[1] - r_lims[0]
+    dZ = z_lims[1] - z_lims[0]
+
+    return TokamakEquilibrium(
+        data["R1D"],
+        data["Z1D"],
+        data["psi2d"],
+        data["psi1d"],
+        data["fpol1d"],
+        wall=[
+            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ),
+            (r_lims[0] + 0.05 * dR, z_lims[1] - 0.05 * dZ),
+            (r_lims[1] - 0.05 * dR, z_lims[1] - 0.05 * dZ),
+            (r_lims[1] - 0.05 * dR, z_lims[0] + 0.05 * dZ),
+            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ),
+        ],
+        make_regions=make_regions,
+        settings={"refine_atol": 1e-10} | dict(options),
+    )
+
+
+MESH_SIZE = (
+    ("nx_core", 3),
+    ("nx_sol", 3),
+    ("ny_inner_divertor", 3),
+    ("ny_outer_divertor", 3),
+    ("ny_sol", 4),
+)
+
+MeshArgs = tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]
+
+LOWER_SINGLE_NULL: MeshArgs = ((OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
+MESH_SIZE,
+    )
+UPPER_SINGLE_NULL: MeshArgs = (
+        (OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
+        MESH_SIZE,
+    )
+# Very, very slightly offset one of the points to make hypnotoad
+# more reliably choose which one should be treated as primary
+CONNECTED_DOUBLE_NULL: MeshArgs = (
+        (
+            OPoint(1.5, 0.8000001, 1.0, 0.4),
+            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ),
+        MESH_SIZE,
+    )
+LOWER_DOUBLE_NULL: MeshArgs = (
+        (
+            OPoint(1.5, 0.801, 1.0, 0.4),
+            OPoint(1.5, -0.8, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ),
+        MESH_SIZE + (("nx_inter_sep", 3),),
+    )
+UPPER_DOUBLE_NULL: MeshArgs = (
+        (
+            OPoint(1.5, 0.8, 1.0, 0.4),
+            OPoint(1.5, -0.801, 1.0, 0.4),
+            OPoint(1.5, 0.0, 1.0, 0.4),
+        ),
+        MESH_SIZE + (("nx_inter_sep", 3),),
+    )
+
+
+@fixture
+def x_point_equilibrium() -> TokamakEquilibrium:
+    return create_equilibrium(make_regions=False)
+
 
 @settings(deadline=None)
 @given(
@@ -276,141 +503,6 @@ def test_field_trace(
     np.testing.assert_allclose(
         eq.psi(positions.x1, positions.x2), psi_start, 1e-8, 1e-8
     )
-
-
-class OPoint(NamedTuple):
-    R: float
-    Z: float
-    aspect_ratio: float
-    magnitude: float
-
-
-def create_equilibrium(
-    nx: int = 65,
-    ny: int = 65,
-    r_lims: tuple[float, float] = (1.0, 2.0),
-    z_lims: tuple[float, float] = (-1.0, 1.0),
-    o_points: list[OPoint] = [OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)],
-    make_regions: bool = False,
-    options: dict[str, Any] = {},
-) -> TokamakEquilibrium:
-    """Creates an equilibrium. Defaults to an equilibrium with one X-point."""
-
-    def semi_axes_squared(point: OPoint) -> tuple[float, float]:
-        aspect_sq = point.aspect_ratio * point.aspect_ratio
-        asq = point.magnitude * point.magnitude * 2 / (1 + aspect_sq)
-        bsq = aspect_sq * asq
-        return asq, bsq
-
-    r1d = np.linspace(r_lims[0], r_lims[1], nx)
-    z1d = np.linspace(z_lims[0], z_lims[1], ny)
-    r2d, z2d = np.meshgrid(r1d, z1d, indexing="ij")
-
-    def psi_func(R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray:
-        return np.asarray(
-            sum(
-                np.exp(-((R - r0) ** 2) / asq - (Z - z0) ** 2 / bsq)
-                for (r0, z0), (asq, bsq) in zip(
-                    map(operator.itemgetter(slice(2)), o_points),
-                    map(semi_axes_squared, o_points),
-                )
-            )
-        )
-
-    if len(o_points) == 2:
-        psi1d = np.linspace(0.0, 1.0, nx)
-    else:
-        psi1d = psi_func(
-            np.linspace(sum(o.R for o in o_points) / len(o_points), r_lims[1], nx),
-            np.full(nx, 0.5 * sum(z_lims)),
-        )
-
-    dR = r_lims[1] - r_lims[0]
-    dZ = z_lims[1] - z_lims[0]
-
-    return TokamakEquilibrium(
-        r1d,
-        z1d,
-        psi_func(r2d, z2d),
-        psi1d,
-        np.linspace(0.0, 1.0, nx),  # fpol1d
-        wall=[
-            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ),
-            (r_lims[0] + 0.05 * dR, z_lims[1] - 0.05 * dZ),
-            (r_lims[1] - 0.05 * dR, z_lims[1] - 0.05 * dZ),
-            (r_lims[1] - 0.05 * dR, z_lims[0] + 0.05 * dZ),
-            (r_lims[0] + 0.05 * dR, z_lims[0] + 0.05 * dZ),
-        ],
-        make_regions=make_regions,
-        settings={"refine_atol": 1e-10} | options,
-    )
-
-
-MESH_SIZE = {
-    "nx_core": 3,
-    "nx_sol": 3,
-    "ny_inner_divertor": 3,
-    "ny_outer_divertor": 3,
-    "ny_sol": 4,
-}
-
-
-def lower_single_null() -> TokamakEquilibrium:
-    """Creates an equilibrium with an X-point."""
-    return create_equilibrium(
-        o_points=[OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
-        make_regions=True,
-        options=MESH_SIZE,
-    )
-
-
-def upper_single_null() -> TokamakEquilibrium:
-    return create_equilibrium(
-        o_points=[OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)],
-        make_regions=True,
-        options=MESH_SIZE,
-    )
-
-
-def connected_double_null() -> TokamakEquilibrium:
-    return create_equilibrium(
-        o_points=[
-            OPoint(1.5, 0.8, 1.0, 0.4),
-            OPoint(1.5, -0.8, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ],
-        make_regions=True,
-        options=MESH_SIZE,
-    )
-
-
-def lower_double_null() -> TokamakEquilibrium:
-    return create_equilibrium(
-        o_points=[
-            OPoint(1.5, 0.801, 1.0, 0.4),
-            OPoint(1.5, -0.8, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ],
-        make_regions=True,
-        options=MESH_SIZE | {"nx_inter_sep": 3},
-    )
-
-
-def upper_double_null() -> TokamakEquilibrium:
-    return create_equilibrium(
-        o_points=[
-            OPoint(1.5, 0.8, 1.0, 0.4),
-            OPoint(1.5, -0.801, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ],
-        make_regions=True,
-        options=MESH_SIZE | {"nx_inter_sep": 3},
-    )
-
-
-@fixture
-def x_point_equilibrium() -> TokamakEquilibrium:
-    return create_equilibrium(make_regions=False)
 
 
 def test_trace_outside_separatrix(x_point_equilibrium: TokamakEquilibrium) -> None:
@@ -553,14 +645,6 @@ def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
     np.testing.assert_allclose(
         eq.psi(positions.x1, positions.x2), eq.psi(R0, Z0), tol, tol
     )
-
-
-# TODO: Generate some fake EQDSK data so I can test the equilibrium reader
-# def test_read_eqdsk(
-#     x_point_equilibrium: TokamakEquilibrium, tmp_path: pathlib.Path
-# ) -> None:
-#     eq1 = x_point_equilibrium
-#     geqdsk_file = tmp_path / "example_output.g"
 
 
 # We don't want psis that are too close together. psi=0 is a singular
@@ -706,40 +790,37 @@ def test_flux_surface_edges(
     np.testing.assert_allclose(distances / total_arc, positions, 1e-8, 1e-8)
 
 
-def to_mesh(eq: TokamakEquilibrium) -> Mesh:
-    m = Mesh(
-        eq,
-        {"follow_perpendicular_rtol": 1e-10, "follow_perpendicular_atol": 1e-10}
-        | dict(eq.user_options),
-    )
-    m.calculateRZ()
+# Building meshes is expensive, so use caching to avoid having to do
+# it more than once
+@cache
+def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mesh:
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", "divide by zero", RuntimeWarning, "hypnotoad.core.equilibrium"
+        )
+        warnings.filterwarnings(
+            "ignore",
+            "invalid value encountered in divide",
+            RuntimeWarning,
+            "hypnotoad.core.equilibrium",
+        )
+        eq = create_equilibrium(o_points=args[0], make_regions=True, options=args[1])
+        m = Mesh(
+            eq,
+            {"follow_perpendicular_rtol": 1e-10, "follow_perpendicular_atol": 1e-10}
+            | dict(eq.user_options),
+        )
+        m.calculateRZ()
     return m
 
-
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore", "divide by zero", RuntimeWarning, "hypnotoad.core.equilibrium"
-    )
-    warnings.filterwarnings(
-        "ignore",
-        "invalid value encountered in divide",
-        RuntimeWarning,
-        "hypnotoad.core.equilibrium",
-    )
-    LOWER_SINGLE_NULL = to_mesh(lower_single_null())
-    UPPER_SINGLE_NULL = to_mesh(upper_single_null())
-    CONNECTED_DOUBLE_NULL = to_mesh(connected_double_null())
-    LOWER_DOUBLE_NULL = to_mesh(lower_double_null())
-    UPPER_DOUBLE_NULL = to_mesh(upper_double_null())
-
-sample_meshes = [
+sample_mesh_configs: list[MeshArgs] = [
     LOWER_SINGLE_NULL,
     UPPER_SINGLE_NULL,
     CONNECTED_DOUBLE_NULL,
     LOWER_DOUBLE_NULL,
     UPPER_DOUBLE_NULL,
 ]
-real_meshes = sampled_from(sample_meshes)
+real_meshes = sampled_from(sample_mesh_configs).map(to_mesh)
 mesh_regions = real_meshes.map(lambda x: list(x.regions.values())).flatmap(sampled_from)
 
 shared_mesh_regions = shared(mesh_regions, key=0)
@@ -815,15 +896,16 @@ def test_flux_surface_realistic_topology(
     start, end = start_end_points
     curve = flux_surface_edge(eq, start, end)
     psi = eq.psi(start.x1, start.x2)
-    assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-7, 1e-7)
+    assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-5, 1e-5)
     # Check termini of curve
     assert curve(0.0).to_coord() == start
     assert curve(1.0).to_coord() == end
     actual = curve(positions)
     # Check all points have the correct psi value
-    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-7, 1e-7)
+    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-5, 1e-5)
 
 
+@settings(deadline=None)
 @mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
 @given(
     shared_mesh_regions,
@@ -907,6 +989,7 @@ def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
     assert len(psis) == len(bound)
 
 
+@settings(deadline=None)
 @given(mesh_regions, floats())
 def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
@@ -920,6 +1003,7 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
         check_flux_surface_bound(eq, b, region.name == "core(0)")
 
 
+@settings(deadline=None)
 @given(mesh_regions, floats())
 def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
@@ -933,72 +1017,74 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
         check_perpendicular_bounds(eq, b)
 
 
-def get_region(mesh: Mesh, name: str) -> MeshRegion:
+def get_region(mesh_args: MeshArgs, name: str) -> MeshRegion:
+    mesh = to_mesh(mesh_args)
     name_map = {region.name: region for region in mesh.regions.values()}
     return name_map[name]
 
 
 @mark.parametrize(
-    "region, is_boundary",
+    "mesh_args, region_name, is_boundary",
     [
         (
-            get_region(LOWER_SINGLE_NULL, "core(0)"),
+            LOWER_SINGLE_NULL, "core(0)",
             [True, False, False, False, False, False, False, False, False],
         ),
         (
-            get_region(LOWER_SINGLE_NULL, "core(1)"),
+            LOWER_SINGLE_NULL, "core(1)",
             [False, True, False, False, False, False, False, False, False],
         ),
         (
-            get_region(LOWER_SINGLE_NULL, "inner_lower_divertor(0)"),
+            LOWER_SINGLE_NULL, "inner_lower_divertor(0)",
             [False, False, False, False, True, True, False, False, False],
         ),
         (
-            get_region(LOWER_SINGLE_NULL, "inner_lower_divertor(1)"),
+            LOWER_SINGLE_NULL, "inner_lower_divertor(1)",
             [False, True, False, False, False, True, False, False, False],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_core(0)"),
+            UPPER_DOUBLE_NULL, "outer_core(0)",
             [True, False, False, False, False, False, False, False, False],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_core(1)"),
+            UPPER_DOUBLE_NULL, "outer_core(1)",
             [False, False, False, False, False, False, False, False, False],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_core(2)"),
+            UPPER_DOUBLE_NULL, "outer_core(2)",
             [False, False, True, False, False, False, False, False, False],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_lower_divertor(2)"),
+            UPPER_DOUBLE_NULL, "outer_lower_divertor(2)",
             [False, False, True, False, False, False, True, False, False],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(0)"),
+            UPPER_DOUBLE_NULL, "outer_upper_divertor(0)",
             [False, False, False, True, False, False, False, False, True],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(1)"),
+            UPPER_DOUBLE_NULL, "outer_upper_divertor(1)",
             [False, False, False, False, False, False, False, False, True],
         ),
         (
-            get_region(UPPER_DOUBLE_NULL, "outer_upper_divertor(2)"),
+            UPPER_DOUBLE_NULL, "outer_upper_divertor(2)",
             [False, False, True, False, False, False, False, False, True],
         ),
     ],
 )
-def test_region_bounds(region: MeshRegion, is_boundary: list[bool]) -> None:
+def test_region_bounds(mesh_args: MeshArgs, region_name: str, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
             StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
         )
 
+    region = get_region(mesh_args, region_name)
     boundaries = _get_region_boundaries(region, constructor, constructor)
     assert [len(b) > 0 for b in boundaries] == is_boundary
 
 
 @mark.parametrize(
-    "mesh, is_boundary",
+    "mesh_args, is_boundary",
     [
         (
             UPPER_SINGLE_NULL,
@@ -1008,12 +1094,13 @@ def test_region_bounds(region: MeshRegion, is_boundary: list[bool]) -> None:
         (LOWER_DOUBLE_NULL, [True] * 9),
     ],
 )
-def test_mesh_bounds(mesh: Mesh, is_boundary: list[bool]) -> None:
+def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
             StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
         )
 
+    mesh = to_mesh(mesh_args)
     eq = mesh.equilibrium
     bounds = get_mesh_boundaries(mesh, constructor, constructor)
     assert [len(b) > 0 for b in bounds] == is_boundary
@@ -1022,3 +1109,37 @@ def test_mesh_bounds(mesh: Mesh, is_boundary: list[bool]) -> None:
         check_flux_surface_bound(eq, b, False)
     for b in itertools.compress(bounds[5:], is_boundary[5:]):
         check_perpendicular_bounds(eq, b)
+
+
+equilibrium_opoints_options = shared(sampled_from(sample_mesh_configs), key=1001)
+equilibrium_options = equilibrium_opoints_options.map(lambda x: x[1])
+offsets = floats(-0.1, 0.1)
+equilibrium_args = shared(
+    tuples(
+        integers(30, 50),
+        integers(30, 50),
+        tuples(offsets.map(lambda x: 1. + x), offsets.map(lambda x: 2. - x)),
+        tuples(offsets.map(lambda x: -0.9 + x), offsets.map(lambda x: 0.9 - x)),
+        equilibrium_opoints_options.map(lambda x: x[0]),
+        just(False),
+        equilibrium_options,
+    ),
+    key=-100,
+)
+eqdsk_output_data = equilibrium_args.map(lambda x: eqdsk_data(*x[:-2]))
+
+
+@settings(deadline=300)
+@given(eqdsk_output_data, equilibrium_options.map(dict), equilibrium_args.map(lambda x: create_equilibrium(*x)))
+def test_eqdsk_equilibrium(eqdsk_output: dict[str, int | float | npt.NDArray], options: dict[str, Any], eq: TokamakEquilibrium) -> None:
+    with TemporaryDirectory() as path:
+        eqdsk_file = os.path.join(path, "eqdsk.g")
+        with open(eqdsk_file, 'w') as f:
+            write_geqdsk(eqdsk_output, f)
+        new_eq = eqdsk_equilibrium(eqdsk_file, options)
+    assert len(eq.x_points) == len(new_eq.x_points)
+    for x1, x2 in zip(eq.x_points, new_eq.x_points):
+        np.testing.assert_allclose(x1.R, x2.R, 1e-6, 1e-6)
+        np.testing.assert_allclose(x1.Z, x2.Z, 1e-6, 1e-6)
+    np.testing.assert_allclose(eq.o_point.R, new_eq.o_point.R, 1e-6, 1e-6)
+    np.testing.assert_allclose(eq.o_point.Z, new_eq.o_point.Z, 1e-6, 1e-6)

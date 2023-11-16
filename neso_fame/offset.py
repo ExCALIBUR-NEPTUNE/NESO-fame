@@ -126,8 +126,6 @@ class LazyOffset(Generic[T]):
     @final
     def get_underlying_object(self) -> Any:
         """Return the object being offset."""
-        if isinstance(self.obj, LazyOffset):
-            return self.obj.get_underlying_object()
         return self.obj
 
     def _wrap(self, result: Any) -> Any:
