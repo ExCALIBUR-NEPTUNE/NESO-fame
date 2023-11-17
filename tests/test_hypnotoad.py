@@ -347,11 +347,9 @@ def eqdsk_data(
     dpsi_dz = create_equilibrium_dpsi_dz(o_points)
 
     def find_zero(lower: float, upper: float) -> float:
-        print(f"Looking for zero within bounds [{lower}, {upper}]")
         sol = root_scalar(dpsi_dz, bracket=[lower, upper])
         if not sol.converged:
             raise RuntimeError("Could not converge on Z-value")
-        print(f"Found {sol.root}")
         return cast(float, sol.root)
         
     # Get vertical position of O-point
@@ -365,6 +363,9 @@ def eqdsk_data(
         main_x_Z = lower_x
     else:
         main_x_Z = upper_x
+
+    dR = r_lims[1] - r_lims[0]
+    dZ = z_lims[1] - z_lims[0]
 
     return {
         "nx": nx,
@@ -384,6 +385,8 @@ def eqdsk_data(
         "qpsi": np.ones(nx),
         "fpol": data["fpol1d"],
         "psi": data["psi2d"],
+        "rlim": np.array([r_lims[0] + 0.05 * dR, r_lims[0] + 0.05 * dR, r_lims[1] - 0.05 * dR, r_lims[1] - 0.05 * dR, r_lims[0] + 0.05 * dR]),
+        "zlim": np.array([z_lims[0] + 0.05 * dZ, z_lims[1] - 0.05 * dZ, z_lims[1] - 0.05 * dZ, z_lims[0] + 0.05 * dZ, z_lims[0] + 0.05 * dZ]),
     }
 
 
@@ -489,6 +492,8 @@ def test_field_trace(
 ) -> None:
     trace = equilibrium_trace(cast(TokamakEquilibrium, eq))
     R_start, Z_start = eq.to_RZ(psi_start, theta_start)
+    # The fake field we are using isn't amenable for calculating _fpol
+    # in the same way as real fields, so we patch that calculation
     with patch("neso_fame.hypnotoad_interface._fpol", fake_fpol):
         positions, distances = trace(
             SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL),

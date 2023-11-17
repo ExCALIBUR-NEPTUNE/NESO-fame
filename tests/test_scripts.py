@@ -1,11 +1,17 @@
 import os.path
 import re
+from unittest.mock import patch
+
+import yaml
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
+from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
 
-from neso_fame.scripts import simple
+from neso_fame.mesh import SliceCoords, StraightLineAcrossField
+from neso_fame.scripts import hypnotoad, simple
+from tests.test_hypnotoad import CONNECTED_DOUBLE_NULL, LOWER_SINGLE_NULL, eqdsk_data
 
 FLOAT = r"(-?\d\.\d+e[+-]\d\d)"
 VERTICES = re.compile(
@@ -20,7 +26,12 @@ VERTICES = re.compile(
 )
 ZONES = re.compile(r'<\s*F\s+ID="\d+"\s+DOMAIN="D\[\d+\]"\s*/>')
 INTERFACES = re.compile(r'<\s*INTERFACE\s+NAME=".*"\s*>')
-
+CURVES = re.compile(
+    r'<\s*E\s+ID="\d+"\s+EDGEID="\d+"\s+TYPE="\w+"\s+NUMPOINTS="(\d+)"\s*>\s*'
+    + FLOAT + r"(?:\s+" + FLOAT + ")*"
+    + r"\s*</\s*E\s*>",
+    re.I,
+)
 
 def test_2d_defaults() -> None:
     runner = CliRunner()
@@ -364,3 +375,81 @@ def test_3d_angled_field() -> None:
     ]
     assert (2.0, 1.5, 1.25) in vertices
     assert (0.0, 0.5, 0.75) in vertices
+
+
+@pytest.mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
+@pytest.mark.filterwarnings("ignore:invalid value encountered in divide")
+def test_tokamak_field() -> None:
+    runner = CliRunner()
+    eqdsk_info = eqdsk_data(15, 15, (1., 2.), (-1., 1.), LOWER_SINGLE_NULL[0])
+    hypno_settings = dict(LOWER_SINGLE_NULL[1]) | {"refine_atol": 1e-10, "follow_perpendicular_rtol": 1e-10, "follow_perpendicular_atol": 1e-10}
+    with runner.isolated_filesystem():
+        meshfile = "tokamak_segment.xml"
+        hypnofile = "hypnotoad.yaml"
+        eqdsk = "eqdsk.g"
+        with open(eqdsk, "w") as f:
+            write_geqdsk(eqdsk_info, f)
+        with open(hypnofile, "w") as f:
+            yaml.dump(hypno_settings, f)
+        result = runner.invoke(
+            hypnotoad,
+            [
+                "--n",
+                "3",
+                "--toroidal_limits",
+                "0",
+                str(0.001*np.pi),  # Don't extrude very far to keep run-times quick
+                "--order",
+                "2",
+                "--config",
+                hypnofile,
+                eqdsk,
+                meshfile,
+            ],
+        )
+        assert result.exit_code == 0
+        with open(meshfile, "r") as f:
+            output = f.read()
+    assert len(VERTICES.findall(output)) == 76 * 6
+    assert len(ZONES.findall(output)) == 3
+    assert len(INTERFACES.findall(output)) == 2
+    for curve in CURVES.finditer(output):
+        n = int(curve[1])
+        assert n == 3
+        assert len(curve.groups()) == 5
+
+
+# Patch the various hypnotoad interface methods to keep run-times short
+@patch("neso_fame.generators.equilibrium_trace", lambda _: (lambda start, phi: (SliceCoords(np.full_like(phi, start.x1), np.full_like(phi, start.x2), start.system), np.asarray(phi))))
+@patch("neso_fame.generators.flux_surface_edge", lambda _, north, south: StraightLineAcrossField(north, south))
+@patch("neso_fame.generators.perpendicular_edge", lambda _, north, south: StraightLineAcrossField(north, south))
+@pytest.mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
+@pytest.mark.filterwarnings("ignore:invalid value encountered in divide")
+def test_tokamak_periodic() -> None:
+    runner = CliRunner()
+    eqdsk_info = eqdsk_data(15, 15, (1., 2.), (-1., 1.), CONNECTED_DOUBLE_NULL[0])
+    with runner.isolated_filesystem():
+        meshfile = "complete_tokamak.xml"
+        eqdsk = "eqdsk.g"
+        with open(eqdsk, "w") as f:
+            write_geqdsk(eqdsk_info, f)
+        result = runner.invoke(
+            hypnotoad,
+            [
+                "--n",
+                "10",
+                "--layers",
+                "5",
+                "--order",
+                "1",
+                "--compress",
+                eqdsk,
+                meshfile,
+            ],
+        )
+        assert result.exit_code == 0
+        with open(meshfile, "r") as f:
+            output = f.read()
+    assert len(ZONES.findall(output)) == 5
+    assert len(INTERFACES.findall(output)) == 5
+    assert len(CURVES.findall(output)) == 0

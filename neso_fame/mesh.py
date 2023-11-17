@@ -571,7 +571,7 @@ def control_points(
 class StraightLineAcrossField(LazilyOffsetable):
     """A straight line that connects two points in the x1-x2 plane.
 
-    It is a :obj:`~neso_fame.mesh.AcrossFieldCurve`.
+    It is an :obj:`~neso_fame.mesh.AcrossFieldCurve`.
 
     Group
     -----
