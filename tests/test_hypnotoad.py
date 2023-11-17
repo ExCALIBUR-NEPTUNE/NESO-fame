@@ -1,10 +1,10 @@
-from functools import cache
 import itertools
 import operator
 import os.path
 import warnings
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
+from functools import cache
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, NamedTuple, cast
 from unittest.mock import patch
@@ -15,7 +15,7 @@ from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
-from hypothesis import given, settings, HealthCheck
+from hypothesis import given, settings
 from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import (
     booleans,
@@ -246,6 +246,7 @@ fake_equilibria = builds(
     floats(0.1, 10.0),
 )
 
+
 class OPoint(NamedTuple):
     R: float
     Z: float
@@ -280,8 +281,10 @@ def create_equilibrium_dpsi_dz(
     o_points: tuple[OPoint, ...]
 ) -> Callable[[npt.NDArray], npt.NDArray]:
     if len(frozenset(o.R for o in o_points)) > 1:
-        raise ValueError("Can only produce accurate values if o-points vertically aligned.")
-    
+        raise ValueError(
+            "Can only produce accurate values if o-points vertically aligned."
+        )
+
     def semi_axes_squared(point: OPoint) -> float:
         aspect_sq = point.aspect_ratio * point.aspect_ratio
         asq = point.magnitude * point.magnitude * 2 / (1 + aspect_sq)
@@ -291,7 +294,7 @@ def create_equilibrium_dpsi_dz(
     def psi_func(Z: npt.NDArray) -> npt.NDArray:
         return np.asarray(
             sum(
-                - 2 * (Z - z0) / bsq * np.exp(- (Z - z0) ** 2 / bsq)
+                -2 * (Z - z0) / bsq * np.exp(-((Z - z0) ** 2) / bsq)
                 for z0, bsq in zip(
                     map(operator.itemgetter(1), o_points),
                     map(semi_axes_squared, o_points),
@@ -338,7 +341,10 @@ def eqdsk_data(
     ny: int,
     r_lims: tuple[float, float] = (1.0, 2.0),
     z_lims: tuple[float, float] = (-1.0, 1.0),
-    o_points: tuple[OPoint, ...] = (OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)),
+    o_points: tuple[OPoint, ...] = (
+        OPoint(1.5, -0.6, 1.0, 0.3),
+        OPoint(1.5, 0.0, 1.0, 0.3),
+    ),
 ) -> dict[str, int | float | npt.NDArray]:
     # Note: assumes conetnts of `o_points` are vertically aligned.
     data = create_equilibrium_data(nx, ny, r_lims, z_lims, o_points)
@@ -351,13 +357,15 @@ def eqdsk_data(
         if not sol.converged:
             raise RuntimeError("Could not converge on Z-value")
         return cast(float, sol.root)
-        
+
     # Get vertical position of O-point
     main_o_Z = find_zero(-0.1, 0.1)
     # Get vertical position of X-point
-    lower_points = [o.Z for o in o_points if o.Z < 0.]
-    upper_points = [o.Z for o in o_points if o.Z > 0.]
-    lower_x = find_zero(max(lower_points) + 0.1, -0.1) if len(lower_points) > 0 else -1e4
+    lower_points = [o.Z for o in o_points if o.Z < 0.0]
+    upper_points = [o.Z for o in o_points if o.Z > 0.0]
+    lower_x = (
+        find_zero(max(lower_points) + 0.1, -0.1) if len(lower_points) > 0 else -1e4
+    )
     upper_x = find_zero(min(upper_points) - 0.1, 0.1) if len(upper_points) > 0 else 1e4
     if abs(lower_x) < abs(upper_x):
         main_x_Z = lower_x
@@ -373,7 +381,7 @@ def eqdsk_data(
         "rdim": r_lims[1] - r_lims[0],
         "zdim": z_lims[1] - z_lims[0],
         "rcentr": sum(o.R for o in o_points) / len(o_points),
-        "bcentr": 2.,
+        "bcentr": 2.0,
         "rleft": r_lims[0],
         "zmid": sum(z_lims) / 2,
         "rmagx": R,
@@ -385,8 +393,24 @@ def eqdsk_data(
         "qpsi": np.ones(nx),
         "fpol": data["fpol1d"],
         "psi": data["psi2d"],
-        "rlim": np.array([r_lims[0] + 0.05 * dR, r_lims[0] + 0.05 * dR, r_lims[1] - 0.05 * dR, r_lims[1] - 0.05 * dR, r_lims[0] + 0.05 * dR]),
-        "zlim": np.array([z_lims[0] + 0.05 * dZ, z_lims[1] - 0.05 * dZ, z_lims[1] - 0.05 * dZ, z_lims[0] + 0.05 * dZ, z_lims[0] + 0.05 * dZ]),
+        "rlim": np.array(
+            [
+                r_lims[0] + 0.05 * dR,
+                r_lims[0] + 0.05 * dR,
+                r_lims[1] - 0.05 * dR,
+                r_lims[1] - 0.05 * dR,
+                r_lims[0] + 0.05 * dR,
+            ]
+        ),
+        "zlim": np.array(
+            [
+                z_lims[0] + 0.05 * dZ,
+                z_lims[1] - 0.05 * dZ,
+                z_lims[1] - 0.05 * dZ,
+                z_lims[0] + 0.05 * dZ,
+                z_lims[0] + 0.05 * dZ,
+            ]
+        ),
     }
 
 
@@ -395,9 +419,12 @@ def create_equilibrium(
     ny: int = 65,
     r_lims: tuple[float, float] = (1.0, 2.0),
     z_lims: tuple[float, float] = (-1.0, 1.0),
-    o_points: tuple[OPoint, ...] = (OPoint(1.5, -0.6, 1.0, 0.3), OPoint(1.5, 0.0, 1.0, 0.3)),
+    o_points: tuple[OPoint, ...] = (
+        OPoint(1.5, -0.6, 1.0, 0.3),
+        OPoint(1.5, 0.0, 1.0, 0.3),
+    ),
     make_regions: bool = False,
-    options: tuple[tuple[str, Any], ...] = tuple(),
+    options: tuple[tuple[str, Any], ...] = (),
 ) -> TokamakEquilibrium:
     """Creates an equilibrium. Defaults to an equilibrium with one X-point."""
     data = create_equilibrium_data(nx, ny, r_lims, z_lims, o_points)
@@ -432,39 +459,40 @@ MESH_SIZE = (
 
 MeshArgs = tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]
 
-LOWER_SINGLE_NULL: MeshArgs = ((OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
-MESH_SIZE,
-    )
+LOWER_SINGLE_NULL: MeshArgs = (
+    (OPoint(1.5, -0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
+    MESH_SIZE,
+)
 UPPER_SINGLE_NULL: MeshArgs = (
-        (OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
-        MESH_SIZE,
-    )
+    (OPoint(1.5, 0.8, 1.0, 0.4), OPoint(1.5, 0.0, 1.0, 0.4)),
+    MESH_SIZE,
+)
 # Very, very slightly offset one of the points to make hypnotoad
 # more reliably choose which one should be treated as primary
 CONNECTED_DOUBLE_NULL: MeshArgs = (
-        (
-            OPoint(1.5, 0.8000001, 1.0, 0.4),
-            OPoint(1.5, -0.8, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ),
-        MESH_SIZE,
-    )
+    (
+        OPoint(1.5, 0.8000001, 1.0, 0.4),
+        OPoint(1.5, -0.8, 1.0, 0.4),
+        OPoint(1.5, 0.0, 1.0, 0.4),
+    ),
+    MESH_SIZE,
+)
 LOWER_DOUBLE_NULL: MeshArgs = (
-        (
-            OPoint(1.5, 0.801, 1.0, 0.4),
-            OPoint(1.5, -0.8, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ),
-        MESH_SIZE + (("nx_inter_sep", 3),),
-    )
+    (
+        OPoint(1.5, 0.801, 1.0, 0.4),
+        OPoint(1.5, -0.8, 1.0, 0.4),
+        OPoint(1.5, 0.0, 1.0, 0.4),
+    ),
+    MESH_SIZE + (("nx_inter_sep", 3),),
+)
 UPPER_DOUBLE_NULL: MeshArgs = (
-        (
-            OPoint(1.5, 0.8, 1.0, 0.4),
-            OPoint(1.5, -0.801, 1.0, 0.4),
-            OPoint(1.5, 0.0, 1.0, 0.4),
-        ),
-        MESH_SIZE + (("nx_inter_sep", 3),),
-    )
+    (
+        OPoint(1.5, 0.8, 1.0, 0.4),
+        OPoint(1.5, -0.801, 1.0, 0.4),
+        OPoint(1.5, 0.0, 1.0, 0.4),
+    ),
+    MESH_SIZE + (("nx_inter_sep", 3),),
+)
 
 
 @fixture
@@ -818,6 +846,7 @@ def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mes
         m.calculateRZ()
     return m
 
+
 sample_mesh_configs: list[MeshArgs] = [
     LOWER_SINGLE_NULL,
     UPPER_SINGLE_NULL,
@@ -1032,52 +1061,65 @@ def get_region(mesh_args: MeshArgs, name: str) -> MeshRegion:
     "mesh_args, region_name, is_boundary",
     [
         (
-            LOWER_SINGLE_NULL, "core(0)",
+            LOWER_SINGLE_NULL,
+            "core(0)",
             [True, False, False, False, False, False, False, False, False],
         ),
         (
-            LOWER_SINGLE_NULL, "core(1)",
+            LOWER_SINGLE_NULL,
+            "core(1)",
             [False, True, False, False, False, False, False, False, False],
         ),
         (
-            LOWER_SINGLE_NULL, "inner_lower_divertor(0)",
+            LOWER_SINGLE_NULL,
+            "inner_lower_divertor(0)",
             [False, False, False, False, True, True, False, False, False],
         ),
         (
-            LOWER_SINGLE_NULL, "inner_lower_divertor(1)",
+            LOWER_SINGLE_NULL,
+            "inner_lower_divertor(1)",
             [False, True, False, False, False, True, False, False, False],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_core(0)",
+            UPPER_DOUBLE_NULL,
+            "outer_core(0)",
             [True, False, False, False, False, False, False, False, False],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_core(1)",
+            UPPER_DOUBLE_NULL,
+            "outer_core(1)",
             [False, False, False, False, False, False, False, False, False],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_core(2)",
+            UPPER_DOUBLE_NULL,
+            "outer_core(2)",
             [False, False, True, False, False, False, False, False, False],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_lower_divertor(2)",
+            UPPER_DOUBLE_NULL,
+            "outer_lower_divertor(2)",
             [False, False, True, False, False, False, True, False, False],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_upper_divertor(0)",
+            UPPER_DOUBLE_NULL,
+            "outer_upper_divertor(0)",
             [False, False, False, True, False, False, False, False, True],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_upper_divertor(1)",
+            UPPER_DOUBLE_NULL,
+            "outer_upper_divertor(1)",
             [False, False, False, False, False, False, False, False, True],
         ),
         (
-            UPPER_DOUBLE_NULL, "outer_upper_divertor(2)",
+            UPPER_DOUBLE_NULL,
+            "outer_upper_divertor(2)",
             [False, False, True, False, False, False, False, False, True],
         ),
     ],
 )
-def test_region_bounds(mesh_args: MeshArgs, region_name: str, is_boundary: list[bool]) -> None:
+def test_region_bounds(
+    mesh_args: MeshArgs, region_name: str, is_boundary: list[bool]
+) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
             StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
@@ -1123,7 +1165,7 @@ equilibrium_args = shared(
     tuples(
         integers(30, 50),
         integers(30, 50),
-        tuples(offsets.map(lambda x: 1. + x), offsets.map(lambda x: 2. - x)),
+        tuples(offsets.map(lambda x: 1.0 + x), offsets.map(lambda x: 2.0 - x)),
         tuples(offsets.map(lambda x: -0.9 + x), offsets.map(lambda x: 0.9 - x)),
         equilibrium_opoints_options.map(lambda x: x[0]),
         just(False),
@@ -1135,11 +1177,19 @@ eqdsk_output_data = equilibrium_args.map(lambda x: eqdsk_data(*x[:-2]))
 
 
 @settings(deadline=300)
-@given(eqdsk_output_data, equilibrium_options.map(dict), equilibrium_args.map(lambda x: create_equilibrium(*x)))
-def test_eqdsk_equilibrium(eqdsk_output: dict[str, int | float | npt.NDArray], options: dict[str, Any], eq: TokamakEquilibrium) -> None:
+@given(
+    eqdsk_output_data,
+    equilibrium_options.map(dict),
+    equilibrium_args.map(lambda x: create_equilibrium(*x)),
+)
+def test_eqdsk_equilibrium(
+    eqdsk_output: dict[str, int | float | npt.NDArray],
+    options: dict[str, Any],
+    eq: TokamakEquilibrium,
+) -> None:
     with TemporaryDirectory() as path:
         eqdsk_file = os.path.join(path, "eqdsk.g")
-        with open(eqdsk_file, 'w') as f:
+        with open(eqdsk_file, "w") as f:
             write_geqdsk(eqdsk_output, f)
         new_eq = eqdsk_equilibrium(eqdsk_file, options)
     assert len(eq.x_points) == len(new_eq.x_points)
