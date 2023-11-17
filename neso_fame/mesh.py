@@ -606,10 +606,12 @@ class StraightLine(LazilyOffsetable):
 
     north: Coord
     south: Coord
+    subdivision: int = 0
+    num_divisions: int = 1
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Calculate a position on the curve."""
-        s = np.asarray(s)
+        s = (self.subdivision + np.asarray(s)) / self.num_divisions
         return Coords(
             self.north.x1 + (self.south.x1 - self.north.x1) * s,
             self.north.x2 + (self.south.x2 - self.north.x2) * s,
@@ -627,18 +629,12 @@ class StraightLine(LazilyOffsetable):
         if num_divisions <= 1:
             yield self
         else:
-            for (x1n, x2n, x3n), (x1s, x2s, x3s) in itertools.pairwise(
-                np.nditer(
-                    (
-                        np.linspace(self.north.x1, self.south.x1, num_divisions + 1),
-                        np.linspace(self.north.x2, self.south.x2, num_divisions + 1),
-                        np.linspace(self.north.x3, self.south.x3, num_divisions + 1),
-                    )
-                )
-            ):
+            for i in range(num_divisions):
                 yield StraightLine(
-                    Coord(float(x1n), float(x2n), float(x3n), self.north.system),
-                    Coord(float(x1s), float(x2s), float(x3s), self.south.system),
+                    self.north,
+                    self.south,
+                    self.subdivision * num_divisions + i,
+                    self.num_divisions * num_divisions,
                 )
 
 
@@ -666,7 +662,8 @@ class SumOfLines:
         result2 = self.line2(s)
         if result1.system != result2.system:
             raise ValueError(
-                "Attempting to get linear combination of curves in different coordinate systems."
+                "Attempting to get linear combination of curves in different "
+                "coordinate systems."
             )
         b = 1.0 - self.weight
         return Coords(
@@ -693,6 +690,20 @@ class SumOfLines:
 
 
 Segment = FieldAlignedCurve | StraightLine | SumOfLines
+
+
+class QuadAlignment(Enum):
+    """Indicates whether Quad boundaries are field-aligned.
+
+    Group
+    -----
+    elements
+
+    """
+    ALIGNED = 0
+    NORTH = 1
+    SOUTH = 2
+    NONALIGNED = 3
 
 
 @dataclass(frozen=True)
@@ -723,8 +734,10 @@ class Quad(LazilyOffsetable):
     split into `num_divisions` in teh x3 direction."""
     num_divisions: int = 1
     """The number of conformal quads to split this into along the x3 direction."""
+    aligned_eges: QuadAlignment = QuadAlignment.ALIGNED
+    """Whether the edges of the quad are field-aligned."""
 
-    def __iter__(self) -> Iterator[NormalisedCurve]:
+    def __iter__(self) -> Iterator[Segment]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
         yield self.north
         yield self.south
@@ -732,13 +745,31 @@ class Quad(LazilyOffsetable):
     def get_field_line(self, s: float) -> Segment:
         """Get the field lign passing through location ``s`` of `Quad.shape`."""
         start = self.shape(s).to_coord()
-        return FieldAlignedCurve(
-            self.field,
-            SliceCoord(start.x1, start.x2, start.system),
-            self.dx3,
-            self.subdivision,
-            self.num_divisions,
-        )
+        def aligned() -> FieldAlignedCurve:
+            return FieldAlignedCurve(
+                self.field,
+                SliceCoord(start.x1, start.x2, start.system),
+                self.dx3,
+                self.subdivision,
+                self.num_divisions,
+            )
+        def nonaligned() -> StraightLine:
+            return StraightLine(
+                Coord(start.x1, start.x2, -0.5*self.dx3, start.system),
+                Coord(start.x1, start.x2, 0.5*self.dx3, start.system),
+                self.subdivision,
+                self.num_divisions,
+            )
+            
+        if self.aligned_eges == QuadAlignment.ALIGNED:
+            return aligned()
+        elif self.aligned_eges == QuadAlignment.NONALIGNED:
+            return nonaligned()
+        elif self.aligned_eges == QuadAlignment.NORTH:
+            return SumOfLines(nonaligned(), aligned(), s)
+        else:
+            assert self.aligned_eges == QuadAlignment.SOUTH
+            return SumOfLines(aligned(), nonaligned(), s)
 
     def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
         """Return the 1-D shape the quad makes at the given x3 value."""
