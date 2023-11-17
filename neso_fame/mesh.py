@@ -617,6 +617,83 @@ class StraightLine(LazilyOffsetable):
             self.north.system,
         )
 
+    def subdivide(self, num_divisions: int) -> Iterator[StraightLine]:
+        """Split this line into equal-length segments.
+
+        Returns
+        -------
+        An iterator over each of the segments.
+        """
+        if num_divisions <= 1:
+            yield self
+        else:
+            for (x1n, x2n, x3n), (x1s, x2s, x3s) in itertools.pairwise(
+                np.nditer(
+                    (
+                        np.linspace(self.north.x1, self.south.x1, num_divisions + 1),
+                        np.linspace(self.north.x2, self.south.x2, num_divisions + 1),
+                        np.linspace(self.north.x3, self.south.x3, num_divisions + 1),
+                    )
+                )
+            ):
+                yield StraightLine(
+                    Coord(float(x1n), float(x2n), float(x3n), self.north.system),
+                    Coord(float(x1s), float(x2s), float(x3s), self.south.system),
+                )
+
+
+@dataclass(frozen=True)
+class SumOfLines:
+    """A :obj:`~neso_fame.mesh.NormalisedCurve`. that is the weighted sum of two others.
+
+    Group
+    -----
+    elements
+
+    """
+
+    line1: "Segment"
+    """The first of the lines being combined."""
+    line2: "Segment"
+    """The second of the lines being combined."""
+    weight: float
+    """A number between 0 and 1 weighting the contribution of the first line."""
+
+    def __call__(self, s: npt.ArrayLike) -> Coords:
+        """Calculate a position on the curve."""
+        s = np.asarray(s)
+        result1 = self.line1(s)
+        result2 = self.line2(s)
+        if result1.system != result2.system:
+            raise ValueError(
+                "Attempting to get linear combination of curves in different coordinate systems."
+            )
+        b = 1.0 - self.weight
+        return Coords(
+            self.weight * result1.x1 + b * result2.x1,
+            self.weight * result1.x2 + b * result2.x2,
+            self.weight * result1.x3 + b * result2.x3,
+            result1.system,
+        )
+
+    def subdivide(self, num_divisions: int) -> Iterator[SumOfLines]:
+        """Split this line into equal-length segments.
+
+        Returns
+        -------
+        An iterator over each of the segments.
+        """
+        if num_divisions <= 1:
+            yield self
+        else:
+            for c1, c2 in zip(
+                self.line1.subdivide(num_divisions), self.line2.subdivide(num_divisions)
+            ):
+                yield SumOfLines(cast(Segment, c1), cast(Segment, c2), self.weight)
+
+
+Segment = FieldAlignedCurve | StraightLine | SumOfLines
+
 
 @dataclass(frozen=True)
 class Quad(LazilyOffsetable):
@@ -647,12 +724,12 @@ class Quad(LazilyOffsetable):
     num_divisions: int = 1
     """The number of conformal quads to split this into along the x3 direction."""
 
-    def __iter__(self) -> Iterator[FieldAlignedCurve]:
+    def __iter__(self) -> Iterator[NormalisedCurve]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
         yield self.north
         yield self.south
 
-    def get_field_line(self, s: float) -> FieldAlignedCurve:
+    def get_field_line(self, s: float) -> Segment:
         """Get the field lign passing through location ``s`` of `Quad.shape`."""
         start = self.shape(s).to_coord()
         return FieldAlignedCurve(
@@ -702,12 +779,12 @@ class Quad(LazilyOffsetable):
         return normalised_interpolator
 
     @cached_property
-    def north(self) -> FieldAlignedCurve:
+    def north(self) -> Segment:
         """Edge of the quadrilateral passing through ``self.shape(0.)``."""
         return self.get_field_line(0.0)
 
     @cached_property
-    def south(self) -> FieldAlignedCurve:
+    def south(self) -> Segment:
         """Edge of the quadrilateral passing through ``self.shape(1.)``."""
         return self.get_field_line(1.0)
 
@@ -874,7 +951,7 @@ class Hex(LazilyOffsetable):
 
 
 E = TypeVar("E", Quad, Hex)
-B = TypeVar("B", FieldAlignedCurve, Quad)
+B = TypeVar("B", Segment, Quad)
 C = TypeVar("C", NormalisedCurve, EndQuad)
 
 
@@ -911,7 +988,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     def QuadMeshLayer(
         cls,
         reference_elements: Sequence[Quad],
-        bounds: Sequence[frozenset[FieldAlignedCurve]],
+        bounds: Sequence[frozenset[Segment]],
         subdivisions: int = 1,
     ) -> QuadMeshLayer:
         """Construct a MeshLayer object made up of quads.
@@ -1086,11 +1163,11 @@ class GenericMesh(Generic[E, B, C]):
         return len(self.reference_layer) * self.offsets.size
 
 
-QuadMeshLayer = MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve]
+QuadMeshLayer = MeshLayer[Quad, Segment, NormalisedCurve]
 HexMeshLayer = MeshLayer[Hex, Quad, EndQuad]
 
 
-QuadMesh = GenericMesh[Quad, FieldAlignedCurve, NormalisedCurve]
+QuadMesh = GenericMesh[Quad, Segment, NormalisedCurve]
 """
 Mesh made up of `Quad` elements.
 

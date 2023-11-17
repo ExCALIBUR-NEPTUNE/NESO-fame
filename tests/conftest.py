@@ -589,7 +589,7 @@ def _hex_mesh_arguments(
 
 def get_quad_boundaries(
     mesh_sequence: list[mesh.Quad],
-) -> list[frozenset[mesh.FieldAlignedCurve]]:
+) -> list[frozenset[mesh.Segment]]:
     return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
 
 

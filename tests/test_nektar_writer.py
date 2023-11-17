@@ -47,6 +47,7 @@ from neso_fame.mesh import (
     Quad,
     QuadMesh,
     QuadMeshLayer,
+    Segment,
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
@@ -301,8 +302,7 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, FieldAlignedCurve, NormalisedCurve]
-    | MeshLike[Hex, Quad, EndQuad],
+    mesh: MeshLike[Quad, Segment, NormalisedCurve] | MeshLike[Hex, Quad, EndQuad],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -313,7 +313,7 @@ def check_edges(
         Quad,
     ):
         num_edges = 4
-        mesh = cast(MeshLike[Quad, FieldAlignedCurve, NormalisedCurve], mesh)
+        mesh = cast(MeshLike[Quad, Segment, NormalisedCurve], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
@@ -397,8 +397,7 @@ def check_elements(
 @settings(deadline=None)
 @given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, FieldAlignedCurve, NormalisedCurve]
-    | MeshLayer[Hex, Quad, EndQuad],
+    mesh: MeshLayer[Quad, Segment, NormalisedCurve] | MeshLayer[Hex, Quad, EndQuad],
     order: int,
     layer: int,
     spatial_dim: int,

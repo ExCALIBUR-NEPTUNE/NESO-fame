@@ -1,5 +1,5 @@
 import itertools
-from typing import Type, cast
+from typing import Iterable, Type, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -963,7 +963,10 @@ def test_mesh_layer_elements_with_subdivisions(
                 (
                     get_corners(x).iter_points()
                     for x in itertools.chain.from_iterable(
-                        (x.subdivide(subdivisions) for x in expected_bound)
+                        (
+                            cast(Iterable[mesh.B], x.subdivide(subdivisions))
+                            for x in expected_bound
+                        )
                     )
                 )
             )
@@ -1078,7 +1081,7 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
 
 @given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(
-    layer: mesh.MeshLayer[mesh.Quad, mesh.FieldAlignedCurve, mesh.NormalisedCurve]
+    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.NormalisedCurve]
 ) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
