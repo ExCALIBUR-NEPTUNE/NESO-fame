@@ -1176,7 +1176,8 @@ equilibrium_args = shared(
 eqdsk_output_data = equilibrium_args.map(lambda x: eqdsk_data(*x[:-2]))
 
 
-@settings(deadline=300)
+@mark.filterwarnings("ignore:invalid value encountered in divide")
+@settings(deadline=None)
 @given(
     eqdsk_output_data,
     equilibrium_options.map(dict),

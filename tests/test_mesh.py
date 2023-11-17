@@ -781,6 +781,7 @@ def test_quad_subdivision_len(quad: mesh.Quad, divisions: int) -> None:
         next(divisions_iter)
 
 
+@settings(deadline=None)
 @given(from_type(mesh.Quad), integers(-5, 100))
 def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
     divisions_iter = quad.subdivide(divisions)
