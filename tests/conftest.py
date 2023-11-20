@@ -23,6 +23,7 @@ from hypothesis.strategies import (
     integers,
     just,
     one_of,
+    recursive,
     register_type_strategy,
     sampled_from,
     shared,
@@ -82,6 +83,7 @@ def mutually_broadcastable_from(
 
     return strategy.flatmap(shape_to_array)
 
+coordinate_systems = sampled_from(mesh.CoordinateSystem)
 
 def slice_coord_for_system(
     system: mesh.CoordinateSystem,
@@ -128,6 +130,24 @@ register_type_strategy(
         whole_numbers,
         sampled_from(mesh.CoordinateSystem),
     ),
+)
+
+
+num_divs = shared(integers(1, 10), key=999)
+
+def straight_line_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.StraightLine]:
+    coords = builds(mesh.Coord, whole_numbers, whole_numbers, whole_numbers, just(system))
+    return builds(
+        mesh.StraightLine,
+        coords,
+        coords,
+        num_divs.flatmap(lambda n: integers(0, n - 1)),
+        num_divs,
+    )
+
+register_type_strategy(
+    mesh.StraightLine,
+    coordinate_systems.flatmap(straight_line_for_system),
 )
 
 CARTESIAN_SYSTEMS = {
@@ -603,7 +623,7 @@ def _get_end_point(
     )
 
 
-def straight_line_for_system(
+def straight_field_line_for_system(
     system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     a1 = shared(whole_numbers, key=541)
@@ -635,7 +655,7 @@ _dx3 = builds(operator.mul, _rad, floats(0.01, 1.99))
 _x1_start = tuples(_centre, _rad).map(lambda x: x[0] + x[1])
 
 
-def curved_line_for_system(
+def curved_field_line_for_system(
     system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     trace = builds(cylindrical_field_trace, _centre, whole_numbers)
@@ -654,14 +674,27 @@ def curved_line_for_system(
         _num_divisions,
     )
 
+def field_aligned_curve_for_system(system: mesh.CoordinateSystem) -> SearchStrategy[mesh.FieldAlignedCurve]:
+    if system in CARTESIAN_SYSTEMS:
+        return one_of((straight_field_line_for_system(system), curved_field_line_for_system(system)))
+    else:
+        return straight_field_line_for_system(system)
 
-coordinate_systems = sampled_from(mesh.CoordinateSystem)
-straight_line = coordinate_systems.flatmap(straight_line_for_system)
-curved_line = sampled_from(list(CARTESIAN_SYSTEMS)).flatmap(curved_line_for_system)
+
+straight_field_line = coordinate_systems.flatmap(straight_field_line_for_system)
+curved_field_line = sampled_from(list(CARTESIAN_SYSTEMS)).flatmap(curved_field_line_for_system)
 register_type_strategy(
     mesh.FieldAlignedCurve,
-    one_of(straight_line, curved_line),
+    one_of(straight_field_line, curved_field_line),
 )
+
+shared_coordinate_systems = shared(sampled_from(mesh.CoordinateSystem), key=22)
+segments: SearchStrategy[mesh.Segment] = recursive(one_of((shared_coordinate_systems.flatmap(straight_line_for_system), shared_coordinate_systems.flatmap(field_aligned_curve_for_system))), lambda s: builds(mesh.SumOfLines, s, s, floats(0., 1.)), max_leaves=5)
+
+def sum_of_lines(weight: float) -> SearchStrategy[mesh.SumOfLines]:
+    return builds(mesh.SumOfLines, segments, segments, just(weight))
+
+register_type_strategy(mesh.SumOfLines, floats(0., 1.).flatmap(sum_of_lines))
 
 T = TypeVar("T")
 

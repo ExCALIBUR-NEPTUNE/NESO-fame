@@ -611,6 +611,11 @@ class StraightLine(LazilyOffsetable):
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
         """Calculate a position on the curve."""
+        if self.north.system != self.south.system:
+            raise ValueError(
+                "Termini of line have different coordinate systems "
+                f"'{self.north.system}' and '{self.south.system}'"
+            )
         s = (self.subdivision + np.asarray(s)) / self.num_divisions
         return Coords(
             self.north.x1 + (self.south.x1 - self.north.x1) * s,
@@ -640,7 +645,7 @@ class StraightLine(LazilyOffsetable):
 
 @dataclass(frozen=True)
 class SumOfLines:
-    """A :obj:`~neso_fame.mesh.NormalisedCurve`. that is the weighted sum of two others.
+    """A :obj:`~neso_fame.mesh.NormalisedCurve` that is the weighted sum of two others.
 
     Group
     -----

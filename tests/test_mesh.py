@@ -33,6 +33,7 @@ from .conftest import (
     non_nans,
     non_zero,
     quad_mesh_layer_no_divisions,
+    sum_of_lines,
     whole_numbers,
 )
 
@@ -621,6 +622,88 @@ def test_curve_control_points_values() -> None:
     np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
 
+
+@given(from_type(mesh.StraightLine), floats(0., 1.))
+def test_straight_line_between_termini(line: mesh.StraightLine, s: float) -> None:
+    position = line(s).to_coord()
+    for p, n, s in zip(position, line.north, line.south):
+        xs = sorted([p, n, s])
+        assert p == xs[1]
+
+
+@given(from_type(mesh.StraightLine), integers(-50, 100))
+def test_straight_line_subdivision_len(curve: mesh.StraightLine, divisions: int) -> None:
+    expected = max(1, divisions)
+    divisions_iter = curve.subdivide(divisions)
+    for _ in range(expected):
+        _ = next(divisions_iter)
+    with pytest.raises(StopIteration):
+        next(divisions_iter)
+
+
+@given(from_type(mesh.StraightLine), integers(-5, 100))
+def test_striaght_line_subdivision(curve: mesh.StraightLine, divisions: int) -> None:
+    divisions_iter = curve.subdivide(divisions)
+    first = next(divisions_iter)
+    coord = first(0.0)
+    for component, expected in zip(coord, curve(0.0)):
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+    prev = first(1.0)
+    for curve in divisions_iter:
+        for c, p in zip(curve(0.0), prev):
+            np.testing.assert_allclose(c, p, rtol=1e-7, atol=1e-10)
+        prev = curve(1.0)
+    for component, expected in zip(prev, curve(1.0)):
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+
+
+@given(sum_of_lines(1.), floats(0., 1.))
+def test_sum_of_lines_line1_only(curve: mesh.SumOfLines, s: float) -> None:
+    assert curve(s).to_coord() == curve.line1(s).to_coord()
+
+
+@given(sum_of_lines(0.), floats(0., 1.))
+def test_sum_of_lines_line2_only(curve: mesh.SumOfLines, s: float) -> None:
+    assert curve(s).to_coord() == curve.line2(s).to_coord()
+
+
+@given(from_type(mesh.SumOfLines), floats(0., 1.))
+def test_sum_of_lines_proportional_distance(curve: mesh.SumOfLines, s: float) -> None:
+    position = curve(s).to_coord()
+    north = curve.line1(s).to_coord()
+    south = curve.line2(s).to_coord()
+    for p, n, s in zip(position, north, south):
+        diff = n - s
+        if diff != 0.:
+            assert np.isclose(curve.weight, (p - s)/diff, 1e-10, 1e-10)
+
+
+@given(from_type(mesh.SumOfLines), integers(-50, 100))
+def test_sum_of_lines_subdivision_len(curve: mesh.SumOfLines, divisions: int) -> None:
+    expected = max(1, divisions)
+    divisions_iter = curve.subdivide(divisions)
+    for _ in range(expected):
+        _ = next(divisions_iter)
+    with pytest.raises(StopIteration):
+        next(divisions_iter)
+
+
+@given(from_type(mesh.SumOfLines), integers(-5, 100))
+def test_sum_of_lines_subdivision(curve: mesh.SumOfLines, divisions: int) -> None:
+    divisions_iter = curve.subdivide(divisions)
+    first = next(divisions_iter)
+    coord = first(0.0)
+    for component, expected in zip(coord, curve(0.0)):
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+    prev = first(1.0)
+    for curve in divisions_iter:
+        for c, p in zip(curve(0.0), prev):
+            np.testing.assert_allclose(c, p, rtol=1e-7, atol=1e-10)
+        prev = curve(1.0)
+    for component, expected in zip(prev, curve(1.0)):
+        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+
+# Need to update Quad tests (or add new ones) to handle cases where Quads are not field-aligned.
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
