@@ -8,8 +8,9 @@ import yaml
 from click.testing import CliRunner
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
 
-from neso_fame.mesh import SliceCoords, StraightLineAcrossField
+from neso_fame.mesh import StraightLineAcrossField
 from neso_fame.scripts import hypnotoad, simple
+from tests.conftest import simple_trace
 from tests.test_hypnotoad import CONNECTED_DOUBLE_NULL, LOWER_SINGLE_NULL, eqdsk_data
 
 FLOAT = r"(-?\d\.\d+e[+-]\d\d)"
@@ -429,14 +430,7 @@ def test_tokamak_field() -> None:
 # Patch the various hypnotoad interface methods to keep run-times short
 @patch(
     "neso_fame.generators.equilibrium_trace",
-    lambda _: (
-        lambda start, phi: (
-            SliceCoords(
-                np.full_like(phi, start.x1), np.full_like(phi, start.x2), start.system
-            ),
-            np.asarray(phi),
-        )
-    ),
+    lambda _: simple_trace,
 )
 @patch(
     "neso_fame.generators.flux_surface_edge",

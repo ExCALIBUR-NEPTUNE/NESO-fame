@@ -377,35 +377,83 @@ class Coords:
         )
 
 
-FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]
-"""A function describing a field line.
+class FieldTrace(Protocol):
+    """Representation of a magnetic field, used for tracing field lines.
 
-Group
------
-field line
+    Group
+    -----
+    field line
 
-Parameters
-----------
-start : SliceCoord
-    The position of the field-line in the x1-x2 plane at x3 = 0.
-locations : :obj:`numpy.typing.ArrayLike`
-    x3 coordinates at which to calculate the position of the field line
+    """
 
-Returns
--------
-tuple[:class:`~neso_fame.mesh.SliceCoord`, :obj:`numpy.typing.NDArray`]
-    The first element is the x1 and x2 coordinates of the field line at
-    the provided x3 positions. The second is an array with the distance
-    traveersed along the field line to those points.
+    def __call__(
+        self, start: SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+    ) -> tuple[SliceCoords, npt.NDArray]:
+        """Calculate a position on a field line.
+
+        Optionally, rather than strictly following the field line, you
+        can weight so it stays closer to teh starting position. This
+        is done using the `start_weight` parameter. A value of 0 means
+        that the function exactly follows the field line while a value
+        of 1 means the x1 and x2 coordinates will be fixed to those of
+        the `start` value. Values in between correspond to a weighted
+        sum of these two options.
+
+        The distance returned will correspond to the distance along
+        the *weighted version* of the field line (rather than the
+        original one). That is, it will always be the same as the
+        distance you would get from integrating along the curve
+        returned by this function.
+
+        Parameters
+        ----------
+        start
+            The position of the field-line in the x1-x2 plane at x3 = 0.
+        locations
+            x3 coordinates at which to calculate the position of the field line
+        start_weight
+            How much weight to apply to the start position versus the field line
+
+        Returns
+        -------
+        The first element is the x1 and x2 coordinates of the field line at
+        the provided x3 positions. The second is an array with the distance
+        traveersed along the field line to those points.
+
+        """
+        ...
 
 
-.. rubric:: Alias
+# FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]
+# """A function describing a field line.
 
-"""
+# Group
+# -----
+# field line
+
+# Parameters
+# ----------
+# start : SliceCoord
+#     The position of the field-line in the x1-x2 plane at x3 = 0.
+# locations : :obj:`numpy.typing.ArrayLike`
+#     x3 coordinates at which to calculate the position of the field line
+
+# Returns
+# -------
+# tuple[:class:`~neso_fame.mesh.SliceCoord`, :obj:`numpy.typing.NDArray`]
+#     The first element is the x1 and x2 coordinates of the field line at
+#     the provided x3 positions. The second is an array with the distance
+#     traveersed along the field line to those points.
+
+
+# .. rubric:: Alias
+
+# """
 
 NormalisedCurve = Callable[[npt.ArrayLike], Coords]
-"""A function describing a segment of a curve. Often this curve
-represents a field line.
+"""A function describing a segment of a curve.
+
+Often this curve represents a field line.
 
 Parameters
 ----------
@@ -488,6 +536,7 @@ class FieldAlignedCurve(LazilyOffsetable):
     """The span of the curve in the x3-direction."""
     subdivision: int = 0
     num_divisions: int = 1
+    start_weight: float = 0.0
 
     @cached_property
     def function(self) -> NormalisedCurve:
@@ -498,6 +547,7 @@ class FieldAlignedCurve(LazilyOffsetable):
             0.5 * self.dx3,
             self.subdivision,
             self.num_divisions,
+            self.start_weight,
         )
 
     def __call__(self, s: npt.ArrayLike) -> Coords:
@@ -525,6 +575,7 @@ class FieldAlignedCurve(LazilyOffsetable):
                     self.dx3,
                     self.subdivision * num_divisions + i,
                     self.num_divisions * num_divisions,
+                    self.start_weight,
                 )
 
 
@@ -643,58 +694,7 @@ class StraightLine(LazilyOffsetable):
                 )
 
 
-@dataclass(frozen=True)
-class SumOfLines:
-    """A :obj:`~neso_fame.mesh.NormalisedCurve` that is the weighted sum of two others.
-
-    Group
-    -----
-    elements
-
-    """
-
-    line1: "Segment"
-    """The first of the lines being combined."""
-    line2: "Segment"
-    """The second of the lines being combined."""
-    weight: float
-    """A number between 0 and 1 weighting the contribution of the first line."""
-
-    def __call__(self, s: npt.ArrayLike) -> Coords:
-        """Calculate a position on the curve."""
-        s = np.asarray(s)
-        result1 = self.line1(s)
-        result2 = self.line2(s)
-        if result1.system != result2.system:
-            raise ValueError(
-                "Attempting to get linear combination of curves in different "
-                "coordinate systems."
-            )
-        b = 1.0 - self.weight
-        return Coords(
-            self.weight * result1.x1 + b * result2.x1,
-            self.weight * result1.x2 + b * result2.x2,
-            self.weight * result1.x3 + b * result2.x3,
-            result1.system,
-        )
-
-    def subdivide(self, num_divisions: int) -> Iterator[SumOfLines]:
-        """Split this line into equal-length segments.
-
-        Returns
-        -------
-        An iterator over each of the segments.
-        """
-        if num_divisions <= 1:
-            yield self
-        else:
-            for c1, c2 in zip(
-                self.line1.subdivide(num_divisions), self.line2.subdivide(num_divisions)
-            ):
-                yield SumOfLines(cast(Segment, c1), cast(Segment, c2), self.weight)
-
-
-Segment = FieldAlignedCurve | StraightLine | SumOfLines
+Segment = FieldAlignedCurve | StraightLine
 
 
 class QuadAlignment(Enum):
@@ -705,6 +705,7 @@ class QuadAlignment(Enum):
     elements
 
     """
+
     ALIGNED = 0
     NORTH = 1
     SOUTH = 2
@@ -739,7 +740,7 @@ class Quad(LazilyOffsetable):
     split into `num_divisions` in teh x3 direction."""
     num_divisions: int = 1
     """The number of conformal quads to split this into along the x3 direction."""
-    aligned_eges: QuadAlignment = QuadAlignment.ALIGNED
+    aligned_edges: QuadAlignment = QuadAlignment.ALIGNED
     """Whether the edges of the quad are field-aligned."""
 
     def __iter__(self) -> Iterator[Segment]:
@@ -750,31 +751,23 @@ class Quad(LazilyOffsetable):
     def get_field_line(self, s: float) -> Segment:
         """Get the field lign passing through location ``s`` of `Quad.shape`."""
         start = self.shape(s).to_coord()
-        def aligned() -> FieldAlignedCurve:
-            return FieldAlignedCurve(
-                self.field,
-                SliceCoord(start.x1, start.x2, start.system),
-                self.dx3,
-                self.subdivision,
-                self.num_divisions,
-            )
-        def nonaligned() -> StraightLine:
-            return StraightLine(
-                Coord(start.x1, start.x2, -0.5*self.dx3, start.system),
-                Coord(start.x1, start.x2, 0.5*self.dx3, start.system),
-                self.subdivision,
-                self.num_divisions,
-            )
-            
-        if self.aligned_eges == QuadAlignment.ALIGNED:
-            return aligned()
-        elif self.aligned_eges == QuadAlignment.NONALIGNED:
-            return nonaligned()
-        elif self.aligned_eges == QuadAlignment.NORTH:
-            return SumOfLines(nonaligned(), aligned(), s)
+        if self.aligned_edges == QuadAlignment.ALIGNED:
+            weight = 0.0
+        elif self.aligned_edges == QuadAlignment.NONALIGNED:
+            weight = 1.0
+        elif self.aligned_edges == QuadAlignment.NORTH:
+            weight = s
         else:
-            assert self.aligned_eges == QuadAlignment.SOUTH
-            return SumOfLines(aligned(), nonaligned(), s)
+            assert self.aligned_edges == QuadAlignment.SOUTH
+            weight = 1 - s
+        return FieldAlignedCurve(
+            self.field,
+            SliceCoord(start.x1, start.x2, start.system),
+            self.dx3,
+            self.subdivision,
+            self.num_divisions,
+            weight,
+        )
 
     def _get_line_at_x3(self, x3: float) -> NormalisedCurve:
         """Return the 1-D shape the quad makes at the given x3 value."""
@@ -786,13 +779,42 @@ class Quad(LazilyOffsetable):
         s = np.linspace(0.0, 1.0, self.field.resolution)
         x1_coord = np.empty(self.field.resolution)
         x2_coord = np.empty(self.field.resolution)
-        x3_coord = np.full(self.field.resolution, x3)
-        for i, start in enumerate(self.shape(s).iter_points()):
+        if self.aligned_edges == QuadAlignment.ALIGNED:
+
+            def calc_coord(
+                start: SliceCoord, field: SliceCoord, s: float
+            ) -> tuple[float, float]:
+                return field.x1, field.x2
+        elif self.aligned_edges == QuadAlignment.NONALIGNED:
+
+            def calc_coord(
+                start: SliceCoord, field: SliceCoord, s: float
+            ) -> tuple[float, float]:
+                return start.x1, start.x2
+        elif self.aligned_edges == QuadAlignment.NORTH:
+
+            def calc_coord(
+                start: SliceCoord, field: SliceCoord, s: float
+            ) -> tuple[float, float]:
+                return start.x1 * s + (1 - s) * field.x1, start.x2 * s + (
+                    1 - s
+                ) * field.x2
+        else:
+            assert self.aligned_edges == QuadAlignment.SOUTH
+
+            def calc_coord(
+                start: SliceCoord, field: SliceCoord, s: float
+            ) -> tuple[float, float]:
+                return start.x1 * (1 - s) + s * field.x1, start.x2 * (
+                    1 - s
+                ) + s * field.x2
+
+        for i, (sval, start) in enumerate(zip(s, self.shape(s).iter_points())):
             # FIXME: This is duplicating work in the case of the actual edges.
-            coord = self.field.trace(start, x3)[0].to_coord()
-            x1_coord[i] = coord.x1
-            x2_coord[i] = coord.x2
-        coordinates = np.stack([x1_coord, x2_coord, x3_coord])
+            x1_coord[i], x2_coord[i] = calc_coord(
+                start, self.field.trace(start, x3)[0].to_coord(), sval
+            )
+        coordinates = np.stack([x1_coord, x2_coord])
         order = (
             "cubic"
             if self.field.resolution > 3
@@ -808,7 +830,7 @@ class Quad(LazilyOffsetable):
             return Coords(
                 locations[0],
                 locations[1],
-                locations[2],
+                np.full_like(s, x3),
                 coord_system,
             )
 
@@ -864,6 +886,7 @@ class Quad(LazilyOffsetable):
                     self.dx3,
                     self.subdivision * num_divisions + i,
                     self.num_divisions * num_divisions,
+                    self.aligned_edges,
                 )
 
 
@@ -1341,12 +1364,17 @@ class FieldTracer:
 
     @cache
     def _normalise_and_subdivide(
-        self, start: SliceCoord, x3_min: float, x3_max: float, divisions: int
+        self,
+        start: SliceCoord,
+        x3_min: float,
+        x3_max: float,
+        divisions: int,
+        start_weight: float = 0.0,
     ) -> list[NormalisedCurve]:
         x3 = np.linspace(x3_min, x3_max, (self.resolution - 1) * divisions + 1)
         x1_x2_coords: SliceCoords
         s: npt.NDArray
-        x1_x2_coords, s = self.trace(start, x3)
+        x1_x2_coords, s = self.trace(start, x3, start_weight)
         coordinates = np.stack([*x1_x2_coords, x3])
         order = (
             "cubic"
@@ -1372,6 +1400,7 @@ class FieldTracer:
         x3_max: float,
         division: int,
         total_divisions: int,
+        start_weight: float = 0.0,
     ) -> NormalisedCurve:
         """Normalises a field trace.
 
@@ -1392,6 +1421,13 @@ class FieldTracer:
         total_divisions
             The total number of subdivisions this quad is split into along
             the x3 direction
+        start_weight
+            How much (if at all) to shift the result so it stays close to
+            `start`. A value of 0 means no shift will be be applied and the
+            field will be traced exactly. A value of 1 means the function
+            will always return the x1 and x2 values of the start position.
+            Values in between correspond to a weighted sum of these two
+            extremes.
 
         Returns
         -------
@@ -1405,5 +1441,7 @@ class FieldTracer:
         ), f"Can not request division {division} when only {total_divisions} available"
         assert total_divisions > 0, "Number of divisions must be positive"
         assert division >= 0, "Division number must be non-negative"
-        segments = self._normalise_and_subdivide(start, x3_min, x3_max, total_divisions)
+        segments = self._normalise_and_subdivide(
+            start, x3_min, x3_max, total_divisions, start_weight
+        )
         return segments[division]

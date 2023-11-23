@@ -49,13 +49,12 @@ from neso_fame.mesh import (
     QuadMeshLayer,
     Segment,
     SliceCoord,
-    SliceCoords,
     StraightLineAcrossField,
     control_points,
 )
 from neso_fame.offset import Offset
 
-from .conftest import linear_field_trace, non_nans, quad_meshes
+from .conftest import linear_field_trace, non_nans, quad_meshes, simple_trace
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -727,14 +726,7 @@ QUAD = Quad(
         SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
     ),
     FieldTracer(
-        lambda start, x3: (
-            SliceCoords(
-                np.full_like(x3, start.x1),
-                np.full_like(x3, start.x2),
-                CoordinateSystem.CARTESIAN,
-            ),
-            np.asarray(x3),
-        ),
+        simple_trace,
         2,
     ),
     1.0,

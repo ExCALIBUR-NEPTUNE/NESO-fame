@@ -30,6 +30,7 @@ from .mesh import (
     HexMesh,
     MeshLayer,
     Quad,
+    QuadAlignment,
     QuadMesh,
     SliceCoord,
     SliceCoords,
@@ -47,17 +48,6 @@ def _ordered_connectivity(size: int) -> Connectivity:
 
     """
     return list(itertools.pairwise(range(size)))
-
-
-BOUNDARY_TRACER = FieldTracer(
-    lambda start, x3: (
-        SliceCoords(
-            np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
-        ),
-        np.asarray(x3),
-    ),
-    2,
-)
 
 
 BoundType = bool | tuple[float, float]
@@ -130,51 +120,18 @@ def _get_factors(
     return factor_fixed * factor_fixed, factor_planar
 
 
-def _boundary_tracer(
+def _constrain_to_plain(
     field: FieldTrace,
     shape: StraightLineAcrossField,
     north_bound: BoundType,
     south_bound: BoundType,
 ) -> FieldTrace:
-    """Create a field trace compatible with quad boundaries.
-
-    Creates a field trace that describes a quad which may conform
-    to its boundaries. Note that the distances will be approximate if
-    the field is nonlinear.
-
-    Parameters
-    ----------
-    field
-        The field that is being traced
-    shape
-        The function describing the shape of the quad where it
-        intersects with the x3=0 plane
-    north_bound
-        Whether the north edge of the quad conforms to the
-        boundary and how it conforms
-    south_bound
-        Whether the south edge of the quad conforms to the
-        boundary and how it conforms
-
-    """
-    north_fixed = _is_fixed(north_bound)
-    south_fixed = _is_fixed(south_bound)
-    if north_fixed and south_fixed:
-        return lambda start, x3: (
-            SliceCoords(
-                np.full_like(x3, start.x1), np.full_like(x3, start.x2), start.system
-            ),
-            np.asarray(x3),
-        )
-
-    if not _is_bound(north_bound) and not _is_bound(south_bound):
-        return field
-
-    reference = _get_reference(shape, north_fixed, south_fixed)
     north_planar = _is_planar(north_bound)
     south_planar = _is_planar(south_bound)
     vec, normed_vec = _get_vec(north_bound, south_bound, north_planar, south_planar)
 
+    assert vec is not None
+    assert normed_vec is not None
     dx = (shape.south.x1 - shape.north.x1, shape.south.x2 - shape.north.x2)
 
     def get_position_on_shape(start: SliceCoord) -> float:
@@ -183,43 +140,41 @@ def _boundary_tracer(
         else:
             return (start.x2 - shape.north.x2) / (dx[1])
 
-    def func(start: SliceCoord, x3: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
+    def trace(
+        start: SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+    ) -> tuple[SliceCoords, npt.NDArray]:
         pos_on_shape = get_position_on_shape(start)
-        factor_fixed, factor_planar = _get_factors(
-            pos_on_shape, north_fixed, south_fixed, north_planar, south_planar
+        factor_planar = (
+            0.0
+            if south_planar and north_planar
+            else pos_on_shape
+            if north_planar
+            else 1 - pos_on_shape
+            if south_planar
+            else 1.0
         )
-        x3 = np.asarray(x3)
-        position, distance = field(start, x3)
-        if factor_planar < 1:
-            assert vec is not None
-            assert normed_vec is not None
-            pos_vec = (position.x1 - start.x1, position.x2 - start.x2)
-            projection_factor = (pos_vec[0] * vec[0] + pos_vec[1] * vec[1]) / normed_vec
-            position = SliceCoords(
-                position.x1 * factor_planar
-                + (1 - factor_planar) * (start.x1 + projection_factor * vec[0]),
-                position.x2 * factor_planar
-                + (1 - factor_planar) * (start.x2 + projection_factor * vec[1]),
-                position.system,
-            )
-            # FIXME: This assumes the trace is linear; how can I
-            # estimate it for nonlinear ones?
-            distance = np.sign(x3) * np.sqrt(
-                (position.x1 - start.x1) ** 2 + (position.x2 - start.x2) ** 2 + x3 * x3
-            )
-        x3_factor = start.x1 if start.system is CoordinateSystem.CYLINDRICAL else 1.0
-        coord = SliceCoords(
-            position.x1 * factor_fixed + reference.x1 * (1 - factor_fixed),
-            position.x2 * factor_fixed + reference.x2 * (1 - factor_fixed),
-            position.system,
+        x3_array = np.asarray(x3)
+        initial, _ = field(start, x3, start_weight)
+        projection_factor = (
+            (initial.x1 - start.x1) * vec[0] + (initial.x2 - start.x2) * vec[1]
+        ) / normed_vec
+        position = SliceCoords(
+            initial.x1 * factor_planar
+            + (1 - factor_planar) * (start.x1 + projection_factor * vec[0]),
+            initial.x2 * factor_planar
+            + (1 - factor_planar) * (start.x2 + projection_factor * vec[1]),
+            initial.system,
         )
-        dist = np.sign(distance) * np.sqrt(
-            distance * distance * factor_fixed
-            + (1 - factor_fixed) * x3_factor * x3_factor * x3**2
+        # FIXME: This assumes the trace is linear; how can I
+        # estimate it for nonlinear ones?
+        distance = np.sign(x3) * np.sqrt(
+            (position.x1 - start.x1) ** 2
+            + (position.x2 - start.x2) ** 2
+            + x3_array * x3_array
         )
-        return coord, dist
+        return position, distance
 
-    return func
+    return trace
 
 
 def field_aligned_2d(
@@ -303,15 +258,16 @@ def field_aligned_2d(
         shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
         north_bound = node1 in (0, num_nodes - 1) and conform_to_bounds
         south_bound = node2 in (0, num_nodes - 1) and conform_to_bounds
-        local_tracer = (
-            FieldTracer(
-                _boundary_tracer(field_line, shape, north_bound, south_bound),
-                spatial_interp_resolution,
-            )
-            if north_bound or south_bound
-            else tracer
+        alignment = (
+            QuadAlignment.NONALIGNED
+            if north_bound and south_bound
+            else QuadAlignment.NORTH
+            if south_bound
+            else QuadAlignment.SOUTH
+            if north_bound
+            else QuadAlignment.ALIGNED
         )
-        return Quad(shape, local_tracer, dx3)
+        return Quad(shape, tracer, dx3, aligned_edges=alignment)
 
     quads = list(itertools.starmap(make_quad, connectivity))
 
@@ -477,15 +433,31 @@ def field_aligned_3d(
         else:
             north_bound = False
             south_bound = False
+        alignment = (
+            QuadAlignment.NONALIGNED
+            if _is_fixed(north_bound) and _is_fixed(south_bound)
+            else QuadAlignment.NORTH
+            if _is_fixed(south_bound)
+            else QuadAlignment.SOUTH
+            if _is_fixed(north_bound)
+            else QuadAlignment.ALIGNED
+        )
+        print(
+            lower_dim_mesh[node1],
+            lower_dim_mesh[node2],
+            north_bound,
+            south_bound,
+            alignment,
+        )
         local_tracer = (
             FieldTracer(
-                _boundary_tracer(field_line, shape, north_bound, south_bound),
+                _constrain_to_plain(field_line, shape, north_bound, south_bound),
                 spatial_interp_resolution,
             )
-            if north_bound or south_bound
+            if _is_planar(north_bound) or _is_planar(south_bound)
             else tracer
         )
-        return Quad(shape, local_tracer, dx3)
+        return Quad(shape, local_tracer, dx3, aligned_edges=alignment)
 
     hexes = [Hex(*itertools.starmap(make_quad, pairs)) for pairs in element_node_pairs]
 

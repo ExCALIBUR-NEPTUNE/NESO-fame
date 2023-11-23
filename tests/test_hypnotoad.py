@@ -49,11 +49,10 @@ from neso_fame.mesh import (
     FieldTracer,
     Quad,
     SliceCoord,
-    SliceCoords,
     StraightLineAcrossField,
 )
 
-from .conftest import whole_numbers
+from .conftest import simple_trace, whole_numbers
 
 
 class FakeEquilibrium(Equilibrium):
@@ -993,14 +992,6 @@ def check_coordinate_pairs_connected(
     )
 
 
-def dummy_trace(start: SliceCoord, s: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
-    return SliceCoords(
-        np.full_like(s, start.x1),
-        np.full_like(s, start.x2),
-        CoordinateSystem.CYLINDRICAL,
-    ), np.asarray(s)
-
-
 def check_flux_surface_bound(
     eq: Equilibrium, bound: frozenset[Quad], periodic: bool
 ) -> None:
@@ -1030,7 +1021,7 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
+            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
     for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[:5]):
@@ -1044,7 +1035,7 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), dx3
+            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
     for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[5:]):
@@ -1122,7 +1113,7 @@ def test_region_bounds(
 ) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
+            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), 1.0
         )
 
     region = get_region(mesh_args, region_name)
@@ -1144,7 +1135,7 @@ def test_region_bounds(
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(dummy_trace, 2), 1.0
+            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), 1.0
         )
 
     mesh = to_mesh(mesh_args)

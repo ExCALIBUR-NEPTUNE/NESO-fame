@@ -381,9 +381,12 @@ def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
 
     """
 
-    def trace(start: SliceCoord, phi: npt.ArrayLike) -> tuple[SliceCoords, npt.NDArray]:
+    def trace(
+        start: SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+    ) -> tuple[SliceCoords, npt.NDArray]:
         if start.system != CoordinateSystem.CYLINDRICAL:
             raise ValueError("`start` must use a cylindrical coordinate system")
+        b = 1 - start_weight
 
         @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-11, atol=1e-12)
         def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
@@ -391,19 +394,19 @@ def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
             Z = y[1]
             # Use low-level functions on equilibrium in order to avoid overheads
             inverse_B_tor = R / _fpol(equilibrium, R, Z)
-            dR_dphi = equilibrium.psi_func(R, Z, dy=1, grid=False) * inverse_B_tor
-            dZ_dphi = -equilibrium.psi_func(R, Z, dx=1, grid=False) * inverse_B_tor
+            dR_dphi = b * equilibrium.psi_func(R, Z, dy=1, grid=False) * inverse_B_tor
+            dZ_dphi = -b * equilibrium.psi_func(R, Z, dx=1, grid=False) * inverse_B_tor
             return (
                 dR_dphi,
                 dZ_dphi,
                 np.sqrt(dR_dphi * dR_dphi + dZ_dphi * dZ_dphi + 1),
             )
 
-        phi = np.asarray(phi)
-        R, Z, dist = integrated(phi)
+        x3 = np.asarray(x3)
+        R, Z, dist = integrated(x3)
         return SliceCoords(
-            R.reshape(phi.shape), Z.reshape(phi.shape), CoordinateSystem.CYLINDRICAL
-        ), dist.reshape(phi.shape)
+            R.reshape(x3.shape), Z.reshape(x3.shape), CoordinateSystem.CYLINDRICAL
+        ), dist.reshape(x3.shape)
 
     return trace
 
