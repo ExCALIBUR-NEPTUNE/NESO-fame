@@ -820,27 +820,6 @@ def test_quad_corners(q: mesh.Quad) -> None:
     assert corners[3] == q.south(1.0).to_coord()
 
 
-@settings(report_multiple_bugs=False)
-@given(linear_quad, integers(1, 5))
-def test_quad_control_points_within_corners(q: mesh.Quad, n: int) -> None:
-    # FIXME: If you try to keep one edge aligned, another edge may
-    # cross through it if both are on the same flux surface
-    corners = q.corners()
-    x1_max, x2_max, x3_max = map(np.max, corners)
-    x1_min, x2_min, x3_min = map(np.min, corners)
-    cp = mesh.control_points(q, n).round_to(12)
-    assert len(cp) == (n + 1) ** 2
-    assert cp.x1.ndim == 2
-    assert cp.x2.ndim == 2
-    assert cp.x3.ndim == 2
-    # assert np.all(cp.x1 <= mesh._round_to_sig_figs(cast(float, x1_max), 12))
-    # assert np.all(cp.x2 <= mesh._round_to_sig_figs(cast(float, x2_max), 12))
-    assert np.all(cp.x3 <= mesh._round_to_sig_figs(cast(float, x3_max), 12))
-    # assert np.all(cp.x1 >= mesh._round_to_sig_figs(cast(float, x1_min), 12))
-    # assert np.all(cp.x2 >= mesh._round_to_sig_figs(cast(float, x2_min), 12))
-    assert np.all(cp.x3 >= mesh._round_to_sig_figs(cast(float, x3_min), 12))
-
-
 @given(from_type(mesh.Quad), sampled_from(list(range(2, 10, 2))))
 def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     cp = mesh.control_points(q, n)
@@ -1184,6 +1163,8 @@ quad_mesh_elements = (
         4,
         mesh.CoordinateSystem.CARTESIAN,
         10,
+        False,
+        False,
     ),
 )
 

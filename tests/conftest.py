@@ -291,6 +291,8 @@ def end_quad(
         make_line(sorted_corners[3], sorted_corners[0]),
     )
 
+def _get_alignment(fixed1: bool, fixed2: bool) -> mesh.QuadAlignment:
+    return mesh.QuadAlignment.NONALIGNED if fixed1 and fixed2 else mesh.QuadAlignment.SOUTH if fixed1 else mesh.QuadAlignment.NORTH if fixed2 else mesh.QuadAlignment.ALIGNED
 
 def trapezohedronal_hex(
     a1: float,
@@ -303,6 +305,7 @@ def trapezohedronal_hex(
     division: int,
     num_divisions: int,
     offset: float,
+    fixed_edges: tuple[bool, bool, bool, bool]
 ) -> Optional[mesh.Hex]:
     centre = (
         sum(map(operator.itemgetter(0), starts)),
@@ -316,7 +319,7 @@ def trapezohedronal_hex(
         return None
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
 
-    def make_quad(point1: Pair, point2: Pair) -> mesh.Quad:
+    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
             mesh.SliceCoord(point1[0], point1[1], c),
             mesh.SliceCoord(point2[0], point2[1], c),
@@ -328,15 +331,16 @@ def trapezohedronal_hex(
                 a3,
                 division,
                 num_divisions,
+                _get_alignment(fixed1, fixed2),
             ),
             offset,
         )
 
     return mesh.Hex(
-        make_quad(sorted_starts[0], sorted_starts[1]),
-        make_quad(sorted_starts[2], sorted_starts[3]),
-        make_quad(sorted_starts[1], sorted_starts[2]),
-        make_quad(sorted_starts[3], sorted_starts[0]),
+        make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
+        make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
+        make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
+        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]),
     )
 
 
@@ -428,6 +432,7 @@ def curved_hex(
     division: int,
     num_divisions: int,
     offset: float,
+    fixed_edges: tuple[bool, bool, bool, bool]
 ) -> mesh.Hex:
     sorted_starts = sorted(starts, key=operator.itemgetter(0))
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
@@ -435,7 +440,7 @@ def curved_hex(
     )
     trace = cylindrical_field_trace(centre, x2_slope)
 
-    def make_quad(point1: Pair, point2: Pair) -> mesh.Quad:
+    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
             mesh.SliceCoord(point1[0], point1[1], system),
             mesh.SliceCoord(point2[0], point2[1], system),
@@ -447,15 +452,16 @@ def curved_hex(
                 dx3,
                 division,
                 num_divisions,
+                _get_alignment(fixed1, fixed2),
             ),
             offset,
         )
 
     return mesh.Hex(
-        make_quad(sorted_starts[0], sorted_starts[1]),
-        make_quad(sorted_starts[2], sorted_starts[3]),
-        make_quad(sorted_starts[1], sorted_starts[2]),
-        make_quad(sorted_starts[3], sorted_starts[0]),
+        make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
+        make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
+        make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
+        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]),
     )
 
 
@@ -537,6 +543,8 @@ def _quad_mesh_elements(
     num_quads: int,
     c: mesh.CoordinateSystem,
     resolution: int,
+    left_fixed: bool,
+    right_fixed: bool,
 ) -> Optional[list[mesh.Quad]]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
     if c == mesh.CoordinateSystem.CYLINDRICAL and (
@@ -551,9 +559,11 @@ def _quad_mesh_elements(
         )
 
     points = np.linspace(limits[0], limits[1], num_quads + 1)
+    fixed = [left_fixed] + [False] * (num_quads - 1) + [right_fixed]
+    
     return [
-        mesh.Quad(shape, trace, a3)
-        for shape in map(make_shape, itertools.pairwise(points))
+        mesh.Quad(shape, trace, a3, aligned_edges=align)
+        for shape, align in zip(map(make_shape, itertools.pairwise(points)), itertools.starmap(_get_alignment, itertools.pairwise(fixed)))
     ]
 
 
@@ -566,6 +576,7 @@ def _hex_mesh_arguments(
     num_hexes_x2: int,
     c: mesh.CoordinateSystem,
     resolution: int,
+    fixed_bounds: bool,
 ) -> Optional[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits, key=operator.itemgetter(0))
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
@@ -584,14 +595,21 @@ def _hex_mesh_arguments(
             mesh.SliceCoord(end[0], end[1], c),
         )
 
+    def get_alignment(is_bound: bool, north_bound: bool, south_bound: bool) -> mesh.QuadAlignment:
+        if not fixed_bounds:
+            return mesh.QuadAlignment.ALIGNED
+        if is_bound:
+            return mesh.QuadAlignment.NONALIGNED
+        return _get_alignment(north_bound, south_bound)
+    
     def make_element_and_bounds(
         pairs: list[Pair], is_bound: list[bool]
     ) -> tuple[mesh.Hex, list[frozenset[mesh.Quad]]]:
         edges = [
-            mesh.Quad(make_line(pairs[0], pairs[1]), trace, a3),
-            mesh.Quad(make_line(pairs[2], pairs[3]), trace, a3),
-            mesh.Quad(make_line(pairs[0], pairs[2]), trace, a3),
-            mesh.Quad(make_line(pairs[1], pairs[3]), trace, a3),
+            mesh.Quad(make_line(pairs[0], pairs[1]), trace, a3, aligned_edges=get_alignment(is_bound[0], is_bound[2], is_bound[3])),
+            mesh.Quad(make_line(pairs[2], pairs[3]), trace, a3, aligned_edges=get_alignment(is_bound[1], is_bound[2], is_bound[3])),
+            mesh.Quad(make_line(pairs[0], pairs[2]), trace, a3, aligned_edges=get_alignment(is_bound[2], is_bound[0], is_bound[1])),
+            mesh.Quad(make_line(pairs[1], pairs[3]), trace, a3, aligned_edges=get_alignment(is_bound[3], is_bound[0], is_bound[1])),
         ]
         return mesh.Hex(*edges), [
             frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)
@@ -622,12 +640,6 @@ def _hex_mesh_arguments(
                 ],
                 [j == 0, j == num_hexes_x2 - 1, i == 0, i == num_hexes_x1 - 1],
             )
-            # mesh.Hex(
-            #     mesh.Quad(make_line(points[i, j], points[i+1, j]), trace, a3),
-            #     mesh.Quad(make_line(points[i, j+1], points[i+1, j+1]), trace, a3),
-            #     mesh.Quad(make_line(points[i, j], points[i, j+1]), trace, a3),
-            #     mesh.Quad(make_line(points[i+1, j], points[i+1, j+1]), trace, a3),
-            # )
             for i in range(num_hexes_x1)
             for j in range(num_hexes_x2)
         ),
@@ -791,6 +803,7 @@ def hex_starts(
 
 _num_divisions = shared(integers(1, 5), key=171)
 _divisions = _num_divisions.flatmap(lambda x: integers(0, x - 1))
+fixed_edges = tuples(booleans(), booleans(), booleans(), booleans())
 linear_quad = cast(
     SearchStrategy[mesh.Quad],
     builds(
@@ -834,6 +847,7 @@ linear_hex = cast(
         _divisions,
         _num_divisions,
         whole_numbers,
+        fixed_edges,
     ).filter(lambda x: x is not None),
 )
 
@@ -872,6 +886,7 @@ nonlinear_hex = builds(
     _divisions,
     _num_divisions,
     whole_numbers,
+    fixed_edges
 )
 
 flat_quad = one_of(linear_quad, nonlinear_quad)
@@ -922,6 +937,8 @@ quad_mesh_elements = cast(
         integers(1, 4),
         coordinate_systems,
         integers(2, 10),
+        booleans(),
+        booleans()
     ).filter(lambda x: x is not None),
 )
 quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_quad_boundaries(x)))
@@ -946,6 +963,7 @@ hex_mesh_arguments = cast(
         integers(1, 3),
         coordinate_systems,
         integers(2, 5),
+        booleans(),
     ).filter(lambda x: x is not None),
 )
 hex_mesh_layer_no_divisions = hex_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
