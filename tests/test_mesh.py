@@ -28,7 +28,6 @@ from .conftest import (
     cylindrical_field_line,
     cylindrical_field_trace,
     linear_field_trace,
-    linear_quad,
     mesh_arguments,
     mutually_broadcastable_arrays,
     non_nans,
