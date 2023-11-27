@@ -245,9 +245,7 @@ def trapezoidal_quad(
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (
-        starts[0][0] * starts[1][0] <= 0.0
-    ):
+    if c == mesh.CoordinateSystem.CYLINDRICAL and (starts[0][0] * starts[1][0] <= 0.0):
         return None
     shape = mesh.StraightLineAcrossField(
         mesh.SliceCoord(starts[0][0], starts[0][1], c),
