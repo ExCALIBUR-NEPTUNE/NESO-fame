@@ -343,7 +343,7 @@ def test_simple_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    (control_points(x.north, 1) for x in layer),
+                    (control_points(x.sides[0], 1) for x in layer),
                 )
             )
         )
@@ -352,7 +352,7 @@ def test_simple_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    (control_points(x.south, 1) for x in layer),
+                    (control_points(x.sides[1], 1) for x in layer),
                 )
             )
         )
@@ -361,7 +361,7 @@ def test_simple_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    (control_points(x.east, 1) for x in layer),
+                    (control_points(x.sides[2], 1) for x in layer),
                 )
             )
         )
@@ -370,7 +370,7 @@ def test_simple_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    (control_points(x.west, 1) for x in layer),
+                    (control_points(x.sides[3], 1) for x in layer),
                 )
             )
         )
@@ -447,10 +447,10 @@ def test_angled_grid_conforming_bounds_3d() -> None:
             x2_1_0_mid = starts.x2[i + 1, j]
             x2_0_1_mid = starts.x2[i, j + 1]
             x2_1_1_mid = starts.x2[i + 1, j + 1]
-            points_0_0 = control_points(hexa.south.north, 2)
-            points_1_0 = control_points(hexa.north.north, 2)
-            points_0_1 = control_points(hexa.south.south, 2)
-            points_1_1 = control_points(hexa.north.south, 2)
+            points_0_0 = control_points(hexa.sides[1].north, 2)
+            points_1_0 = control_points(hexa.sides[0].north, 2)
+            points_0_1 = control_points(hexa.sides[1].south, 2)
+            points_1_1 = control_points(hexa.sides[0].south, 2)
             if i == 0:
                 np.testing.assert_allclose(points_0_1.x2, x2_0_1_mid)
                 np.testing.assert_allclose(points_0_0.x2, x2_0_0_mid)
@@ -488,7 +488,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    (control_points(x.north, 1) for x in layer),
+                    (control_points(x.sides[0], 1) for x in layer),
                 )
             )
         )
@@ -497,7 +497,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    (control_points(x.south, 1) for x in layer),
+                    (control_points(x.sides[1], 1) for x in layer),
                 )
             )
         )
@@ -506,7 +506,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    (control_points(x.east, 1) for x in layer),
+                    (control_points(x.sides[2], 1) for x in layer),
                 )
             )
         )
@@ -515,7 +515,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    (control_points(x.west, 1) for x in layer),
+                    (control_points(x.sides[3], 1) for x in layer),
                 )
             )
         )
@@ -593,10 +593,10 @@ def test_angled_grid_jagged_bounds_3d() -> None:
             x2_1_0_mid = starts.x2[i + 1, j]
             x2_0_1_mid = starts.x2[i, j + 1]
             x2_1_1_mid = starts.x2[i + 1, j + 1]
-            points_0_0 = control_points(hexa.south.north, 2)
-            points_1_0 = control_points(hexa.north.north, 2)
-            points_0_1 = control_points(hexa.south.south, 2)
-            points_1_1 = control_points(hexa.north.south, 2)
+            points_0_0 = control_points(hexa.sides[1].north, 2)
+            points_1_0 = control_points(hexa.sides[0].north, 2)
+            points_0_1 = control_points(hexa.sides[1].south, 2)
+            points_1_1 = control_points(hexa.sides[2].south, 2)
             np.testing.assert_allclose(points_1_0.x1, x1_1_0_mid + x1_offsets)
             np.testing.assert_allclose(
                 points_1_0.x2, x2_1_0_mid + x2_offsets, atol=1e-12
@@ -625,7 +625,7 @@ def test_angled_grid_jagged_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.allclose(x.x2, starts.x2[-1, -1] + x2_offsets[[0, 2]]),
-                    (control_points(x.north, 1) for x in layer),
+                    (control_points(x.sides[0], 1) for x in layer),
                 )
             )
         )
@@ -634,7 +634,7 @@ def test_angled_grid_jagged_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.allclose(x.x2, starts.x2[0, 0] + x2_offsets[[0, 2]]),
-                    (control_points(x.south, 1) for x in layer),
+                    (control_points(x.sides[1], 1) for x in layer),
                 )
             )
         )
@@ -643,7 +643,7 @@ def test_angled_grid_jagged_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[-1, -1] + x1_offsets[[0, 2]]),
-                    (control_points(x.east, 1) for x in layer),
+                    (control_points(x.sides[2], 1) for x in layer),
                 )
             )
         )
@@ -652,7 +652,7 @@ def test_angled_grid_jagged_bounds_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.allclose(x.x1, starts.x1[0, 0] + x1_offsets[[0, 2]]),
-                    (control_points(x.west, 1) for x in layer),
+                    (control_points(x.sides[3], 1) for x in layer),
                 )
             )
         )
@@ -740,7 +740,7 @@ def test_subdivided_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[-1, -1]),
-                    (control_points(x.north, 1) for x in layer),
+                    (control_points(x.sides[0], 1) for x in layer),
                 )
             )
         )
@@ -749,7 +749,7 @@ def test_subdivided_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x2 == starts.x2[0, 0]),
-                    (control_points(x.south, 1) for x in layer),
+                    (control_points(x.sides[1], 1) for x in layer),
                 )
             )
         )
@@ -758,7 +758,7 @@ def test_subdivided_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[-1, -1]),
-                    (control_points(x.east, 1) for x in layer),
+                    (control_points(x.sides[2], 1) for x in layer),
                 )
             )
         )
@@ -767,7 +767,7 @@ def test_subdivided_grid_3d() -> None:
                 tuple(x.iter_points())
                 for x in filter(
                     lambda x: np.all(x.x1 == starts.x1[0, 0]),
-                    (control_points(x.west, 1) for x in layer),
+                    (control_points(x.sides[3], 1) for x in layer),
                 )
             )
         )

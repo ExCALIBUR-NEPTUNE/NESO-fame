@@ -34,16 +34,16 @@ from neso_fame.mesh import (
     Coord,
     CoordinateSystem,
     E,
-    EndQuad,
+    EndShape,
     FieldAlignedCurve,
     FieldTracer,
     GenericMesh,
-    Hex,
     HexMesh,
     HexMeshLayer,
     Mesh,
     MeshLayer,
     NormalisedCurve,
+    Prism,
     Quad,
     QuadMesh,
     QuadMeshLayer,
@@ -103,7 +103,7 @@ def comparable_quad(quad: Quad) -> ComparableGeometry:
     )
 
 
-def comparable_hex(hexa: Hex) -> ComparableGeometry:
+def comparable_hex(hexa: Prism) -> ComparableGeometry:
     return SD.HexGeom.__name__, frozenset(
         map(comparable_coord, hexa.corners().to_cartesian().iter_points())
     )
@@ -231,7 +231,7 @@ def test_nektar_edge_higher_order(
     assert_points_eq(end, curve(1.0).to_coord())
 
 
-@given(one_of(from_type(Quad), from_type(EndQuad)), integers(1, 12), integers())
+@given(one_of(from_type(Quad), from_type(EndShape)), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
     corners = frozenset(map(comparable_geometry, points))
@@ -268,9 +268,9 @@ def test_nektar_quad_curved(
     assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
 
 
-@given(from_type(Hex), integers(1, 4), integers())
-def test_nektar_hex(hexa: Hex, order: int, layer: int) -> None:
-    hexes, quads, segments, points = nektar_writer.nektar_hex(hexa, order, 3, layer)
+@given(from_type(Prism), integers(1, 4), integers())
+def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
+    hexes, quads, segments, points = nektar_writer.nektar_3d_element(hexa, order, 3, layer)
     corners = frozenset(map(comparable_geometry, points))
     assert len(hexes) == 1
     assert len(segments) == 12
@@ -283,7 +283,7 @@ def test_nektar_hex(hexa: Hex, order: int, layer: int) -> None:
 
 
 def check_points(
-    expected: Iterable[Quad | Hex], actual: Iterable[SD.PointGeom]
+    expected: Iterable[Quad | Prism], actual: Iterable[SD.PointGeom]
 ) -> None:
     expected_points = frozenset(
         map(
@@ -301,7 +301,7 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, Segment, NormalisedCurve] | MeshLike[Hex, Quad, EndQuad],
+    mesh: MeshLike[Quad, Segment, NormalisedCurve] | MeshLike[Prism, Quad, EndShape],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -324,16 +324,16 @@ def check_edges(
         expected_far_faces = frozenset(comparable_edge(q.far) for q in mesh)
     else:
         num_edges = 12
-        mesh = cast(MeshLike[Hex, Quad, EndQuad], mesh)
+        mesh = cast(MeshLike[Prism, Quad, EndShape], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
                 frozenset(
                     {
-                        comparable_edge(q.north.north),
-                        comparable_edge(q.north.south),
-                        comparable_edge(q.south.north),
-                        comparable_edge(q.south.south),
+                        comparable_edge(q.sides[0].north),
+                        comparable_edge(q.sides[0].south),
+                        comparable_edge(q.sides[1].north),
+                        comparable_edge(q.sides[1].south),
                     }
                 )
                 for q in mesh
@@ -359,12 +359,12 @@ def check_edges(
 
 
 def check_face_composites(
-    expected: Iterable[NormalisedCurve] | Iterable[EndQuad], actual: SD.Composite
+    expected: Iterable[NormalisedCurve] | Iterable[EndShape], actual: SD.Composite
 ) -> None:
     def comparable_item(
-        item: NormalisedCurve | EndQuad,
+        item: NormalisedCurve | EndShape,
     ) -> tuple[str, frozenset[Coord]]:
-        if isinstance(item, EndQuad):
+        if isinstance(item, EndShape):
             return SD.QuadGeom.__name__, frozenset(
                 map(comparable_coord, item.corners().to_cartesian().iter_points())
             )
@@ -379,13 +379,15 @@ def check_face_composites(
 
 
 def check_elements(
-    expected: Iterable[Quad] | Iterable[Hex],
+    expected: Iterable[Quad] | Iterable[Prism],
     actual: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
 ) -> None:
     actual_elements = comparable_set(actual)
     expected_elements = frozenset(
         (
-            comparable_quad(x) if isinstance(x, Quad) else comparable_hex(cast(Hex, x))
+            comparable_quad(x)
+            if isinstance(x, Quad)
+            else comparable_hex(cast(Prism, x))
             for x in expected
         )
     )
@@ -396,7 +398,7 @@ def check_elements(
 @settings(deadline=None)
 @given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, Segment, NormalisedCurve] | MeshLayer[Hex, Quad, EndQuad],
+    mesh: MeshLayer[Quad, Segment, NormalisedCurve] | MeshLayer[Prism, Quad, EndShape],
     order: int,
     layer: int,
     spatial_dim: int,

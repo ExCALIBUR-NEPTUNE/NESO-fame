@@ -900,36 +900,36 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]], rtol=1e-8, atol=1e-10)
 
 
-@given(from_type(mesh.Hex))
-def test_hex_near_edge(h: mesh.Hex) -> None:
+@given(from_type(mesh.Prism))
+def test_hex_near_edge(h: mesh.Prism) -> None:
     expected = frozenset(
         {
-            h.north.north(0.0).to_coord(),
-            h.north.south(0.0).to_coord(),
-            h.south.north(0.0).to_coord(),
-            h.south.south(0.0).to_coord(),
+            h.sides[0].north(0.0).to_coord(),
+            h.sides[0].south(0.0).to_coord(),
+            h.sides[1].north(0.0).to_coord(),
+            h.sides[1].south(0.0).to_coord(),
         }
     )
     actual = frozenset(h.near.corners().iter_points())
     assert expected == actual
 
 
-@given(from_type(mesh.Hex))
-def test_hex_far_edge(h: mesh.Hex) -> None:
+@given(from_type(mesh.Prism))
+def test_hex_far_edge(h: mesh.Prism) -> None:
     expected = frozenset(
         {
-            h.north.north(1.0).to_coord(),
-            h.north.south(1.0).to_coord(),
-            h.south.north(1.0).to_coord(),
-            h.south.south(1.0).to_coord(),
+            h.sides[0].north(1.0).to_coord(),
+            h.sides[0].south(1.0).to_coord(),
+            h.sides[1].north(1.0).to_coord(),
+            h.sides[1].south(1.0).to_coord(),
         }
     )
     actual = frozenset(h.far.corners().iter_points())
     assert expected == actual
 
 
-@given(from_type(mesh.Hex))
-def test_hex_near_far_corners(h: mesh.Hex) -> None:
+@given(from_type(mesh.Prism))
+def test_hex_near_far_corners(h: mesh.Prism) -> None:
     expected = frozenset(h.corners().iter_points())
     actual = frozenset(h.near.corners().iter_points()) | frozenset(
         h.far.corners().iter_points()
@@ -937,28 +937,28 @@ def test_hex_near_far_corners(h: mesh.Hex) -> None:
     assert expected == actual
 
 
-@given(from_type(mesh.Hex))
-def test_hex_corners(h: mesh.Hex) -> None:
+@given(from_type(mesh.Prism))
+def test_hex_corners(h: mesh.Prism) -> None:
     corners = h.corners()
-    assert corners[0] == h.north.north(0.0).to_coord()
-    assert corners[1] == h.north.north(1.0).to_coord()
-    assert corners[2] == h.north.south(0.0).to_coord()
-    assert corners[3] == h.north.south(1.0).to_coord()
-    assert corners[4] == h.south.north(0.0).to_coord()
-    assert corners[5] == h.south.north(1.0).to_coord()
-    assert corners[6] == h.south.south(0.0).to_coord()
-    assert corners[7] == h.south.south(1.0).to_coord()
+    assert corners[0] == h.sides[0].north(0.0).to_coord()
+    assert corners[1] == h.sides[0].north(1.0).to_coord()
+    assert corners[2] == h.sides[0].south(0.0).to_coord()
+    assert corners[3] == h.sides[0].south(1.0).to_coord()
+    assert corners[4] == h.sides[1].north(0.0).to_coord()
+    assert corners[5] == h.sides[1].north(1.0).to_coord()
+    assert corners[6] == h.sides[1].south(0.0).to_coord()
+    assert corners[7] == h.sides[1].south(1.0).to_coord()
 
 
-@given(from_type(mesh.Hex))
-def test_hex_get_quads(h: mesh.Hex) -> None:
+@given(from_type(mesh.Prism))
+def test_hex_get_quads(h: mesh.Prism) -> None:
     actual = frozenset(h)
-    expected = frozenset({h.north, h.south, h.east, h.west})
+    expected = frozenset(h.sides)
     assert actual == expected
 
 
-@given(from_type(mesh.Hex), whole_numbers)
-def test_hex_offset(h: mesh.Hex, x: float) -> None:
+@given(from_type(mesh.Prism), whole_numbers)
+def test_hex_offset(h: mesh.Prism, x: float) -> None:
     actual = Offset(h, x).corners()
     expected = h.corners().offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
@@ -967,8 +967,8 @@ def test_hex_offset(h: mesh.Hex, x: float) -> None:
     assert actual.system == expected.system
 
 
-@given(from_type(mesh.Hex), integers(-15, 30))
-def test_hex_subdivision_len(h: mesh.Hex, divisions: int) -> None:
+@given(from_type(mesh.Prism), integers(-15, 30))
+def test_hex_subdivision_len(h: mesh.Prism, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = h.subdivide(divisions)
     for _ in range(expected):
@@ -977,8 +977,8 @@ def test_hex_subdivision_len(h: mesh.Hex, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.Hex), integers(-5, 10))
-def test_hex_subdivision(h: mesh.Hex, divisions: int) -> None:
+@given(from_type(mesh.Prism), integers(-5, 10))
+def test_hex_subdivision(h: mesh.Prism, divisions: int) -> None:
     divisions_iter = h.subdivide(divisions)
     hex_corners = h.corners()
     first = next(divisions_iter)
@@ -1007,9 +1007,9 @@ def test_mesh_layer_elements_no_offset(
 
 
 def get_corners(
-    shape: mesh.Hex | mesh.EndQuad | mesh.Quad | mesh.NormalisedCurve,
+    shape: mesh.Prism | mesh.EndShape | mesh.Quad | mesh.NormalisedCurve,
 ) -> mesh.Coords:
-    if isinstance(shape, (mesh.Hex, mesh.Quad, mesh.EndQuad)):
+    if isinstance(shape, (mesh.Prism, mesh.Quad, mesh.EndShape)):
         return shape.corners()
     return shape([0.0, 1.0])
 
@@ -1079,10 +1079,10 @@ def test_mesh_layer_elements_with_subdivisions(
         assert expected_corners == actual_corners
 
 
-def evaluate_element(element: mesh.Quad | mesh.Hex, s: float) -> list[mesh.Coord]:
+def evaluate_element(element: mesh.Quad | mesh.Prism, s: float) -> list[mesh.Coord]:
     if isinstance(element, mesh.Quad):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
-    return evaluate_element(element.north, s) + evaluate_element(element.south, s)
+    return evaluate_element(element.sides[0], s) + evaluate_element(element.sides[1], s)
 
 
 @given(mesh_arguments, whole_numbers, integers(1, 5))

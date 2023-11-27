@@ -267,7 +267,7 @@ def trapezoidal_quad(
 
 def end_quad(
     corners: tuple[Pair, Pair, Pair, Pair], c: mesh.CoordinateSystem, x3: float
-) -> Optional[mesh.EndQuad]:
+) -> Optional[mesh.EndShape]:
     if c == mesh.CoordinateSystem.CYLINDRICAL and (0.0 in [c[0] for c in corners]):
         return None
 
@@ -282,11 +282,11 @@ def end_quad(
             mesh.Coord(point2[0], point2[1], x3, c),
         )
 
-    return mesh.EndQuad(
-        make_line(sorted_corners[0], sorted_corners[1]),
+    return mesh.EndShape(
+        [make_line(sorted_corners[0], sorted_corners[1]),
         make_line(sorted_corners[2], sorted_corners[3]),
         make_line(sorted_corners[1], sorted_corners[2]),
-        make_line(sorted_corners[3], sorted_corners[0]),
+        make_line(sorted_corners[3], sorted_corners[0])]
     )
 
 
@@ -314,7 +314,7 @@ def trapezohedronal_hex(
     num_divisions: int,
     offset: float,
     fixed_edges: tuple[bool, bool, bool, bool],
-) -> Optional[mesh.Hex]:
+) -> Optional[mesh.Prism]:
     centre = (
         sum(map(operator.itemgetter(0), starts)),
         sum(map(operator.itemgetter(1), starts)),
@@ -344,11 +344,11 @@ def trapezohedronal_hex(
             offset,
         )
 
-    return mesh.Hex(
-        make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
+    return mesh.Prism(
+        [make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
         make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
         make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
-        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]),
+        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0])]
     )
 
 
@@ -441,7 +441,7 @@ def curved_hex(
     num_divisions: int,
     offset: float,
     fixed_edges: tuple[bool, bool, bool, bool],
-) -> mesh.Hex:
+) -> mesh.Prism:
     sorted_starts = sorted(starts, key=operator.itemgetter(0))
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
         sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
@@ -465,11 +465,11 @@ def curved_hex(
             offset,
         )
 
-    return mesh.Hex(
-        make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
+    return mesh.Prism(
+        [make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
         make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
         make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
-        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]),
+        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0])]
     )
 
 
@@ -518,7 +518,7 @@ def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     )
 
 
-def higher_dim_hex(h: mesh.Hex, angle: float) -> Optional[mesh.Hex]:
+def higher_dim_hex(h: mesh.Prism, angle: float) -> Optional[mesh.Prism]:
     # This assumes that dx3/ds is an even function about the starting
     # x3 point from which the bounding field lines were projected
     try:
@@ -540,7 +540,7 @@ def higher_dim_hex(h: mesh.Hex, angle: float) -> Optional[mesh.Hex]:
         ]
     except ValueError:
         return None
-    return mesh.Hex(*new_quads)
+    return mesh.Prism(new_quads)
 
 
 def _quad_mesh_elements(
@@ -588,7 +588,7 @@ def _hex_mesh_arguments(
     c: mesh.CoordinateSystem,
     resolution: int,
     fixed_bounds: bool,
-) -> Optional[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]]:
+) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits, key=operator.itemgetter(0))
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
         sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
@@ -617,7 +617,7 @@ def _hex_mesh_arguments(
 
     def make_element_and_bounds(
         pairs: list[Pair], is_bound: list[bool]
-    ) -> tuple[mesh.Hex, list[frozenset[mesh.Quad]]]:
+    ) -> tuple[mesh.Prism, list[frozenset[mesh.Quad]]]:
         edges = [
             mesh.Quad(
                 make_line(pairs[0], pairs[1]),
@@ -644,14 +644,14 @@ def _hex_mesh_arguments(
                 aligned_edges=get_alignment(is_bound[3], is_bound[0], is_bound[1]),
             ),
         ]
-        return mesh.Hex(*edges), [
+        return mesh.Prism(edges), [
             frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)
         ]
 
     def fold(
-        x: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]],
-        y: tuple[mesh.Hex, list[frozenset[mesh.Quad]]],
-    ) -> tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]:
+        x: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]],
+        y: tuple[mesh.Prism, list[frozenset[mesh.Quad]]],
+    ) -> tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]:
         hexes, bounds = x
         hexes.append(y[0])
         new_bounds = [b | y_comp for b, y_comp in zip(bounds, y[1])]
@@ -660,7 +660,10 @@ def _hex_mesh_arguments(
     lower_points = np.linspace(sorted_starts[0], sorted_starts[1], num_hexes_x2 + 1)
     upper_points = np.linspace(sorted_starts[3], sorted_starts[2], num_hexes_x2 + 1)
     points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
-    initial: tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]] = ([], [frozenset()] * 4)
+    initial: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]] = (
+        [],
+        [frozenset()] * 4,
+    )
     return reduce(
         fold,
         (
@@ -867,7 +870,7 @@ linear_quad = cast(
     ),
 )
 linear_hex = cast(
-    SearchStrategy[mesh.Hex],
+    SearchStrategy[mesh.Prism],
     builds(
         trapezohedronal_hex,
         whole_numbers,
@@ -929,9 +932,9 @@ quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(
 register_type_strategy(mesh.Quad, one_of(flat_quad))  # , quad_in_3d))
 
 register_type_strategy(
-    mesh.EndQuad,
+    mesh.EndShape,
     cast(
-        SearchStrategy[mesh.EndQuad],
+        SearchStrategy[mesh.EndShape],
         builds(
             end_quad,
             whole_numbers.flatmap(hex_starts),
@@ -951,7 +954,7 @@ flat_sided_hex = one_of(linear_hex, nonlinear_hex)
 curve_sided_hex = builds(higher_dim_hex, linear_hex, floats(-np.pi, np.pi)).filter(
     lambda x: x is not None
 )
-register_type_strategy(mesh.Hex, flat_sided_hex)
+register_type_strategy(mesh.Prism, flat_sided_hex)
 
 
 starts_and_ends = tuples(
@@ -985,7 +988,7 @@ quad_mesh_layer = builds(
 )
 
 hex_mesh_arguments = cast(
-    SearchStrategy[tuple[list[mesh.Hex], list[frozenset[mesh.Quad]]]],
+    SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
     builds(
         _hex_mesh_arguments,
         whole_numbers,

@@ -580,7 +580,7 @@ class FieldAlignedCurve(LazilyOffsetable):
 
 
 @overload
-def control_points(element: NormalisedCurve | Quad | EndQuad, order: int) -> Coords:
+def control_points(element: NormalisedCurve | Quad | EndShape, order: int) -> Coords:
     ...
 
 
@@ -891,12 +891,12 @@ class Quad(LazilyOffsetable):
 
 
 @dataclass(frozen=True)
-class EndQuad(LazilyOffsetable):
-    """Represents a quad in an x3 plane.
+class EndShape(LazilyOffsetable):
+    """Represents a polygon in an x3 plane.
 
     It is either the near or far end of a
-    :class:`neso_fame.mesh.Hex`. It is in the x1-x2 plane and can have
-    four curved edges. However, it is always flat.
+    :class:`neso_fame.mesh.Prism`. It is in the x1-x2 plane and can have
+    three or more curved edges. However, it is always flat.
 
     Group
     -----
@@ -904,45 +904,41 @@ class EndQuad(LazilyOffsetable):
 
     """
 
-    north: NormalisedCurve
-    """A shape defining one edge of the quad"""
-    south: NormalisedCurve
-    """A shape defining one edge of the quad"""
-    east: NormalisedCurve
-    """A shape defining one edge of the quad"""
-    west: NormalisedCurve
-    """A shape defining one edge of the quad"""
+    edges: list[NormalisedCurve]
+    """Shape defining the edge of the polygon"""
 
     def __iter__(self) -> Iterator[NormalisedCurve]:
-        """Iterate over the four edges of the quad."""
-        yield self.north
-        yield self.east
-        yield self.south
-        yield self.west
+        """Iterate over the edges of the polygon."""
+        return iter(self.edges)
 
     def corners(self) -> Coords:
-        """Return the points corresponding to the vertices of the quadrilateral."""
-        north_corners = control_points(self.north, 1)
-        south_corners = control_points(self.south, 1)
+        """Return the points corresponding to the vertices of the polygon."""
+        all_points = frozenset(
+            itertools.chain.from_iterable(
+                control_points(e, 1).iter_points() for e in self.edges
+            )
+        )
         return Coords(
-            np.concatenate([north_corners.x1, south_corners.x1]),
-            np.concatenate([north_corners.x2, south_corners.x2]),
-            np.concatenate([north_corners.x3, south_corners.x3]),
-            north_corners.system,
+            np.array([p.x1 for p in all_points]),
+            np.array([p.x2 for p in all_points]),
+            np.array([p.x3 for p in all_points]),
+            next(iter(all_points)).system,
         )
 
 
 @dataclass(frozen=True)
-class Hex(LazilyOffsetable):
-    """Representation of a six-sided solid (hexahedron).
+class Prism(LazilyOffsetable):
+    """Representation of a triangular or rectangular (or other) prism.
 
-    This is represented by four quads making up its faces. The
+    This is represented by a number quads making up its faces. The
     remaining two faces are made up of the edges of these quads at s=0
-    and s=1 and are normal to the x3-direction.
+    and s=1 and are normal to the x3-direction. This will most often
+    be used for hexahedrons and, occasionally, triangular prisms.
 
-    Caution
-    -------
-    This requires more extensive testing.
+    .. note::
+       When creating a 6-face prism (hexahedron), the first two sides
+       must be opposite each other (meaning that the final two sides will
+       also be opposite each other).
 
     Group
     -----
@@ -950,68 +946,56 @@ class Hex(LazilyOffsetable):
 
     """
 
-    north: Quad
-    """A shape defining one edge of the hexahedron"""
-    south: Quad
-    """A shape defining one edge of the hexahedron"""
-    east: Quad
-    """A shape defining one edge of the hexahedron"""
-    west: Quad
-    """A shape defining one edge of the hexahedron"""
+    sides: list[Quad]
+    """Shapes defining the edges of the hexahedron"""
 
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
-        yield self.north
-        yield self.east
-        yield self.south
-        yield self.west
+        return iter(self.sides)
 
     @cached_property
-    def near(self) -> EndQuad:
+    def near(self) -> EndShape:
         """The face of the Hex in the x3 plane with the smallest x3 value."""
-        return EndQuad(self.north.near, self.south.near, self.east.near, self.west.near)
+        return EndShape([s.near for s in self.sides])
 
     @cached_property
-    def far(self) -> EndQuad:
+    def far(self) -> EndShape:
         """The face of the Hex in the x3 plane with the largest x3 value."""
-        return EndQuad(self.north.far, self.south.far, self.east.far, self.west.far)
+        return EndShape([s.far for s in self.sides])
 
     def corners(self) -> Coords:
         """Return the points corresponding to the vertices of the hexahedron."""
-        north_corners = self.north.corners()
-        south_corners = self.south.corners()
+        near_corners = self.near.corners()
+        far_corners = self.far.corners()
         # TODO Check that east and west corners are the same as north and south
         return Coords(
-            np.concatenate([north_corners.x1, south_corners.x1]),
-            np.concatenate([north_corners.x2, south_corners.x2]),
-            np.concatenate([north_corners.x3, south_corners.x3]),
-            north_corners.system,
+            np.concatenate([near_corners.x1, far_corners.x1]),
+            np.concatenate([near_corners.x2, far_corners.x2]),
+            np.concatenate([near_corners.x3, far_corners.x3]),
+            near_corners.system,
         )
 
-    def subdivide(self, num_divisions: int) -> Iterator[Hex]:
-        """Split the hex into the specified number of pieces.
+    def subdivide(self, num_divisions: int) -> Iterator[Prism]:
+        """Split the prism into the specified number of pieces.
 
-        Returns an iterator of hex objects produced by splitting
-        the bounding-quads of this hex into the specified number of
+        Returns an iterator of prism objects produced by splitting
+        the bounding-quads of this prism into the specified number of
         equally-sized parts. This has the effect of splitting the
-        hex equally in the x3 direction.
+        prism equally in the x3 direction.
 
         """
         if num_divisions <= 1:
             yield self
         else:
-            for n, s, e, w in zip(
-                self.north.subdivide(num_divisions),
-                self.south.subdivide(num_divisions),
-                self.east.subdivide(num_divisions),
-                self.west.subdivide(num_divisions),
+            for sides in map(
+                list, zip(*(s.subdivide(num_divisions) for s in self.sides))
             ):
-                yield Hex(n, s, e, w)
+                yield Prism(sides)
 
 
-E = TypeVar("E", Quad, Hex)
+E = TypeVar("E", Quad, Prism)
 B = TypeVar("B", Segment, Quad)
-C = TypeVar("C", NormalisedCurve, EndQuad)
+C = TypeVar("C", NormalisedCurve, EndShape)
 
 
 @dataclass(frozen=True)
@@ -1062,7 +1046,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
     @classmethod
     def HexMeshLayer(
         cls,
-        reference_elements: Sequence[Hex],
+        reference_elements: Sequence[Prism],
         bounds: Sequence[frozenset[Quad]],
         subdivisions: int = 1,
     ) -> HexMeshLayer:
@@ -1101,7 +1085,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
             return iter(self)
         else:
             return itertools.chain.from_iterable(
-                map(iter, cast(MeshLayer[Hex, Quad, EndQuad], self))
+                map(iter, cast(MeshLayer[Prism, Quad, EndShape], self))
             )
 
     def boundaries(self) -> Iterator[frozenset[B]]:
@@ -1223,7 +1207,7 @@ class GenericMesh(Generic[E, B, C]):
 
 
 QuadMeshLayer = MeshLayer[Quad, Segment, NormalisedCurve]
-HexMeshLayer = MeshLayer[Hex, Quad, EndQuad]
+HexMeshLayer = MeshLayer[Prism, Quad, EndShape]
 
 
 QuadMesh = GenericMesh[Quad, Segment, NormalisedCurve]
@@ -1234,7 +1218,7 @@ Group
 -----
 mesh
 """
-HexMesh = GenericMesh[Hex, Quad, EndQuad]
+HexMesh = GenericMesh[Prism, Quad, EndShape]
 """
 Mesh made up of `Hex` elements.
 
