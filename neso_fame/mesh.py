@@ -904,7 +904,7 @@ class EndShape(LazilyOffsetable):
 
     """
 
-    edges: list[NormalisedCurve]
+    edges: tuple[NormalisedCurve, ...]
     """Shape defining the edge of the polygon"""
 
     def __iter__(self) -> Iterator[NormalisedCurve]:
@@ -946,7 +946,7 @@ class Prism(LazilyOffsetable):
 
     """
 
-    sides: list[Quad]
+    sides: tuple[Quad, ...]
     """Shapes defining the edges of the hexahedron"""
 
     def __iter__(self) -> Iterator[Quad]:
@@ -956,12 +956,12 @@ class Prism(LazilyOffsetable):
     @cached_property
     def near(self) -> EndShape:
         """The face of the Hex in the x3 plane with the smallest x3 value."""
-        return EndShape([s.near for s in self.sides])
+        return EndShape(tuple(s.near for s in self.sides))
 
     @cached_property
     def far(self) -> EndShape:
         """The face of the Hex in the x3 plane with the largest x3 value."""
-        return EndShape([s.far for s in self.sides])
+        return EndShape(tuple(s.far for s in self.sides))
 
     def corners(self) -> Coords:
         """Return the points corresponding to the vertices of the hexahedron."""
@@ -987,9 +987,7 @@ class Prism(LazilyOffsetable):
         if num_divisions <= 1:
             yield self
         else:
-            for sides in map(
-                list, zip(*(s.subdivide(num_divisions) for s in self.sides))
-            ):
+            for sides in zip(*(s.subdivide(num_divisions) for s in self.sides)):
                 yield Prism(sides)
 
 

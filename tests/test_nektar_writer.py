@@ -270,7 +270,9 @@ def test_nektar_quad_curved(
 
 @given(from_type(Prism), integers(1, 4), integers())
 def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
-    hexes, quads, segments, points = nektar_writer.nektar_3d_element(hexa, order, 3, layer)
+    hexes, quads, segments, points = nektar_writer.nektar_3d_element(
+        hexa, order, 3, layer
+    )
     corners = frozenset(map(comparable_geometry, points))
     assert len(hexes) == 1
     assert len(segments) == 12

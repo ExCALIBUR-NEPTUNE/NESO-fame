@@ -460,7 +460,8 @@ def field_aligned_3d(
         return Quad(shape, local_tracer, dx3, aligned_edges=alignment)
 
     hexes = [
-        Prism(list(itertools.starmap(make_quad, pairs))) for pairs in element_node_pairs
+        Prism(tuple(itertools.starmap(make_quad, pairs)))
+        for pairs in element_node_pairs
     ]
 
     return GenericMesh(
@@ -583,12 +584,12 @@ def hypnotoad_mesh(
         sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: SliceCoord
     ) -> Prism:
         return Prism(
-            [
+            (
                 flux_surface_quad(nw, ne),
                 flux_surface_quad(sw, se),
                 perpendicular_quad(se, ne),
                 perpendicular_quad(sw, nw),
-            ]
+            )
         )
 
     hexes = [

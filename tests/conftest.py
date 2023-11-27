@@ -283,10 +283,12 @@ def end_quad(
         )
 
     return mesh.EndShape(
-        [make_line(sorted_corners[0], sorted_corners[1]),
-        make_line(sorted_corners[2], sorted_corners[3]),
-        make_line(sorted_corners[1], sorted_corners[2]),
-        make_line(sorted_corners[3], sorted_corners[0])]
+        (
+            make_line(sorted_corners[0], sorted_corners[1]),
+            make_line(sorted_corners[2], sorted_corners[3]),
+            make_line(sorted_corners[1], sorted_corners[2]),
+            make_line(sorted_corners[3], sorted_corners[0]),
+        )
     )
 
 
@@ -345,10 +347,20 @@ def trapezohedronal_hex(
         )
 
     return mesh.Prism(
-        [make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
-        make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
-        make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
-        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0])]
+        (
+            make_quad(
+                sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]
+            ),
+            make_quad(
+                sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]
+            ),
+            make_quad(
+                sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]
+            ),
+            make_quad(
+                sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]
+            ),
+        )
     )
 
 
@@ -466,10 +478,20 @@ def curved_hex(
         )
 
     return mesh.Prism(
-        [make_quad(sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]),
-        make_quad(sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]),
-        make_quad(sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]),
-        make_quad(sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0])]
+        (
+            make_quad(
+                sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]
+            ),
+            make_quad(
+                sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]
+            ),
+            make_quad(
+                sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]
+            ),
+            make_quad(
+                sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]
+            ),
+        )
     )
 
 
@@ -522,7 +544,7 @@ def higher_dim_hex(h: mesh.Prism, angle: float) -> Optional[mesh.Prism]:
     # This assumes that dx3/ds is an even function about the starting
     # x3 point from which the bounding field lines were projected
     try:
-        new_quads = [
+        new_quads = tuple(
             Offset(
                 mesh.Quad(
                     make_arc(q.shape(0.0), q.shape(1.0), angle),
@@ -537,7 +559,7 @@ def higher_dim_hex(h: mesh.Prism, angle: float) -> Optional[mesh.Prism]:
                 map(methodcaller("get_underlying_object"), h),
                 map(attrgetter("x3_offset"), h),
             )
-        ]
+        )
     except ValueError:
         return None
     return mesh.Prism(new_quads)
@@ -618,7 +640,7 @@ def _hex_mesh_arguments(
     def make_element_and_bounds(
         pairs: list[Pair], is_bound: list[bool]
     ) -> tuple[mesh.Prism, list[frozenset[mesh.Quad]]]:
-        edges = [
+        edges = (
             mesh.Quad(
                 make_line(pairs[0], pairs[1]),
                 trace,
@@ -643,7 +665,7 @@ def _hex_mesh_arguments(
                 a3,
                 aligned_edges=get_alignment(is_bound[3], is_bound[0], is_bound[1]),
             ),
-        ]
+        )
         return mesh.Prism(edges), [
             frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)
         ]
