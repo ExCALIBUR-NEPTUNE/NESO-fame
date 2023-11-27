@@ -419,7 +419,10 @@ def nektar_3d_element(
     faces, segments, points = reduce(
         _combine_2d_items_ordered,
         [nektar_end_shape(solid.near, order, spatial_dim, layer_id)]
-        + [nektar_quad(quad, order, spatial_dim, layer_id) for quad in solid]
+        + [
+            nektar_quad(quad, order, spatial_dim, layer_id)
+            for quad in solid.ordered_quads()
+        ]
         + [nektar_end_shape(solid.far, order, spatial_dim, layer_id)],
         init,
     )

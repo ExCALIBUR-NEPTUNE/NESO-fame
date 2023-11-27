@@ -941,12 +941,12 @@ def test_hex_near_far_corners(h: mesh.Prism) -> None:
 def test_hex_corners(h: mesh.Prism) -> None:
     corners = h.corners()
     assert corners[0] == h.sides[0].north(0.0).to_coord()
-    assert corners[1] == h.sides[0].north(1.0).to_coord()
-    assert corners[2] == h.sides[0].south(0.0).to_coord()
-    assert corners[3] == h.sides[0].south(1.0).to_coord()
-    assert corners[4] == h.sides[1].north(0.0).to_coord()
-    assert corners[5] == h.sides[1].north(1.0).to_coord()
-    assert corners[6] == h.sides[1].south(0.0).to_coord()
+    assert corners[1] == h.sides[0].south(0.0).to_coord()
+    assert corners[2] == h.sides[1].north(0.0).to_coord()
+    assert corners[3] == h.sides[1].south(0.0).to_coord()
+    assert corners[4] == h.sides[0].north(1.0).to_coord()
+    assert corners[5] == h.sides[0].south(1.0).to_coord()
+    assert corners[6] == h.sides[1].north(1.0).to_coord()
     assert corners[7] == h.sides[1].south(1.0).to_coord()
 
 
@@ -984,15 +984,15 @@ def test_hex_subdivision(h: mesh.Prism, divisions: int) -> None:
     first = next(divisions_iter)
     corners = first.corners()
     for c, t in zip(corners, hex_corners):
-        np.testing.assert_allclose(c[::2], t[::2], rtol=1e-8, atol=1e-8)
+        np.testing.assert_allclose(c[:4], t[:4], rtol=1e-8, atol=1e-8)
     prev = corners
     for h in divisions_iter:
         corners = h.corners()
         for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[::2], p[1::2], rtol=1e-8, atol=1e-8)
+            np.testing.assert_allclose(c[:4], p[4:], rtol=1e-8, atol=1e-8)
         prev = corners
     for p, t in zip(prev, hex_corners):
-        np.testing.assert_allclose(p[1::2], t[1::2], rtol=1e-8, atol=1e-8)
+        np.testing.assert_allclose(p[4:], t[4:], rtol=1e-8, atol=1e-8)
 
 
 @given(mesh_arguments)

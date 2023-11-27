@@ -913,9 +913,13 @@ class EndShape(LazilyOffsetable):
 
     def corners(self) -> Coords:
         """Return the points corresponding to the vertices of the polygon."""
-        all_points = frozenset(
-            itertools.chain.from_iterable(
-                control_points(e, 1).iter_points() for e in self.edges
+        # We want to maintain the order of the elements, so use a dict
+        # rather than a set
+        all_points = list(
+            dict.fromkeys(
+                itertools.chain.from_iterable(
+                    control_points(e, 1).iter_points() for e in self.edges
+                )
             )
         )
         return Coords(
@@ -938,7 +942,8 @@ class Prism(LazilyOffsetable):
     .. note::
        When creating a 6-face prism (hexahedron), the first two sides
        must be opposite each other (meaning that the final two sides will
-       also be opposite each other).
+       also be opposite each other). I should probably change this so that
+       they should be in order, instead
 
     Group
     -----
@@ -951,6 +956,15 @@ class Prism(LazilyOffsetable):
 
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
+        return iter(self.sides)
+
+    def ordered_quads(self) -> Iterator[Quad]:
+        """Iterate over the sides so each subsequent quad shares an edge with the previous."""
+        if len(self.sides) == 4:
+            yield self.sides[0]
+            yield self.sides[2]
+            yield self.sides[1]
+            yield self.sides[3]
         return iter(self.sides)
 
     @cached_property

@@ -321,20 +321,20 @@ def test_simple_grid_3d() -> None:
             x1_1_0 = starts.x1[i + 1, j]
             x1_0_1 = starts.x1[i, j + 1]
             x1_1_1 = starts.x1[i + 1, j + 1]
-            np.testing.assert_allclose(corners.x1[[0, 1]], x1_1_0)
-            np.testing.assert_allclose(corners.x1[[2, 3]], x1_1_1)
-            np.testing.assert_allclose(corners.x1[[4, 5]], x1_0_0)
-            np.testing.assert_allclose(corners.x1[[6, 7]], x1_0_1)
+            np.testing.assert_allclose(corners.x1[[0, 4]], x1_1_0)
+            np.testing.assert_allclose(corners.x1[[1, 5]], x1_1_1)
+            np.testing.assert_allclose(corners.x1[[2, 6]], x1_0_0)
+            np.testing.assert_allclose(corners.x1[[3, 7]], x1_0_1)
             x2_0_0 = starts.x1[i, j]
             x2_1_0 = starts.x1[i + 1, j]
             x2_0_1 = starts.x1[i, j + 1]
             x2_1_1 = starts.x1[i + 1, j + 1]
-            np.testing.assert_allclose(corners.x1[[0, 1]], x2_1_0)
-            np.testing.assert_allclose(corners.x1[[2, 3]], x2_1_1)
-            np.testing.assert_allclose(corners.x1[[4, 5]], x2_0_0)
-            np.testing.assert_allclose(corners.x1[[6, 7]], x2_0_1)
-            np.testing.assert_allclose(corners.x3[::2], x3_start)
-            np.testing.assert_allclose(corners.x3[1::2], x3_end)
+            np.testing.assert_allclose(corners.x1[[0, 4]], x2_1_0)
+            np.testing.assert_allclose(corners.x1[[1, 5]], x2_1_1)
+            np.testing.assert_allclose(corners.x1[[2, 6]], x2_0_0)
+            np.testing.assert_allclose(corners.x1[[3, 7]], x2_0_1)
+            np.testing.assert_allclose(corners.x3[:4], x3_start)
+            np.testing.assert_allclose(corners.x3[4:], x3_end)
         x3_start = x3_end
         bounds = list(layer.boundaries())
         assert len(bounds) == 4
@@ -718,20 +718,20 @@ def test_subdivided_grid_3d() -> None:
         x1_1_0 = starts.x1[i + 1, j]
         x1_0_1 = starts.x1[i, j + 1]
         x1_1_1 = starts.x1[i + 1, j + 1]
-        np.testing.assert_allclose(corners.x1[[0, 1]], x1_1_0)
-        np.testing.assert_allclose(corners.x1[[2, 3]], x1_1_1)
-        np.testing.assert_allclose(corners.x1[[4, 5]], x1_0_0)
-        np.testing.assert_allclose(corners.x1[[6, 7]], x1_0_1)
+        np.testing.assert_allclose(corners.x1[[0, 4]], x1_1_0)
+        np.testing.assert_allclose(corners.x1[[1, 5]], x1_1_1)
+        np.testing.assert_allclose(corners.x1[[2, 6]], x1_0_0)
+        np.testing.assert_allclose(corners.x1[[3, 7]], x1_0_1)
         x2_0_0 = starts.x1[i, j]
         x2_1_0 = starts.x1[i + 1, j]
         x2_0_1 = starts.x1[i, j + 1]
         x2_1_1 = starts.x1[i + 1, j + 1]
-        np.testing.assert_allclose(corners.x1[[0, 1]], x2_1_0)
-        np.testing.assert_allclose(corners.x1[[2, 3]], x2_1_1)
-        np.testing.assert_allclose(corners.x1[[4, 5]], x2_0_0)
-        np.testing.assert_allclose(corners.x1[[6, 7]], x2_0_1)
-        np.testing.assert_allclose(corners.x3[::2], x3[0] + k * dx3)
-        np.testing.assert_allclose(corners.x3[1::2], x3[0] + (k + 1) * dx3)
+        np.testing.assert_allclose(corners.x1[[0, 4]], x2_1_0)
+        np.testing.assert_allclose(corners.x1[[1, 5]], x2_1_1)
+        np.testing.assert_allclose(corners.x1[[2, 6]], x2_0_0)
+        np.testing.assert_allclose(corners.x1[[3, 7]], x2_0_1)
+        np.testing.assert_allclose(corners.x3[:4], x3[0] + k * dx3)
+        np.testing.assert_allclose(corners.x3[4:], x3[0] + (k + 1) * dx3)
     for layer in mesh.layers():
         bounds = list(layer.boundaries())
         assert len(bounds) == 4

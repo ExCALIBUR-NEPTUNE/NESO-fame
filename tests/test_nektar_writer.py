@@ -19,7 +19,6 @@ from hypothesis.strategies import (
     integers,
     just,
     lists,
-    one_of,
     sampled_from,
     shared,
 )
@@ -231,7 +230,7 @@ def test_nektar_edge_higher_order(
     assert_points_eq(end, curve(1.0).to_coord())
 
 
-@given(one_of(from_type(Quad), from_type(EndShape)), integers(1, 12), integers())
+@given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
     corners = frozenset(map(comparable_geometry, points))
@@ -266,6 +265,26 @@ def test_nektar_quad_curved(
     assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[order])
     assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-order - 1])
     assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
+
+
+@given(from_type(EndShape), integers(1, 12), integers())
+def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
+    shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
+    corners = frozenset(map(comparable_geometry, points))
+    assert len(shapes) == 1
+    assert len(segments) == len(shape.edges)
+    assert len(points) == len(corners)
+    nek_shape = next(iter(shapes))
+    assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
+    assert corners == frozenset(
+        map(
+            comparable_geometry,
+            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)),
+        )
+    )
+    assert corners == frozenset(
+        map(comparable_coord, shape.corners().to_cartesian().iter_points())
+    )
 
 
 @given(from_type(Prism), integers(1, 4), integers())
