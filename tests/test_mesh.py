@@ -23,10 +23,12 @@ from neso_fame.offset import (
 
 from .conftest import (
     CARTESIAN_SYSTEMS,
+    _hex_mesh_arguments,
     _quad_mesh_elements,
     coordinate_systems,
     cylindrical_field_line,
     cylindrical_field_trace,
+    flat_sided_hex,
     linear_field_trace,
     mesh_arguments,
     mutually_broadcastable_arrays,
@@ -901,35 +903,33 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
 
 
 @given(from_type(mesh.Prism))
-def test_hex_near_edge(h: mesh.Prism) -> None:
+def test_prism_near_edge(h: mesh.Prism) -> None:
     expected = frozenset(
-        {
-            h.sides[0].north(0.0).to_coord(),
-            h.sides[0].south(0.0).to_coord(),
-            h.sides[1].north(0.0).to_coord(),
-            h.sides[1].south(0.0).to_coord(),
-        }
+        itertools.chain.from_iterable(
+            (s.north(0.0).to_coord(), s.south(0.0).to_coord()) for s in h.sides
+        )
     )
     actual = frozenset(h.near.corners().iter_points())
     assert expected == actual
 
 
-@given(from_type(mesh.Prism))
-def test_hex_far_edge(h: mesh.Prism) -> None:
+@given(flat_sided_hex)
+def test_prism_far_edge(h: mesh.Prism) -> None:
     expected = frozenset(
-        {
-            h.sides[0].north(1.0).to_coord(),
-            h.sides[0].south(1.0).to_coord(),
-            h.sides[1].north(1.0).to_coord(),
-            h.sides[1].south(1.0).to_coord(),
-        }
+        itertools.chain.from_iterable(
+            (
+                s.north(1.0).to_coord(),
+                s.south(1.0).to_coord(),
+            )
+            for s in h.sides
+        )
     )
     actual = frozenset(h.far.corners().iter_points())
     assert expected == actual
 
 
 @given(from_type(mesh.Prism))
-def test_hex_near_far_corners(h: mesh.Prism) -> None:
+def test_prism_near_far_corners(h: mesh.Prism) -> None:
     expected = frozenset(h.corners().iter_points())
     actual = frozenset(h.near.corners().iter_points()) | frozenset(
         h.far.corners().iter_points()
@@ -951,14 +951,14 @@ def test_hex_corners(h: mesh.Prism) -> None:
 
 
 @given(from_type(mesh.Prism))
-def test_hex_get_quads(h: mesh.Prism) -> None:
+def test_prism_get_quads(h: mesh.Prism) -> None:
     actual = frozenset(h)
     expected = frozenset(h.sides)
     assert actual == expected
 
 
 @given(from_type(mesh.Prism), whole_numbers)
-def test_hex_offset(h: mesh.Prism, x: float) -> None:
+def test_prism_offset(h: mesh.Prism, x: float) -> None:
     actual = Offset(h, x).corners()
     expected = h.corners().offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
@@ -968,7 +968,7 @@ def test_hex_offset(h: mesh.Prism, x: float) -> None:
 
 
 @given(from_type(mesh.Prism), integers(-15, 30))
-def test_hex_subdivision_len(h: mesh.Prism, divisions: int) -> None:
+def test_prism_subdivision_len(h: mesh.Prism, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = h.subdivide(divisions)
     for _ in range(expected):
@@ -978,21 +978,22 @@ def test_hex_subdivision_len(h: mesh.Prism, divisions: int) -> None:
 
 
 @given(from_type(mesh.Prism), integers(-5, 10))
-def test_hex_subdivision(h: mesh.Prism, divisions: int) -> None:
+def test_prism_subdivision(h: mesh.Prism, divisions: int) -> None:
     divisions_iter = h.subdivide(divisions)
-    hex_corners = h.corners()
+    prism_corners = h.corners()
     first = next(divisions_iter)
     corners = first.corners()
-    for c, t in zip(corners, hex_corners):
-        np.testing.assert_allclose(c[:4], t[:4], rtol=1e-8, atol=1e-8)
+    n = len(h.sides)
+    for c, t in zip(corners, prism_corners):
+        np.testing.assert_allclose(c[:n], t[:n], rtol=1e-8, atol=1e-8)
     prev = corners
     for h in divisions_iter:
         corners = h.corners()
         for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[:4], p[4:], rtol=1e-8, atol=1e-8)
+            np.testing.assert_allclose(c[:n], p[n:], rtol=1e-8, atol=1e-8)
         prev = corners
-    for p, t in zip(prev, hex_corners):
-        np.testing.assert_allclose(p[4:], t[4:], rtol=1e-8, atol=1e-8)
+    for p, t in zip(prev, prism_corners):
+        np.testing.assert_allclose(p[n:], t[n:], rtol=1e-8, atol=1e-8)
 
 
 @given(mesh_arguments)
@@ -1153,29 +1154,38 @@ def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
         next(layer_iter)
 
 
-quad_mesh_elements = (
-    _quad_mesh_elements(
+quad_mesh_elements = _quad_mesh_elements(
+    1.0,
+    1.0,
+    10.0,
+    ((0.0, 0.0), (1.0, 0.0)),
+    4,
+    mesh.CoordinateSystem.CARTESIAN,
+    10,
+    False,
+    False,
+)
+hex_mesh_elements = cast(
+    tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]],
+    _hex_mesh_arguments(
         1.0,
         1.0,
         10.0,
-        ((0.0, 0.0), (1.0, 0.0)),
-        4,
+        ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+        3,
+        3,
         mesh.CoordinateSystem.CARTESIAN,
         10,
         False,
-        False,
     ),
-)
+)[0]
 
 
 @pytest.mark.parametrize(
     "elements",
-    [
-        (quad_mesh_elements,),
-        # FIXME: Check for Hex-mesh
-    ],
+    [(quad_mesh_elements,), (hex_mesh_elements,)],
 )
-def test_mesh_layer_element_type(elements: list[mesh.Quad]) -> None:
+def test_mesh_layer_element_type(elements: list[mesh.Quad] | list[mesh.Prism]) -> None:
     layer = mesh.MeshLayer(elements, [])
     element = next(iter(elements))
     assert layer.element_type is type(element)
@@ -1188,7 +1198,7 @@ def test_mesh_layer_quads_for_quads(
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
-def test_mesh_layer_quads_for_hexes() -> None:
+def test_mesh_layer_quads_for_prisms() -> None:
     # FIXME: Need to implement this
     pass
 

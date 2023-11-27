@@ -965,7 +965,8 @@ class Prism(LazilyOffsetable):
             yield self.sides[2]
             yield self.sides[1]
             yield self.sides[3]
-        return iter(self.sides)
+        else:
+            return iter(self.sides)
 
     @cached_property
     def near(self) -> EndShape:

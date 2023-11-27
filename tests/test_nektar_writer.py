@@ -53,7 +53,13 @@ from neso_fame.mesh import (
 )
 from neso_fame.offset import Offset
 
-from .conftest import linear_field_trace, non_nans, quad_meshes, simple_trace
+from .conftest import (
+    flat_sided_hex,
+    linear_field_trace,
+    non_nans,
+    quad_meshes,
+    simple_trace,
+)
 
 
 def both_nan(a: float, b: float) -> bool:
@@ -102,9 +108,16 @@ def comparable_quad(quad: Quad) -> ComparableGeometry:
     )
 
 
-def comparable_hex(hexa: Prism) -> ComparableGeometry:
-    return SD.HexGeom.__name__, frozenset(
-        map(comparable_coord, hexa.corners().to_cartesian().iter_points())
+def comparable_prism(prism: Prism) -> ComparableGeometry:
+    n = len(prism.sides)
+    if n == 3:
+        name = SD.PrismGeom.__name__
+    elif n == 4:
+        name = SD.HexGeom.__name__
+    else:
+        raise ValueError(f"Unrecognised prism with {n} quad faces.")
+    return name, frozenset(
+        map(comparable_coord, prism.corners().to_cartesian().iter_points())
     )
 
 
@@ -287,11 +300,9 @@ def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     )
 
 
-@given(from_type(Prism), integers(1, 4), integers())
+@given(flat_sided_hex, integers(1, 4), integers())
 def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
-    hexes, quads, segments, points = nektar_writer.nektar_3d_element(
-        hexa, order, 3, layer
-    )
+    hexes, _, segments, points = nektar_writer.nektar_3d_element(hexa, order, 3, layer)
     corners = frozenset(map(comparable_geometry, points))
     assert len(hexes) == 1
     assert len(segments) == 12
@@ -300,6 +311,23 @@ def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
     assert nek_hex.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(comparable_coord, hexa.corners().to_cartesian().iter_points())
+    )
+
+
+# FIXME: Will need to switch this to a strategy that draws only triangular prisms
+@given(from_type(Prism), integers(1, 4), integers())
+def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
+    prisms, _, segments, points = nektar_writer.nektar_3d_element(
+        prism, order, 3, layer
+    )
+    corners = frozenset(map(comparable_geometry, points))
+    assert len(prisms) == 1
+    assert len(segments) == 9
+    assert len(points) == 6
+    nek_prism = next(iter(prisms))
+    assert nek_prism.GetGlobalID() == nektar_writer.UNSET_ID
+    assert corners == frozenset(
+        map(comparable_coord, prism.corners().to_cartesian().iter_points())
     )
 
 
@@ -408,7 +436,7 @@ def check_elements(
         (
             comparable_quad(x)
             if isinstance(x, Quad)
-            else comparable_hex(cast(Prism, x))
+            else comparable_prism(cast(Prism, x))
             for x in expected
         )
     )
