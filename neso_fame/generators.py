@@ -26,7 +26,7 @@ from .mesh import (
     FieldTrace,
     FieldTracer,
     GenericMesh,
-    HexMesh,
+    PrismMesh,
     MeshLayer,
     Prism,
     Quad,
@@ -330,7 +330,7 @@ def field_aligned_3d(
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
     conform_to_bounds: bool = True,
-) -> HexMesh:
+) -> PrismMesh:
     """Generate a 3D mesh.
 
     Element edges follow field lines. Start with a 2D mesh defined in
@@ -488,7 +488,7 @@ def hypnotoad_mesh(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
-) -> HexMesh:
+) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
     Edges are traced from the nodes making up the corners

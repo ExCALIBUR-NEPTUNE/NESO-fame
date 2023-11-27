@@ -1027,7 +1027,7 @@ hex_mesh_arguments = cast(
 hex_mesh_layer_no_divisions = hex_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
 shared_hex_mesh_args = shared(hex_mesh_arguments)
 hex_mesh_layer = builds(
-    mesh.MeshLayer.HexMeshLayer,
+    mesh.MeshLayer.PrismMeshLayer,
     shared_hex_mesh_args.map(lambda x: x[0]),
     shared_hex_mesh_args.map(lambda x: x[1]),
     integers(1, 3),
@@ -1041,7 +1041,7 @@ x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
 quad_meshes: SearchStrategy[mesh.QuadMesh] = builds(
     mesh.GenericMesh, quad_mesh_layer, x3_offsets
 )
-hex_meshes: SearchStrategy[mesh.HexMesh] = builds(
+hex_meshes: SearchStrategy[mesh.PrismMesh] = builds(
     mesh.GenericMesh, hex_mesh_layer, x3_offsets
 )
 register_type_strategy(

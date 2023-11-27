@@ -37,8 +37,8 @@ from neso_fame.mesh import (
     FieldAlignedCurve,
     FieldTracer,
     GenericMesh,
-    HexMesh,
-    HexMeshLayer,
+    PrismMesh,
+    PrismMeshLayer,
     Mesh,
     MeshLayer,
     NormalisedCurve,
@@ -474,7 +474,7 @@ def test_nektar_layer_elements(
 @settings(deadline=None)
 @given(from_type(GenericMesh), integers(1, 3), sampled_from([2, 3]))
 def test_nektar_elements(
-    mesh: QuadMesh | HexMesh, order: int, spatial_dim: int
+    mesh: QuadMesh | PrismMesh, order: int, spatial_dim: int
 ) -> None:
     nek_mesh = nektar_writer.nektar_elements(
         mesh,
@@ -485,7 +485,7 @@ def test_nektar_elements(
     check_points(mesh, nek_mesh.points())
     check_edges(mesh, nek_mesh.elements(), nek_mesh.segments())
     for layer, near, far in zip(
-        cast(Iterable[QuadMeshLayer | HexMeshLayer], mesh.layers()),
+        cast(Iterable[QuadMeshLayer | PrismMeshLayer], mesh.layers()),
         nek_mesh.near_faces(),
         nek_mesh.far_faces(),
     ):

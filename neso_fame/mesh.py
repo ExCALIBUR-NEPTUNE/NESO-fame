@@ -1057,16 +1057,16 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
         return cls(reference_elements, bounds, subdivisions)  # type: ignore
 
     @classmethod
-    def HexMeshLayer(
+    def PrismMeshLayer(
         cls,
         reference_elements: Sequence[Prism],
         bounds: Sequence[frozenset[Quad]],
         subdivisions: int = 1,
-    ) -> HexMeshLayer:
-        """Construct a MeshLayer object made up of hexes, in a type-safe way.
+    ) -> PrismMeshLayer:
+        """Construct a MeshLayer object made up of prisms, in a type-safe way.
 
         This method isn't really necessary but can be useful to
-        reassure the type-checker that it is a HexMeshLayer that is being
+        reassure the type-checker that it is a PrismMeshLayer that is being
         constructed.
 
         """
@@ -1220,7 +1220,7 @@ class GenericMesh(Generic[E, B, C]):
 
 
 QuadMeshLayer = MeshLayer[Quad, Segment, NormalisedCurve]
-HexMeshLayer = MeshLayer[Prism, Quad, EndShape]
+PrismMeshLayer = MeshLayer[Prism, Quad, EndShape]
 
 
 QuadMesh = GenericMesh[Quad, Segment, NormalisedCurve]
@@ -1231,9 +1231,9 @@ Group
 -----
 mesh
 """
-HexMesh = GenericMesh[Prism, Quad, EndShape]
+PrismMesh = GenericMesh[Prism, Quad, EndShape]
 """
-Mesh made up of `Hex` elements.
+Mesh made up of `Prism` elements.
 
 Group
 -----
@@ -1243,7 +1243,7 @@ mesh
 .. rubric:: Alias
 
 """
-Mesh = QuadMesh | HexMesh
+Mesh = QuadMesh | PrismMesh
 """
 Valid types of mesh, to be used for type annotations.
 
