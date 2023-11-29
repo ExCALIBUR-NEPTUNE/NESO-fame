@@ -823,9 +823,6 @@ def _hex_mesh_arguments(
         ),
         initial,
     )
-    # Check that none of the quads are 1-dimensional
-    if any(len(frozenset(p.corners().iter_points())) < 8 for p in result[0]):
-        return None
     return result
 
 
@@ -1304,6 +1301,8 @@ prism_mesh_layer = builds(
     shared_prism_mesh_args.map(lambda x: x[0]),
     shared_prism_mesh_args.map(lambda x: x[1]),
     integers(1, 3),
+).filter(  # Check that all prisms have unique corners
+    lambda m: all(len(e.corners()) == 2 * len(e.sides) for e in m)
 )
 
 mesh_arguments = one_of(quad_mesh_arguments, prism_mesh_arguments)
