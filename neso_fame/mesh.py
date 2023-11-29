@@ -580,7 +580,7 @@ class FieldAlignedCurve(LazilyOffsetable):
 
 
 @overload
-def control_points(element: NormalisedCurve | Quad | EndShape, order: int) -> Coords:
+def control_points(element: NormalisedCurve | Quad, order: int) -> Coords:
     ...
 
 
@@ -957,16 +957,6 @@ class Prism(LazilyOffsetable):
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
         return iter(self.sides)
-
-    def ordered_quads(self) -> Iterator[Quad]:
-        """Iterate over the sides so each subsequent quad shares an edge with the previous."""
-        if len(self.sides) == 4:
-            yield self.sides[0]
-            yield self.sides[2]
-            yield self.sides[1]
-            yield self.sides[3]
-        else:
-            return iter(self.sides)
 
     @cached_property
     def near(self) -> EndShape:

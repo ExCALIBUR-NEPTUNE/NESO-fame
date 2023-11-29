@@ -203,7 +203,6 @@ def test_3d_defaults() -> None:
     vertices = [
         (float(v[1]), float(v[2]), float(v[3])) for v in VERTICES.finditer(output)
     ]
-    print(result.output)
     assert len(vertices) == 484
     assert max(v[0] for v in vertices) == 1.0
     assert min(v[0] for v in vertices) == 0.0

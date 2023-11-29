@@ -37,12 +37,12 @@ from neso_fame.mesh import (
     FieldAlignedCurve,
     FieldTracer,
     GenericMesh,
-    PrismMesh,
-    PrismMeshLayer,
     Mesh,
     MeshLayer,
     NormalisedCurve,
     Prism,
+    PrismMesh,
+    PrismMeshLayer,
     Quad,
     QuadMesh,
     QuadMeshLayer,
@@ -55,6 +55,7 @@ from neso_fame.offset import Offset
 
 from .conftest import (
     flat_sided_hex,
+    flat_sided_prism,
     linear_field_trace,
     non_nans,
     quad_meshes,
@@ -284,15 +285,16 @@ def test_nektar_quad_curved(
 def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
     corners = frozenset(map(comparable_geometry, points))
+    n = len(shape.edges)
     assert len(shapes) == 1
-    assert len(segments) == len(shape.edges)
+    assert len(segments) == n
     assert len(points) == len(corners)
     nek_shape = next(iter(shapes))
     assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(
             comparable_geometry,
-            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)),
+            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)),
         )
     )
     assert corners == frozenset(
@@ -314,8 +316,7 @@ def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
     )
 
 
-# FIXME: Will need to switch this to a strategy that draws only triangular prisms
-@given(from_type(Prism), integers(1, 4), integers())
+@given(flat_sided_prism, integers(1, 4), integers())
 def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
     prisms, _, segments, points = nektar_writer.nektar_3d_element(
         prism, order, 3, layer
@@ -360,7 +361,6 @@ def check_edges(
         else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
-        num_edges = 4
         mesh = cast(MeshLike[Quad, Segment, NormalisedCurve], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
@@ -372,7 +372,6 @@ def check_edges(
         expected_near_faces = frozenset(comparable_edge(q.near) for q in mesh)
         expected_far_faces = frozenset(comparable_edge(q.far) for q in mesh)
     else:
-        num_edges = 12
         mesh = cast(MeshLike[Prism, Quad, EndShape], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
@@ -396,7 +395,8 @@ def check_edges(
         )
     element_edges = frozenset(
         itertools.chain.from_iterable(
-            map(comparable_geometry, map(e.GetEdge, range(num_edges))) for e in elements
+            map(comparable_geometry, map(e.GetEdge, range(e.GetNumEdges())))
+            for e in elements
         )
     )
     actual_edges = comparable_set(edges)
@@ -414,7 +414,13 @@ def check_face_composites(
         item: NormalisedCurve | EndShape,
     ) -> tuple[str, frozenset[Coord]]:
         if isinstance(item, EndShape):
-            return SD.QuadGeom.__name__, frozenset(
+            if len(item.edges) == 4:
+                name = SD.QuadGeom.__name__
+            elif len(item.edges) == 3:
+                name = SD.TriGeom.__name__
+            else:
+                raise ValueError(f"Unrecognised shape with {len(item.edges)} edges.")
+            return name, frozenset(
                 map(comparable_coord, item.corners().to_cartesian().iter_points())
             )
         else:
@@ -668,26 +674,49 @@ def test_nektar_mesh(
         meshgraph.GetAllHexGeoms(),
     ]
     extract_and_merge(SD.TriGeom, elements.faces(), elements.elements())
-    expected_geometries: Iterable[list[SD.Geometry]] = map(
-        list,
-        [
-            elements.points(),
-            elements.segments(),
-            extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
-            extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
-            extract_and_merge(SD.TetGeom, elements.elements()),
-            extract_and_merge(SD.PyrGeom, elements.elements()),
-            extract_and_merge(SD.PrismGeom, elements.elements()),
-            extract_and_merge(SD.HexGeom, elements.elements()),
-        ],
+    expected_geometries: list[list[SD.Geometry]] = list(
+        map(
+            list,
+            [
+                elements.points(),
+                elements.segments(),
+                extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
+                extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
+                extract_and_merge(SD.TetGeom, elements.elements()),
+                extract_and_merge(SD.PyrGeom, elements.elements()),
+                extract_and_merge(SD.PrismGeom, elements.elements()),
+                extract_and_merge(SD.HexGeom, elements.elements()),
+            ],
+        )
     )
     for expected, actual in zip(expected_geometries, actual_geometries):
-        n = len(expected)
-        assert len(actual) == n
-        assert all(actual[i].GetGlobalID() == i for i in range(n))
-        actual_comparable = comparable_set(actual[i] for i in range(n))
+        assert len(actual) == len(expected)
+        assert all(item.key() == item.data().GetGlobalID() for item in actual)
+        actual_comparable = comparable_set(item.data() for item in actual)
         expected_comparable = comparable_set(expected)
         assert actual_comparable == expected_comparable
+
+    # Check points numbered from 0 to n, without gaps
+    assert {item.key() for item in actual_geometries[0]} == frozenset(
+        range(len(expected_geometries[0]))
+    )
+
+    # Check segments numbered from 0 to n, without gaps
+    assert {item.key() for item in actual_geometries[1]} == frozenset(
+        range(len(expected_geometries[1]))
+    )
+
+    # Check faces numbered from 0 to n, without gaps
+    assert reduce(
+        operator.or_,
+        ({item.key() for item in geoms} for geoms in actual_geometries[2:4]),
+    ) == frozenset(range(sum(map(len, expected_geometries[2:4]))))
+
+    # Check 3d elements numbered from 0 to n, without gaps
+    assert reduce(
+        operator.or_,
+        ({item.key() for item in geoms} for geoms in actual_geometries[4:]),
+    ) == frozenset(range(sum(map(len, expected_geometries[4:]))))
 
     curved_edges = meshgraph.GetCurvedEdges()
     check_curved_edges(order, elements, curved_edges, actual_segments)

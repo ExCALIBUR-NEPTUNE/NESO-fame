@@ -369,14 +369,13 @@ def nektar_end_shape(
     """
     if len(shape.edges) == 3:
         north, north_termini = nektar_edge(shape.edges[0], order, spatial_dim, layer_id)
-        south, south_termini = nektar_edge(shape.edges[1], order, spatial_dim, layer_id)
-        east, east_termini = nektar_edge(shape.edges[2], order, spatial_dim, layer_id)
+        east, east_termini = nektar_edge(shape.edges[1], order, spatial_dim, layer_id)
+        south, south_termini = nektar_edge(shape.edges[2], order, spatial_dim, layer_id)
         points = frozenset(north_termini + south_termini + east_termini)
         if len(points) != 3:
             raise RuntimeError("Ill-formed triangle; edges do not join into 3 corners")
         edges: tuple[SD.SegGeom, ...] = (north, east, south)
         nek_shape: SD.Geometry2D = _nektar_triangle(edges, None)
-        pass
     elif len(shape.edges) == 4:
         north, north_termini = nektar_edge(shape.edges[0], order, spatial_dim, layer_id)
         south, south_termini = nektar_edge(shape.edges[1], order, spatial_dim, layer_id)
@@ -416,14 +415,30 @@ def nektar_3d_element(
         frozenset(),
         frozenset(),
     )
+    if len(solid.sides) == 4:
+        ordered_sides = [
+            nektar_end_shape(solid.near, order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[3], order, spatial_dim, layer_id),
+            nektar_end_shape(solid.far, order, spatial_dim, layer_id),
+        ]
+    elif len(solid.sides) == 3:
+        ordered_sides = [
+            nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
+            nektar_end_shape(solid.near, order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
+            nektar_end_shape(solid.far, order, spatial_dim, layer_id),
+            nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
+        ]
+    else:
+        raise ValueError(
+            f"Element with {len(solid.sides)} quadrilateral faces is not recognized."
+        )
     faces, segments, points = reduce(
         _combine_2d_items_ordered,
-        [nektar_end_shape(solid.near, order, spatial_dim, layer_id)]
-        + [
-            nektar_quad(quad, order, spatial_dim, layer_id)
-            for quad in solid.ordered_quads()
-        ]
-        + [nektar_end_shape(solid.far, order, spatial_dim, layer_id)],
+        ordered_sides,
         init,
     )
     for i, edge in enumerate(segments):
@@ -435,9 +450,7 @@ def nektar_3d_element(
     elif len(solid.sides) == 3:
         nek_solid = SD.PrismGeom(UNSET_ID, faces)
     else:
-        raise ValueError(
-            f"Element with {len(solid.sides)} quadrilateral faces is not recognized."
-        )
+        assert False
     for edge in segments:
         edge.SetGlobalID(UNSET_ID)
     return frozenset({nek_solid}), frozenset(faces), segments, points

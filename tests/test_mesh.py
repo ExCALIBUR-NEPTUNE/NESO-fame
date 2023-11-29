@@ -722,7 +722,6 @@ def test_quad_south(q: mesh.Quad, s: float) -> None:
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0), floats(0.0, 1.0))
 def test_quad_get_field_line(q: mesh.Quad, s: float, t: float) -> None:
-    # print("test_quad_get_field_line", s, t)
     line = q.get_field_line(s)
     start = q.shape(s).to_coord()
     # Check the line passes through the correct location on `q.shape`
@@ -937,7 +936,7 @@ def test_prism_near_far_corners(h: mesh.Prism) -> None:
     assert expected == actual
 
 
-@given(from_type(mesh.Prism))
+@given(flat_sided_hex)
 def test_hex_corners(h: mesh.Prism) -> None:
     corners = h.corners()
     assert corners[0] == h.sides[0].north(0.0).to_coord()
@@ -1083,6 +1082,7 @@ def test_mesh_layer_elements_with_subdivisions(
 def evaluate_element(element: mesh.Quad | mesh.Prism, s: float) -> list[mesh.Coord]:
     if isinstance(element, mesh.Quad):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
+    # This works for hexahedrons and triangular prisms
     return evaluate_element(element.sides[0], s) + evaluate_element(element.sides[1], s)
 
 
@@ -1186,7 +1186,7 @@ hex_mesh_elements = cast(
     [(quad_mesh_elements,), (hex_mesh_elements,)],
 )
 def test_mesh_layer_element_type(elements: list[mesh.Quad] | list[mesh.Prism]) -> None:
-    layer = mesh.MeshLayer(elements, [])
+    layer = mesh.MeshLayer(elements, [])  # type: ignore
     element = next(iter(elements))
     assert layer.element_type is type(element)
 
