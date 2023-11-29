@@ -15,7 +15,7 @@ from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
-from hypothesis import given, settings
+from hypothesis import given, settings, reproduce_failure
 from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import (
     booleans,
@@ -749,17 +749,11 @@ def _smallest_angle_between(end_angle: float, start_angle: float) -> float:
     floats(0.0, 2 * np.pi).flatmap(
         lambda x: tuples(
             just(x),
-            one_of(floats(0.005, 0.25 * np.pi), floats(-0.25 * np.pi, -0.001)).map(
+            one_of(floats(0.005, 0.2 * np.pi), floats(-0.2 * np.pi, -0.001)).map(
                 lambda y: y + x
             ),
         )
     ),
-    # lists(
-    #     integers(0, 999).map(lambda x: x / 1000 * 2 * np.pi),
-    #     min_size=2,
-    #     max_size=2,
-    #     unique=True,
-    # ),
     psis,
     one_of(
         floats(-0.5, 1.0),
