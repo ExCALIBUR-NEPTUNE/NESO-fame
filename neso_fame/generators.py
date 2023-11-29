@@ -15,6 +15,7 @@ from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
+    core_boundary_points,
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
@@ -488,6 +489,7 @@ def hypnotoad_mesh(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
+    mesh_core: bool = False,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -514,7 +516,9 @@ def hypnotoad_mesh(
         line.
     subdivisions
         Depth of cells in x3-direction in each layer.
-
+    mesh_core
+        Whether to add extra prism elements to fill in the core of
+        the tokamak
 
     Returns
     -------
@@ -546,6 +550,8 @@ def hypnotoad_mesh(
         equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
         spatial_interp_resolution,
     )
+    op = hypnotoad_poloidal_mesh.equilibrium.o_point
+    o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
 
     @cache
     def perpendicular_quad(north: SliceCoord, south: SliceCoord) -> Quad:
@@ -561,6 +567,15 @@ def hypnotoad_mesh(
             flux_surface_edge(hypnotoad_poloidal_mesh.equilibrium, north, south),
             tracer,
             dx3,
+        )
+
+    @cache
+    def make_connecting_quad(coord: SliceCoord) -> Quad:
+        return Quad(
+            StraightLineAcrossField(coord, o_point),
+            tracer,
+            dx3,
+            aligned_edges=QuadAlignment.NORTH,
         )
 
     def get_element_corners(
@@ -592,29 +607,41 @@ def hypnotoad_mesh(
             )
         )
 
-    hexes = [
+    def make_prism(north: SliceCoord, south: SliceCoord) -> Prism:
+        # Only half the permutations of edge ordering seem to work
+        # with Nektar++, but this is not documented. I can't figure
+        # out the rule, but this seems to work.
+        return Prism(
+            (
+                make_connecting_quad(north),
+                make_connecting_quad(south),
+                flux_surface_quad(north, south),
+            )
+        )
+
+    elements = [
         make_hex(*corners)
         for corners in itertools.chain.from_iterable(
             zip(*map(operator.methodcaller("iter_points"), element_corners(region)))
             for region in hypnotoad_poloidal_mesh.regions.values()
         )
     ]
-
     boundaries = get_mesh_boundaries(
         hypnotoad_poloidal_mesh, flux_surface_quad, perpendicular_quad
     )
+    if mesh_core:
+        core_points = core_boundary_points(hypnotoad_poloidal_mesh)
+        core_elements = list(
+            itertools.starmap(make_prism, itertools.pairwise(core_points.iter_points()))
+        )
+        elements += core_elements
+        boundaries[0] = frozenset()
 
     return GenericMesh(
         MeshLayer(
-            hexes,
+            elements,
             boundaries,
             subdivisions=subdivisions,
         ),
         x3_mid,
     )
-
-
-# Properties to test: boundaries are on constant psi (that should be);
-# all quads on a boundary are connected (?); all points from which
-# hexes are extruded present in HypnoMesh (and vice versa); x-points
-# in mesh

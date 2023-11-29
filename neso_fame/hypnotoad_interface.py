@@ -930,3 +930,32 @@ def get_mesh_boundaries(
         ),
     )
     return boundaries
+
+
+def core_boundary_points(mesh: Mesh) -> SliceCoords:
+    """Get all of the nodes at the centre of the core region.
+
+    Parameters
+    ----------
+    mesh
+        The hypnotoad mesh object for which to return the points.
+
+    """
+    regions = {region.name: region for region in mesh.regions.values()}
+    if "core(0)" in regions:
+        core = regions["core(0)"]
+        return SliceCoords(
+            core.Rxy.corners[0, :], core.Zxy.corners[0, :], CoordinateSystem.CYLINDRICAL
+        )
+    else:
+        inner_core = regions["inner_core(0)"]
+        outer_core = regions["outer_core(0)"]
+        return SliceCoords(
+            np.concatenate(
+                (inner_core.Rxy.corners[0, :], outer_core.Rxy.corners[0, 1:])
+            ),
+            np.concatenate(
+                (inner_core.Zxy.corners[0, :], outer_core.Zxy.corners[0, 1:])
+            ),
+            CoordinateSystem.CYLINDRICAL,
+        )

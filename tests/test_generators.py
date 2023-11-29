@@ -5,7 +5,12 @@ import numpy as np
 from neso_fame import generators
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
+    Coord,
     CoordinateSystem,
+    FieldAlignedCurve,
+    Prism,
+    Segment,
+    SliceCoord,
     SliceCoords,
     control_points,
 )
@@ -833,3 +838,46 @@ def test_extruding_hypnotoad_mesh() -> None:
         assert len(sizes) == 1
         # Check that the boundary is not empty
         assert all(s > 0 for s in sizes)
+
+
+def test_extruding_hypnotoad_mesh_fill_core() -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+    eq = hypno_mesh.equilibrium
+    # Extrude only a very short distance to keep run-times quick
+    mesh = generators.hypnotoad_mesh(
+        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, mesh_core=True
+    )
+    tri_prisms = [p for p in mesh if len(p.sides) == 3]
+    # Check triangles have been created at the centre of the mesh
+    assert len(tri_prisms) > 0
+
+    o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
+
+    def to_slice_coord(c: Coord) -> SliceCoord:
+        return SliceCoord(c.x1, c.x2, c.system)
+
+    def get_axis_edge(prism: Prism) -> Segment:
+        curves = frozenset(q.north for q in prism.sides) | frozenset(
+            q.south for q in prism.sides
+        )
+        assert len(curves) == 3
+        axis_curve = [
+            c
+            for c in curves
+            if (
+                c.start
+                if isinstance(c, FieldAlignedCurve)
+                else to_slice_coord(c(0.0).to_coord())
+            )
+            == o_point
+        ]
+        assert len(axis_curve) == 1
+        acurve = axis_curve[0]
+        return acurve
+
+    # Check all the triangles have one corner that is at the o-point
+    axis_curves = frozenset(map(get_axis_edge, tri_prisms))
+    assert len(axis_curves) == 1
+    axis_curve = next(iter(axis_curves))
+    assert to_slice_coord(axis_curve(0.5).to_coord()) == o_point
+    assert to_slice_coord(axis_curve(1.0).to_coord()) == o_point

@@ -328,6 +328,12 @@ def simple_3d(
     show_default=True,
 )
 @click.option(
+    "--core/--no-core",
+    is_flag=True,
+    default=False,
+    help="Whether to fill in the core region of the tokamak with prisms.",
+)
+@click.option(
     "--order",
     type=POSITIVE,
     help="The order of accuracy to use to describe curved elements.",
@@ -352,6 +358,7 @@ def hypnotoad(
     n: int,
     toroidal_limits: tuple[float, float],
     layers: int,
+    core: bool,
     order: int,
     compress: bool,
     geqdsk: str,
@@ -378,7 +385,7 @@ def hypnotoad(
     print("Building 2D poloidal mesh...")
     hypno_mesh = HypnoMesh(eq, options)
     print("Extruding 2D mesh along magnetic field lines...")
-    mesh = hypnotoad_mesh(hypno_mesh, toroidal_limits, layers, 21, n // layers)
+    mesh = hypnotoad_mesh(hypno_mesh, toroidal_limits, layers, 21, n // layers, core)
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")
     write_nektar(mesh, order, meshfile, 3, True, periodic, compress)

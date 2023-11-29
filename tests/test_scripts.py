@@ -24,6 +24,7 @@ VERTICES = re.compile(
     + r"\s*</\s*V\s*>",
     re.I,
 )
+TRIANGLES = re.compile(r'<\s*T\s+ID="\d+"\s*>\s*\d+\s+\d+\s+\d+\s*<.\s*T\s*>')
 ZONES = re.compile(r'<\s*F\s+ID="\d+"\s+DOMAIN="D\[\d+\]"\s*/>')
 INTERFACES = re.compile(r'<\s*INTERFACE\s+NAME=".*"\s*>')
 CURVES = re.compile(
@@ -408,6 +409,7 @@ def test_tokamak_field() -> None:
                 str(0.001 * np.pi),  # Don't extrude very far to keep run-times quick
                 "--order",
                 "2",
+                "--core",
                 "--config",
                 hypnofile,
                 eqdsk,
@@ -417,7 +419,8 @@ def test_tokamak_field() -> None:
         assert result.exit_code == 0
         with open(meshfile, "r") as f:
             output = f.read()
-    assert len(VERTICES.findall(output)) == 76 * 6
+    assert len(VERTICES.findall(output)) == 77 * 6
+    assert len(TRIANGLES.findall(output)) == 4 * 6
     assert len(ZONES.findall(output)) == 3
     assert len(INTERFACES.findall(output)) == 2
     for curve in CURVES.finditer(output):
@@ -466,6 +469,7 @@ def test_tokamak_periodic() -> None:
         assert result.exit_code == 0
         with open(meshfile, "r") as f:
             output = f.read()
+    assert len(TRIANGLES.findall(output)) == 0
     assert len(ZONES.findall(output)) == 5
     assert len(INTERFACES.findall(output)) == 5
     assert len(CURVES.findall(output)) == 0
