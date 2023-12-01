@@ -115,9 +115,12 @@ def point_in_tokamak(point: SliceCoord, wall: Sequence[WallSegment]) -> bool:
     return crossings % 2 == 1
 
 
+Connections = dict[SliceCoord, frozenset[SliceCoord]]
+
+
 def find_external_points(
     outermost: frozenset[SliceCoord],
-    connections: dict[SliceCoord, frozenset[SliceCoord]],
+    connections: Connections,
     wall: Sequence[WallSegment],
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     """Find the points in a mesh outside the wall of a tokamak.
@@ -152,7 +155,7 @@ def _find_external_points(
     candidates: frozenset[SliceCoord],
     outpoints: frozenset[SliceCoord],
     skinpoints: frozenset[SliceCoord],
-    connections: dict[SliceCoord, frozenset[SliceCoord]],
+    connections: Connections,
     wall: Sequence[WallSegment],
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     if len(candidates) == 0:
@@ -178,9 +181,7 @@ def _find_external_points(
     )
 
 
-def get_rectangular_mesh_connections(
-    points: SliceCoords
-) -> dict[SliceCoord, frozenset[SliceCoord]]:
+def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
     """Return connectivity information for a logically-rectangular set of points."""
     shape = np.broadcast(points.x1, points.x2).shape
 

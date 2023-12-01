@@ -6,8 +6,13 @@ import itertools
 import operator
 from collections import defaultdict
 from collections.abc import Sequence
-from functools import cache
+from functools import cache, reduce
 from typing import Optional, TypeVar, cast
+from neso_fame.wall import (
+    Connections,
+    find_external_points,
+    get_rectangular_mesh_connections,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -19,8 +24,10 @@ from neso_fame.hypnotoad_interface import (
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
+    get_region_boundary_points,
     perpendicular_edge,
 )
+from tests.tools import wall_points_to_segments
 
 from .mesh import (
     CoordinateSystem,
@@ -483,6 +490,15 @@ def field_aligned_3d(
     )
 
 
+def _merge_connections(left: Connections, right: Connections) -> Connections:
+    for k, v in right.items():
+        if k in left:
+            left[k] |= v
+        else:
+            left[k] = v
+    return left
+
+
 def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
     extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
@@ -490,6 +506,7 @@ def hypnotoad_mesh(
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
     mesh_core: bool = False,
+    restrict_to_vessel: bool = False,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -519,6 +536,9 @@ def hypnotoad_mesh(
     mesh_core
         Whether to add extra prism elements to fill in the core of
         the tokamak
+    restrict_to_vessel
+        Whether to remove any elements the edges of which pass outside
+        the tokamak wall
 
     Returns
     -------
@@ -530,16 +550,6 @@ def hypnotoad_mesh(
     generator
 
     """
-    # FIXME: Perpendicular boundaries aren't going to work properly;
-    # they need to be fixed in space. Think I will need to generate
-    # them first, I guess with a different function. Then check if
-    # already generated using a dict, I guess?
-    #
-    # Will freezing the edges be enough? Will I potentially need to
-    # merge multiple elements to keep them from going down to 0?
-    #
-    # Or should I just fill in the spaces with additional elements
-    # after the fact?
     if not hasattr(next(iter(hypnotoad_poloidal_mesh.regions.values())), "Rxy"):
         hypnotoad_poloidal_mesh.calculateRZ()
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
@@ -619,12 +629,57 @@ def hypnotoad_mesh(
             )
         )
 
+    if restrict_to_vessel:
+        connections = reduce(
+            _merge_connections,
+            (
+                get_rectangular_mesh_connections(
+                    SliceCoords(
+                        region.Rxy.corners,
+                        region.Zxy.corners,
+                        CoordinateSystem.CYLINDRICAL,
+                    )
+                )
+                for region in hypnotoad_poloidal_mesh.regions.values()
+            ),
+        )
+
+        outermost_nodes = reduce(
+            operator.or_,
+            (
+                frozenset(bound)
+                for _, bound in itertools.chain.from_iterable(
+                    get_region_boundary_points(
+                        region, flux_surface_quad, perpendicular_quad
+                    )[1:]
+                    for region in hypnotoad_poloidal_mesh.regions.values()
+                )
+            ),
+        )
+        wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
+        external_nodes, outermost_in_vessel = find_external_points(
+            outermost_nodes, connections, wall
+        )
+
+        def corners_within_vessel(
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+        ) -> bool:
+            return not (frozenset(corners) & external_nodes)
+
+    else:
+
+        def corners_within_vessel(
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+        ) -> bool:
+            return True
+
     elements = [
         make_hex(*corners)
         for corners in itertools.chain.from_iterable(
             zip(*map(operator.methodcaller("iter_points"), element_corners(region)))
             for region in hypnotoad_poloidal_mesh.regions.values()
         )
+        if corners_within_vessel(corners)
     ]
     boundaries = get_mesh_boundaries(
         hypnotoad_poloidal_mesh, flux_surface_quad, perpendicular_quad
