@@ -149,6 +149,7 @@ class SliceCoord:
 
 
 Index = int | tuple[int, ...]
+IndexSlice = int | slice | list[int | tuple[int, ...]] | tuple[int | slice, ...]
 
 
 @dataclass
@@ -170,6 +171,8 @@ class SliceCoords:
 
     def iter_points(self) -> Iterator[SliceCoord]:
         """Iterate over the points held in this object."""
+        if np.broadcast(self.x1, self.x2).size == 0:
+            return
         for x1, x2 in zip(*map(np.nditer, np.broadcast_arrays(self.x1, self.x2))):
             yield SliceCoord(float(x1), float(x2), self.system)
 
@@ -186,6 +189,12 @@ class SliceCoords:
         """Return an individual point from the collection."""
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
+
+    def get_set(self, index: IndexSlice) -> frozenset[SliceCoord]:
+        """Get a set of individual point objects from the collection."""
+        return frozenset(
+            SliceCoords(self.x1[index], self.x2[index], self.system).iter_points()
+        )
 
     def round_to(self, figures: int = 8) -> SliceCoords:
         """Round coordinate values to the desired number of significant figures."""
@@ -326,6 +335,8 @@ class Coords:
 
     def iter_points(self) -> Iterator[Coord]:
         """Iterate over the points held in this object."""
+        if np.broadcast(self.x1, self.x2, self.x3).size == 0:
+            return
         for x1, x2, x3 in zip(
             *map(np.nditer, np.broadcast_arrays(self.x1, self.x2, self.x3))
         ):
@@ -358,6 +369,14 @@ class Coords:
         """Return the coordinates of an individual point."""
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
+
+    def get_set(self, index: IndexSlice) -> frozenset[Coord]:
+        """Get a set of individual point objects from the collection."""
+        return frozenset(
+            Coords(
+                self.x1[index], self.x2[index], self.x3[index], self.system
+            ).iter_points()
+        )
 
     def to_coord(self) -> Coord:
         """Convert the object to a `Coord` object.

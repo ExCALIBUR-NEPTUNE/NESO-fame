@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import itertools
+import operator
 from collections.abc import Sequence
 from enum import Enum
+from functools import reduce
 from typing import NamedTuple, Optional
 
 import numpy as np
 from hypnotoad import Point2D  # type: ignore
 
-from neso_fame.mesh import SliceCoord
+from neso_fame.mesh import SliceCoord, SliceCoords
 
 
 class Crossing(Enum):
@@ -50,7 +52,6 @@ class WallSegment(NamedTuple):
             # it into the x1 direction.
             tolerance = self.tol * np.sqrt(self.inverse_slope**2 + 1)
             R_intersect = self.inverse_slope * Z - self.R_offset
-            print(R_intersect, point.x1, tolerance)
             if np.abs(R_intersect - point.x1) < tolerance:
                 return Crossing.NEAR
             elif R_intersect > point.x1:
@@ -112,3 +113,88 @@ def point_in_tokamak(point: SliceCoord, wall: Sequence[WallSegment]) -> bool:
         elif status == Crossing.CROSSED:
             crossings += 1
     return crossings % 2 == 1
+
+
+def find_external_points(
+    outermost: frozenset[SliceCoord],
+    connections: dict[SliceCoord, frozenset[SliceCoord]],
+    wall: Sequence[WallSegment],
+) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
+    """Find the points in a mesh outside the wall of a tokamak.
+
+    Parameters
+    ----------
+    outermost
+        The set of points making up the external "skin" of the
+        mesh, which might fall outside the wall.
+    connections
+        A mapping between all points in the mesh and the points
+        they share an edge with.
+    wall
+        The line segments making up the wall of the tokamak
+
+    Returns
+    -------
+    A tuple of sets of points. The first element is all points falling
+    outside the tokamak. The second is the outermost layer of points
+    still inside the tokamak.
+
+    Group
+    -----
+    wall
+
+    """
+    # outpoints, skinpoints, candidates, new_candidates
+    return _find_external_points(outermost, frozenset(), frozenset(), connections, wall)
+
+
+def _find_external_points(
+    candidates: frozenset[SliceCoord],
+    outpoints: frozenset[SliceCoord],
+    skinpoints: frozenset[SliceCoord],
+    connections: dict[SliceCoord, frozenset[SliceCoord]],
+    wall: Sequence[WallSegment],
+) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
+    if len(candidates) == 0:
+        # If nothing to check, return previous results
+        return outpoints, skinpoints
+    # Check all candidates
+    results = {point: point_in_tokamak(point, wall) for point in candidates}
+    # Separate out candidates found to be outside the wall
+    new_outpoints = frozenset(p for p, r in results.items() if not r)
+    # Assemble a set of new candidates, consiting of neighbours of all
+    # the points we found were outside the wall (that haven't already
+    # been classified)
+    neighbours: frozenset[SliceCoord] = reduce(
+        operator.or_, (connections[p] for p in new_outpoints), frozenset()
+    )
+    # Repeat the process on the new set of candidates
+    return _find_external_points(
+        neighbours - candidates - outpoints - skinpoints,
+        outpoints | new_outpoints,
+        skinpoints | frozenset(p for p, r in results.items() if r),
+        connections,
+        wall,
+    )
+
+
+def get_rectangular_mesh_connections(
+    points: SliceCoords
+) -> dict[SliceCoord, frozenset[SliceCoord]]:
+    """Return connectivity information for a logically-rectangular set of points."""
+    shape = np.broadcast(points.x1, points.x2).shape
+
+    def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
+        i_min = i - 1 if i > 0 else 0
+        i_max = i + 2
+        j_min = j - 1 if j > 0 else 0
+        j_max = j + 2
+        return (
+            points.get_set((slice(i_min, i_max), slice(j_min, j_max)))
+        ) - points.get_set((i, j))
+
+    return {
+        points[i, j]: get_neighbours(i, j)
+        for i in range(shape[0])
+        for j in range(shape[1])
+    }
