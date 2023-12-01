@@ -1,7 +1,7 @@
 import operator
 
 import numpy as np
-from hypnotoad import Point2D
+from hypnotoad import Point2D  # type: ignore
 from hypothesis import given
 from hypothesis.strategies import (
     builds,

@@ -8,7 +8,7 @@ from enum import Enum
 from typing import NamedTuple, Optional
 
 import numpy as np
-from hypnotoad import Point2D
+from hypnotoad import Point2D  # type: ignore
 
 from neso_fame.mesh import SliceCoord
 
