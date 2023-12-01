@@ -15,7 +15,7 @@ from hypnotoad import Equilibrium, Point2D  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 from hypnotoad.core.mesh import Mesh, MeshRegion  # type: ignore
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
-from hypothesis import given, settings, reproduce_failure
+from hypothesis import given, settings
 from hypothesis.extra.numpy import array_shapes, arrays
 from hypothesis.strategies import (
     booleans,
