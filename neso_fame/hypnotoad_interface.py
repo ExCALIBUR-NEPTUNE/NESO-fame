@@ -1,6 +1,7 @@
 """Functions for working with GEQDSK data processed using hypnotoad."""
 from __future__ import annotations
 
+from collections.abc import Iterator
 import itertools
 from enum import Enum
 from functools import partial, reduce
@@ -742,27 +743,33 @@ def flux_surface_edge(
 QuadMaker = Callable[[SliceCoord, SliceCoord], Quad]
 
 
+def _get_bound_points(
+    region: MeshRegion,
+    index: tuple[int | slice, ...],
+) -> Iterator[SliceCoord]:
+    R = region.Rxy.corners[index]
+    Z = region.Zxy.corners[index]
+    return SliceCoords(R, Z, CoordinateSystem.CYLINDRICAL).iter_points()
+
+
 def _make_bound(
     constructor: QuadMaker,
     region: MeshRegion,
     index: tuple[int | slice, ...],
 ) -> frozenset[Quad]:
     """Construct quads for boundary `index` of `region`."""
-    R = region.Rxy.corners[index]
-    Z = region.Zxy.corners[index]
-    x = SliceCoords(R[:-1], Z[:-1], CoordinateSystem.CYLINDRICAL)
-    y = SliceCoords(R[1:], Z[1:], CoordinateSystem.CYLINDRICAL)
     return frozenset(
-        constructor(n, s) for n, s in zip(x.iter_points(), y.iter_points())
+        constructor(n, s)
+        for n, s in itertools.pairwise(_get_bound_points(region, index))
     )
 
 
-def _get_region_boundaries(
+def get_region_boundary_points(
     region: MeshRegion,
     flux_surface_quad: QuadMaker,
     perpendicular_quad: QuadMaker,
-) -> list[frozenset[Quad]]:
-    """Get a list of the boundaries for the region.
+) -> list[tuple[QuadMaker, Iterator[SliceCoord]]]:
+    """Get the (ordered) boundary points in a region.
 
     Parameters
     ----------
@@ -777,10 +784,11 @@ def _get_region_boundaries(
 
     Returns
     -------
-        A list of boundaries. Each boundary is represented by a frozenset
-        of Quad objects. If that boundary is not present on the given
-        region object, then the set will be empty. The order of the
-        boundaries in the list is:
+        A list of boundaries. Each boundary is represented by the
+        constructor to use for it and an iterator of SliceCoord objects.
+        If that boundary is not present on the given region object, then
+        the iterator will be empty. The order of the boundaries in the
+        list is:
 
         #. Centre of the core region
         #. Inner edge of the plasma (or entire edge, for single-null)
@@ -794,68 +802,96 @@ def _get_region_boundaries(
 
     """
     name = region.equilibriumRegion.name
-    empty: frozenset[Quad] = frozenset()
     single_null = len(region.meshParent.equilibrium.x_points) == 1
+    empty: list[SliceCoord] = []
     centre = (
-        _make_bound(flux_surface_quad, region, (0, slice(None)))
-        if name.endswith("core") and region.connections["inner"] is None
-        else empty
+        flux_surface_quad,
+        (
+            _get_bound_points(region, (0, slice(None)))
+            if name.endswith("core") and region.connections["inner"] is None
+            else iter(empty)
+        ),
     )
     inner_edge = (
-        _make_bound(flux_surface_quad, region, (-1, slice(None)))
-        if (
-            name
-            in {
-                "inner_core",
-                "core",
-                "inner_lower_divertor",
-                "inner_upper_divertor",
-            }
-            or (
-                name in {"outer_lower_divertor", "outer_upper_divertor"} and single_null
+        flux_surface_quad,
+        (
+            _get_bound_points(region, (-1, slice(None)))
+            if (
+                name
+                in {
+                    "inner_core",
+                    "core",
+                    "inner_lower_divertor",
+                    "inner_upper_divertor",
+                }
+                or (
+                    name in {"outer_lower_divertor", "outer_upper_divertor"}
+                    and single_null
+                )
             )
-        )
-        and region.connections["outer"] is None
-        else empty
+            and region.connections["outer"] is None
+            else iter(empty)
+        ),
     )
     outer_edge = (
-        _make_bound(flux_surface_quad, region, (-1, slice(None)))
-        if name in {"outer_core", "outer_lower_divertor", "outer_upper_divertor"}
-        and not single_null
-        and region.connections["outer"] is None
-        else empty
+        flux_surface_quad,
+        (
+            _get_bound_points(region, (-1, slice(None)))
+            if name in {"outer_core", "outer_lower_divertor", "outer_upper_divertor"}
+            and not single_null
+            and region.connections["outer"] is None
+            else iter(empty)
+        ),
     )
     upper_pfr = (
-        _make_bound(flux_surface_quad, region, (0, slice(None)))
-        if name in {"inner_upper_divertor", "outer_upper_divertor"}
-        and region.connections["inner"] is None
-        else empty
+        flux_surface_quad,
+        (
+            _get_bound_points(region, (0, slice(None)))
+            if name in {"inner_upper_divertor", "outer_upper_divertor"}
+            and region.connections["inner"] is None
+            else iter(empty)
+        ),
     )
     lower_pfr = (
-        _make_bound(flux_surface_quad, region, (0, slice(None)))
-        if name in {"inner_lower_divertor", "outer_lower_divertor"}
-        and region.connections["inner"] is None
-        else empty
+        flux_surface_quad,
+        (
+            _get_bound_points(region, (0, slice(None)))
+            if name in {"inner_lower_divertor", "outer_lower_divertor"}
+            and region.connections["inner"] is None
+            else iter(empty)
+        ),
     )
     inner_lower_divertor = (
-        _make_bound(perpendicular_quad, region, (slice(None), 0))
-        if name == "inner_lower_divertor"
-        else empty
+        perpendicular_quad,
+        (
+            _get_bound_points(region, (slice(None), 0))
+            if name == "inner_lower_divertor"
+            else iter(empty)
+        ),
     )
     outer_lower_divertor = (
-        _make_bound(perpendicular_quad, region, (slice(None), 0))
-        if name == "outer_lower_divertor"
-        else empty
+        perpendicular_quad,
+        (
+            _get_bound_points(region, (slice(None), 0))
+            if name == "outer_lower_divertor"
+            else iter(empty)
+        ),
     )
     inner_upper_divertor = (
-        _make_bound(perpendicular_quad, region, (slice(None), -1))
-        if name == "inner_upper_divertor"
-        else empty
+        perpendicular_quad,
+        (
+            _get_bound_points(region, (slice(None), -1))
+            if name == "inner_upper_divertor"
+            else iter(empty)
+        ),
     )
     outer_upper_divertor = (
-        _make_bound(perpendicular_quad, region, (slice(None), -1))
-        if name == "outer_upper_divertor"
-        else empty
+        perpendicular_quad,
+        (
+            _get_bound_points(region, (slice(None), -1))
+            if name == "outer_upper_divertor"
+            else iter(empty)
+        ),
     )
     return [
         centre,
@@ -913,21 +949,22 @@ def get_mesh_boundaries(
     """
 
     def merge_bounds(
-        lhs: list[frozenset[Quad]], rhs: list[frozenset[Quad]]
+        lhs: list[frozenset[Quad]], rhs: list[tuple[QuadMaker, Iterator[SliceCoord]]]
     ) -> list[frozenset[Quad]]:
         return [
-            left.union(right)
-            for left, right in itertools.zip_longest(
-                lhs, rhs, fillvalue=cast(frozenset[Quad], frozenset())
+            left.union(
+                frozenset(itertools.starmap(constructor, itertools.pairwise(right)))
             )
+            for left, (constructor, right) in zip(lhs, rhs)
         ]
 
     boundaries = reduce(
         merge_bounds,
         (
-            _get_region_boundaries(region, flux_surface_quad, perpendicular_quad)
+            get_region_boundary_points(region, flux_surface_quad, perpendicular_quad)
             for region in mesh.regions.values()
         ),
+        [frozenset()] * 9,
     )
     return boundaries
 
