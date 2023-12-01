@@ -190,7 +190,8 @@ def get_rectangular_mesh_connections(
         j_min = j - 1 if j > 0 else 0
         j_max = j + 2
         return (
-            points.get_set((slice(i_min, i_max), slice(j_min, j_max)))
+            points.get_set((slice(i_min, i_max), j))
+            | points.get_set((i, slice(j_min, j_max)))
         ) - points.get_set((i, j))
 
     return {
