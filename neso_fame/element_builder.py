@@ -8,7 +8,6 @@ from functools import cache
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
-    equilibrium_trace,
     flux_surface_edge,
     perpendicular_edge,
 )
@@ -35,7 +34,7 @@ class ElementBuilder:
     def __init__(
         self,
         hypnotoad_poloidal_mesh: HypnoMesh,
-        spatial_interp_resolution: int,
+        tracer: FieldTracer,
         dx3: float,
         outermost_in_vessel: frozenset[SliceCoord],
     ) -> None:
@@ -45,9 +44,8 @@ class ElementBuilder:
         ----------
         hypnotoad_poloidal_mesh
             The 2D poloidal mesh from which a 3D mesh is being generated.
-        spatial_interp_resolution
-            Number of points used to interpolate distances along the field
-            line.
+        tracer
+            Object to follow along a field line.
         dx3
             Width of a layer of the mesh.
         outermost_in_vessel
@@ -56,10 +54,7 @@ class ElementBuilder:
 
         """
         self._equilibrium = hypnotoad_poloidal_mesh.equilibrium
-        self._tracer = FieldTracer(
-            equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
-            spatial_interp_resolution,
-        )
+        self._tracer = tracer
         self._dx3 = dx3
         self._outermost_in_vessel = outermost_in_vessel
         self.outermost_quads: defaultdict[SliceCoord, set[Quad]] = defaultdict(set)

@@ -17,12 +17,14 @@ from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
     core_boundary_points,
+    equilibrium_trace,
     get_mesh_boundaries,
     get_region_flux_surface_boundary_points,
     get_region_perpendicular_boundary_points,
 )
 from neso_fame.mesh import (
     CoordinateSystem,
+    FieldAlignedCurve,
     FieldTrace,
     FieldTracer,
     GenericMesh,
@@ -35,11 +37,14 @@ from neso_fame.mesh import (
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
+    control_points,
 )
 from neso_fame.wall import (
     Connections,
+    WallSegment,
     find_external_points,
     get_rectangular_mesh_connections,
+    point_in_tokamak,
     wall_points_to_segments,
 )
 
@@ -517,7 +522,9 @@ def _element_corners(
 
 
 def _handle_nodes_outside_vessel(
-    hypnotoad_poloidal_mesh: HypnoMesh, restrict_to_vessel: bool
+    hypnotoad_poloidal_mesh: HypnoMesh,
+    restrict_to_vessel: bool,
+    in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
 ) -> tuple[
     Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool],
     frozenset[SliceCoord],
@@ -544,7 +551,7 @@ def _handle_nodes_outside_vessel(
             operator.or_,
             (
                 frozenset(bound)
-                for _, bound in itertools.chain.from_iterable(
+                for bound in itertools.chain.from_iterable(
                     get_region_flux_surface_boundary_points(region)[1:]
                     + get_region_perpendicular_boundary_points(region)
                     for region in hypnotoad_poloidal_mesh.regions.values()
@@ -553,7 +560,7 @@ def _handle_nodes_outside_vessel(
         )
         wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
         external_nodes, outermost_in_vessel = find_external_points(
-            outermost_nodes, connections, wall
+            outermost_nodes, connections, wall, in_tokamak_test
         )
 
         def corners_within_vessel(
@@ -610,8 +617,8 @@ def hypnotoad_mesh(
         Whether to add extra prism elements to fill in the core of
         the tokamak
     restrict_to_vessel
-        Whether to remove any elements the edges of which pass outside
-        the tokamak wall
+        Whether to remove the elements whose edges pass outside the
+        tokamak wall
 
     Returns
     -------
@@ -629,12 +636,24 @@ def hypnotoad_mesh(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
+    tracer = FieldTracer(
+        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
+        spatial_interp_resolution,
+    )
+
+    def whole_line_in_tokamak(start: SliceCoord, wall: Sequence[WallSegment]) -> bool:
+        if point_in_tokamak(start, wall):
+            line = FieldAlignedCurve(tracer, start, dx3)
+            return all(
+                point_in_tokamak(p.to_slice_coord(), wall)
+                for p in control_points(line, spatial_interp_resolution).iter_points()
+            )
+        return False
+
     corners_within_vessel, outermost_in_vessel = _handle_nodes_outside_vessel(
-        hypnotoad_poloidal_mesh, restrict_to_vessel
+        hypnotoad_poloidal_mesh, restrict_to_vessel, whole_line_in_tokamak
     )
-    factory = ElementBuilder(
-        hypnotoad_poloidal_mesh, spatial_interp_resolution, dx3, outermost_in_vessel
-    )
+    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3, outermost_in_vessel)
 
     elements = [
         factory.make_hex(*corners)

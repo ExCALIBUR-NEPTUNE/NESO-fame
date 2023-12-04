@@ -7,7 +7,7 @@ import operator
 from collections.abc import Sequence
 from enum import Enum
 from functools import reduce
-from typing import NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 
 import numpy as np
 from hypnotoad import Point2D  # type: ignore
@@ -122,6 +122,9 @@ def find_external_points(
     outermost: frozenset[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
+    in_tokamak_test: Callable[
+        [SliceCoord, Sequence[WallSegment]], bool
+    ] = point_in_tokamak,
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     """Find the points in a mesh outside the wall of a tokamak.
 
@@ -135,6 +138,10 @@ def find_external_points(
         they share an edge with.
     wall
         The line segments making up the wall of the tokamak
+    in_tokamak_test
+        Routine to determine if a node falls inside the
+        tokamak. Custom routines can be passed to, e.g., check
+        at multiple points along a field line.
 
     Returns
     -------
@@ -148,7 +155,9 @@ def find_external_points(
 
     """
     # outpoints, skinpoints, candidates, new_candidates
-    return _find_external_points(outermost, frozenset(), frozenset(), connections, wall)
+    return _find_external_points(
+        outermost, frozenset(), frozenset(), connections, wall, in_tokamak_test
+    )
 
 
 def _find_external_points(
@@ -157,12 +166,13 @@ def _find_external_points(
     skinpoints: frozenset[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
+    in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     if len(candidates) == 0:
         # If nothing to check, return previous results
         return outpoints, skinpoints
     # Check all candidates
-    results = {point: point_in_tokamak(point, wall) for point in candidates}
+    results = {point: in_tokamak_test(point, wall) for point in candidates}
     # Separate out candidates found to be outside the wall
     new_outpoints = frozenset(p for p, r in results.items() if not r)
     # Assemble a set of new candidates, consiting of neighbours of all
@@ -178,6 +188,7 @@ def _find_external_points(
         skinpoints | frozenset(p for p, r in results.items() if r),
         connections,
         wall,
+        in_tokamak_test,
     )
 
 

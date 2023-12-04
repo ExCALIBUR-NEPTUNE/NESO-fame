@@ -435,11 +435,11 @@ def test_tokamak_field() -> None:
     lambda _: simple_trace,
 )
 @patch(
-    "neso_fame.generators.flux_surface_edge",
+    "neso_fame.element_builder.flux_surface_edge",
     lambda _, north, south: StraightLineAcrossField(north, south),
 )
 @patch(
-    "neso_fame.generators.perpendicular_edge",
+    "neso_fame.element_builder.perpendicular_edge",
     lambda _, north, south: StraightLineAcrossField(north, south),
 )
 @pytest.mark.filterwarnings("ignore:divide by zero encountered in double_scalars")

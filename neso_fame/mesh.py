@@ -313,6 +313,10 @@ class Coord:
             and np.isclose(self.x3, other.x3, self.TOLERANCE, self.TOLERANCE),
         )
 
+    def to_slice_coord(self) -> SliceCoord:
+        """Get the poloidal components of this coordinate."""
+        return SliceCoord(self.x1, self.x2, self.system)
+
 
 @dataclass
 class Coords:
@@ -394,6 +398,10 @@ class Coords:
             _round_to_sig_figs(self.x3, figures),
             self.system,
         )
+
+    def to_slice_coords(self) -> SliceCoords:
+        """Get the poloidal components of this coordinate."""
+        return SliceCoords(self.x1, self.x2, self.system)
 
 
 class FieldTrace(Protocol):

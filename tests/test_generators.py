@@ -5,7 +5,6 @@ import numpy as np
 from neso_fame import generators
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
-    Coord,
     CoordinateSystem,
     FieldAlignedCurve,
     Prism,
@@ -853,9 +852,6 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
 
     o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
 
-    def to_slice_coord(c: Coord) -> SliceCoord:
-        return SliceCoord(c.x1, c.x2, c.system)
-
     def get_axis_edge(prism: Prism) -> Segment:
         curves = frozenset(q.north for q in prism.sides) | frozenset(
             q.south for q in prism.sides
@@ -867,7 +863,7 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
             if (
                 c.start
                 if isinstance(c, FieldAlignedCurve)
-                else to_slice_coord(c(0.0).to_coord())
+                else c(0.0).to_coord().to_slice_coord()
             )
             == o_point
         ]
@@ -879,5 +875,29 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
     axis_curves = frozenset(map(get_axis_edge, tri_prisms))
     assert len(axis_curves) == 1
     axis_curve = next(iter(axis_curves))
-    assert to_slice_coord(axis_curve(0.5).to_coord()) == o_point
-    assert to_slice_coord(axis_curve(1.0).to_coord()) == o_point
+    assert axis_curve(0.5).to_coord().to_slice_coord() == o_point
+    assert axis_curve(1.0).to_coord().to_slice_coord() == o_point
+
+
+def test_extruding_hypnotoad_mesh_enforce_bounds() -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+    eq = hypno_mesh.equilibrium
+    # Extrude only a very short distance to keep run-times quick
+    mesh = generators.hypnotoad_mesh(
+        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, restrict_to_vessel=True
+    )
+    Rmin = min(p.R for p in eq.wall)
+    Rmax = max(p.R for p in eq.wall)
+    Zmin = min(p.Z for p in eq.wall)
+    Zmax = max(p.Z for p in eq.wall)
+
+    def in_domain(element: Prism) -> bool:
+        corners = element.corners()
+        return bool(
+            np.all(corners.x1 <= Rmax)
+            and np.all(corners.x1 >= Rmin)
+            and np.all(corners.x2 <= Zmax)
+            and np.all(corners.x2 >= Zmin)
+        )
+
+    assert all(map(in_domain, mesh))
