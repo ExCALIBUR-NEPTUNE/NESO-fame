@@ -7,29 +7,21 @@ import operator
 from collections import defaultdict
 from collections.abc import Sequence
 from functools import cache, reduce
-from typing import Optional, TypeVar, cast
-from neso_fame.wall import (
-    Connections,
-    find_external_points,
-    get_rectangular_mesh_connections,
-)
+from typing import Callable, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 
+from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
     core_boundary_points,
-    equilibrium_trace,
-    flux_surface_edge,
     get_mesh_boundaries,
-    get_region_boundary_points,
-    perpendicular_edge,
+    get_region_flux_surface_boundary_points,
+    get_region_perpendicular_boundary_points,
 )
-from tests.tools import wall_points_to_segments
-
-from .mesh import (
+from neso_fame.mesh import (
     CoordinateSystem,
     FieldTrace,
     FieldTracer,
@@ -43,6 +35,12 @@ from .mesh import (
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
+)
+from neso_fame.wall import (
+    Connections,
+    find_external_points,
+    get_rectangular_mesh_connections,
+    wall_points_to_segments,
 )
 
 Connectivity = Sequence[tuple[int, int]]
@@ -499,6 +497,81 @@ def _merge_connections(left: Connections, right: Connections) -> Connections:
     return left
 
 
+def _get_element_corners(
+    x: npt.NDArray,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
+
+
+def _element_corners(
+    region: HypnoMeshRegion,
+) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
+    R = _get_element_corners(region.Rxy.corners)
+    Z = _get_element_corners(region.Zxy.corners)
+    return (
+        SliceCoords(R[0], Z[0], CoordinateSystem.CYLINDRICAL),
+        SliceCoords(R[1], Z[1], CoordinateSystem.CYLINDRICAL),
+        SliceCoords(R[2], Z[2], CoordinateSystem.CYLINDRICAL),
+        SliceCoords(R[3], Z[3], CoordinateSystem.CYLINDRICAL),
+    )
+
+
+def _handle_nodes_outside_vessel(
+    hypnotoad_poloidal_mesh: HypnoMesh, restrict_to_vessel: bool
+) -> tuple[
+    Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool],
+    frozenset[SliceCoord],
+]:
+    if restrict_to_vessel:
+        # TODO: Need to add support for checking along entire length
+        # of field line (i.e. by passing in a callable test to
+        # find_external_points).
+        connections = reduce(
+            _merge_connections,
+            (
+                get_rectangular_mesh_connections(
+                    SliceCoords(
+                        region.Rxy.corners,
+                        region.Zxy.corners,
+                        CoordinateSystem.CYLINDRICAL,
+                    )
+                )
+                for region in hypnotoad_poloidal_mesh.regions.values()
+            ),
+        )
+
+        outermost_nodes = reduce(
+            operator.or_,
+            (
+                frozenset(bound)
+                for _, bound in itertools.chain.from_iterable(
+                    get_region_flux_surface_boundary_points(region)[1:]
+                    + get_region_perpendicular_boundary_points(region)
+                    for region in hypnotoad_poloidal_mesh.regions.values()
+                )
+            ),
+        )
+        wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
+        external_nodes, outermost_in_vessel = find_external_points(
+            outermost_nodes, connections, wall
+        )
+
+        def corners_within_vessel(
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+        ) -> bool:
+            return frozenset(corners).isdisjoint(external_nodes)
+
+    else:
+        outermost_in_vessel = frozenset()
+
+        def corners_within_vessel(
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+        ) -> bool:
+            return True
+
+    return corners_within_vessel, outermost_in_vessel
+
+
 def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
     extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
@@ -556,138 +629,30 @@ def hypnotoad_mesh(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    tracer = FieldTracer(
-        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
-        spatial_interp_resolution,
+    corners_within_vessel, outermost_in_vessel = _handle_nodes_outside_vessel(
+        hypnotoad_poloidal_mesh, restrict_to_vessel
     )
-    op = hypnotoad_poloidal_mesh.equilibrium.o_point
-    o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
-
-    @cache
-    def perpendicular_quad(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            perpendicular_edge(hypnotoad_poloidal_mesh.equilibrium, north, south),
-            tracer,
-            dx3,
-        )
-
-    @cache
-    def flux_surface_quad(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            flux_surface_edge(hypnotoad_poloidal_mesh.equilibrium, north, south),
-            tracer,
-            dx3,
-        )
-
-    @cache
-    def make_connecting_quad(coord: SliceCoord) -> Quad:
-        return Quad(
-            StraightLineAcrossField(coord, o_point),
-            tracer,
-            dx3,
-            aligned_edges=QuadAlignment.NORTH,
-        )
-
-    def get_element_corners(
-        x: npt.NDArray,
-    ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
-        return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
-
-    def element_corners(
-        region: HypnoMeshRegion,
-    ) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
-        R = get_element_corners(region.Rxy.corners)
-        Z = get_element_corners(region.Zxy.corners)
-        return (
-            SliceCoords(R[0], Z[0], CoordinateSystem.CYLINDRICAL),
-            SliceCoords(R[1], Z[1], CoordinateSystem.CYLINDRICAL),
-            SliceCoords(R[2], Z[2], CoordinateSystem.CYLINDRICAL),
-            SliceCoords(R[3], Z[3], CoordinateSystem.CYLINDRICAL),
-        )
-
-    def make_hex(
-        sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: SliceCoord
-    ) -> Prism:
-        return Prism(
-            (
-                flux_surface_quad(nw, ne),
-                flux_surface_quad(sw, se),
-                perpendicular_quad(se, ne),
-                perpendicular_quad(sw, nw),
-            )
-        )
-
-    def make_prism(north: SliceCoord, south: SliceCoord) -> Prism:
-        # Only half the permutations of edge ordering seem to work
-        # with Nektar++, but this is not documented. I can't figure
-        # out the rule, but this seems to work.
-        return Prism(
-            (
-                make_connecting_quad(north),
-                make_connecting_quad(south),
-                flux_surface_quad(north, south),
-            )
-        )
-
-    if restrict_to_vessel:
-        connections = reduce(
-            _merge_connections,
-            (
-                get_rectangular_mesh_connections(
-                    SliceCoords(
-                        region.Rxy.corners,
-                        region.Zxy.corners,
-                        CoordinateSystem.CYLINDRICAL,
-                    )
-                )
-                for region in hypnotoad_poloidal_mesh.regions.values()
-            ),
-        )
-
-        outermost_nodes = reduce(
-            operator.or_,
-            (
-                frozenset(bound)
-                for _, bound in itertools.chain.from_iterable(
-                    get_region_boundary_points(
-                        region, flux_surface_quad, perpendicular_quad
-                    )[1:]
-                    for region in hypnotoad_poloidal_mesh.regions.values()
-                )
-            ),
-        )
-        wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
-        external_nodes, outermost_in_vessel = find_external_points(
-            outermost_nodes, connections, wall
-        )
-
-        def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
-        ) -> bool:
-            return not (frozenset(corners) & external_nodes)
-
-    else:
-
-        def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
-        ) -> bool:
-            return True
+    factory = ElementBuilder(
+        hypnotoad_poloidal_mesh, spatial_interp_resolution, dx3, outermost_in_vessel
+    )
 
     elements = [
-        make_hex(*corners)
+        factory.make_hex(*corners)
         for corners in itertools.chain.from_iterable(
-            zip(*map(operator.methodcaller("iter_points"), element_corners(region)))
+            zip(*map(operator.methodcaller("iter_points"), _element_corners(region)))
             for region in hypnotoad_poloidal_mesh.regions.values()
         )
         if corners_within_vessel(corners)
     ]
     boundaries = get_mesh_boundaries(
-        hypnotoad_poloidal_mesh, flux_surface_quad, perpendicular_quad
+        hypnotoad_poloidal_mesh, factory.flux_surface_quad, factory.perpendicular_quad
     )
     if mesh_core:
         core_points = core_boundary_points(hypnotoad_poloidal_mesh)
         core_elements = list(
-            itertools.starmap(make_prism, itertools.pairwise(core_points.iter_points()))
+            itertools.starmap(
+                factory.make_prism, itertools.pairwise(core_points.iter_points())
+            )
         )
         elements += core_elements
         boundaries[0] = frozenset()

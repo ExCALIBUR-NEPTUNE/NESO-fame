@@ -37,11 +37,12 @@ from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad_interface import (
-    get_region_boundary_points,
     eqdsk_equilibrium,
     equilibrium_trace,
     flux_surface_edge,
     get_mesh_boundaries,
+    get_region_flux_surface_boundary_points,
+    get_region_perpendicular_boundary_points,
     perpendicular_edge,
 )
 from neso_fame.mesh import (
@@ -1008,7 +1009,6 @@ def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
     psis = frozenset(float(eq.psi(p[0].x1, p[0].x2)) for p in quad_nodes)
     assert len(psis) == len(bound)
 
-# FIXME: Need to rewrite these tests of get_region_boundary to reflect refactoring
 
 @settings(deadline=None)
 @given(mesh_regions, floats())
@@ -1020,8 +1020,12 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
-    for c, points in get_region_boundary_points(region, constructor, constructor)[:5]:
-        check_flux_surface_bound(eq, frozenset(itertools.starmap(c, itertools.pairwise(points))), region.name == "core(0)")
+    for points in get_region_flux_surface_boundary_points(region):
+        check_flux_surface_bound(
+            eq,
+            frozenset(itertools.starmap(constructor, itertools.pairwise(points))),
+            region.name == "core(0)",
+        )
 
 
 @settings(deadline=None)
@@ -1034,8 +1038,10 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
-    for c, points in get_region_boundary_points(region, constructor, constructor)[5:]:
-        check_perpendicular_bounds(eq, frozenset(itertools.starmap(c, itertools.pairwise(points))))
+    for points in get_region_perpendicular_boundary_points(region):
+        check_perpendicular_bounds(
+            eq, frozenset(itertools.starmap(constructor, itertools.pairwise(points)))
+        )
 
 
 def get_region(mesh_args: MeshArgs, name: str) -> MeshRegion:
@@ -1107,14 +1113,11 @@ def get_region(mesh_args: MeshArgs, name: str) -> MeshRegion:
 def test_region_bounds(
     mesh_args: MeshArgs, region_name: str, is_boundary: list[bool]
 ) -> None:
-    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), 1.0
-        )
-
     region = get_region(mesh_args, region_name)
-    boundaries = get_region_boundary_points(region, constructor, constructor)
-    assert [len(list(b[1])) > 0 for b in boundaries] == is_boundary
+    boundaries = get_region_flux_surface_boundary_points(
+        region
+    ) + get_region_perpendicular_boundary_points(region)
+    assert [len(list(b)) > 0 for b in boundaries] == is_boundary
 
 
 @mark.parametrize(
