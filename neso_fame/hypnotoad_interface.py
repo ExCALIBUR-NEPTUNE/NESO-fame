@@ -958,7 +958,7 @@ def get_mesh_boundaries(
             for left, (constructor, right) in zip(lhs, rhs)
         ]
 
-    boundaries = reduce(
+    boundaries: list[frozenset[Quad]] = reduce(
         merge_bounds,
         (
             get_region_boundary_points(region, flux_surface_quad, perpendicular_quad)

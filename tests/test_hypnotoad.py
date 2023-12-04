@@ -37,7 +37,7 @@ from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad_interface import (
-    _get_region_boundaries,
+    get_region_boundary_points,
     eqdsk_equilibrium,
     equilibrium_trace,
     flux_surface_edge,
@@ -977,7 +977,7 @@ def check_coordinate_pairs_connected(
     """Check that the pairs of coordinates describe line segments that
     all connect together to form a larger curve."""
     location_counts = Counter(itertools.chain(*coord_pairs))
-    expected_hanging = 0 if periodic else 2
+    expected_hanging = 0 if periodic or len(location_counts) == 0 else 2
     hanging_nodes = len([c for c in location_counts.values() if c == 1])
     assert hanging_nodes == expected_hanging
     assert (
@@ -993,10 +993,11 @@ def check_flux_surface_bound(
     # Check quads are all adjacent
     check_coordinate_pairs_connected(quad_nodes, periodic)
     # Check quads all have same psi values
-    psis = np.array(
-        [[eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes]
-    )
-    np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
+    if len(bound) > 0:
+        psis = np.array(
+            [[eq.psi(p[0].x1, p[0].x2), eq.psi(p[1].x1, p[1].x2)] for p in quad_nodes]
+        )
+        np.testing.assert_allclose(psis, psis[0][0], 1e-8, 1e-8)
 
 
 def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
@@ -1007,6 +1008,7 @@ def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
     psis = frozenset(float(eq.psi(p[0].x1, p[0].x2)) for p in quad_nodes)
     assert len(psis) == len(bound)
 
+# FIXME: Need to rewrite these tests of get_region_boundary to reflect refactoring
 
 @settings(deadline=None)
 @given(mesh_regions, floats())
@@ -1018,8 +1020,8 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
-    for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[:5]):
-        check_flux_surface_bound(eq, b, region.name == "core(0)")
+    for c, points in get_region_boundary_points(region, constructor, constructor)[:5]:
+        check_flux_surface_bound(eq, frozenset(itertools.starmap(c, itertools.pairwise(points))), region.name == "core(0)")
 
 
 @settings(deadline=None)
@@ -1032,8 +1034,8 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
             StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
-    for b in filter(bool, _get_region_boundaries(region, constructor, constructor)[5:]):
-        check_perpendicular_bounds(eq, b)
+    for c, points in get_region_boundary_points(region, constructor, constructor)[5:]:
+        check_perpendicular_bounds(eq, frozenset(itertools.starmap(c, itertools.pairwise(points))))
 
 
 def get_region(mesh_args: MeshArgs, name: str) -> MeshRegion:
@@ -1111,8 +1113,8 @@ def test_region_bounds(
         )
 
     region = get_region(mesh_args, region_name)
-    boundaries = _get_region_boundaries(region, constructor, constructor)
-    assert [len(b) > 0 for b in boundaries] == is_boundary
+    boundaries = get_region_boundary_points(region, constructor, constructor)
+    assert [len(list(b[1])) > 0 for b in boundaries] == is_boundary
 
 
 @mark.parametrize(
