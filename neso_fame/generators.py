@@ -585,8 +585,9 @@ def hypnotoad_mesh(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
-    mesh_core: bool = False,
+    mesh_to_core: bool = False,
     restrict_to_vessel: bool = False,
+    mesh_to_wall: bool = False,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -619,6 +620,10 @@ def hypnotoad_mesh(
     restrict_to_vessel
         Whether to remove the elements whose edges pass outside the
         tokamak wall
+    mesh_to_wall
+        Whether to add extra prism and hex elements to fill the space
+        between the edge of the field-aligned mesh and the tokamak
+        wall. Requires `restrict_to_vesel` to be true.
 
     Returns
     -------
@@ -630,6 +635,10 @@ def hypnotoad_mesh(
     generator
 
     """
+    if mesh_to_wall and not restrict_to_vessel:
+        raise ValueError(
+            "If mesh_to_wall is true then restrict_to_vessel must be true as well."
+        )
     if not hasattr(next(iter(hypnotoad_poloidal_mesh.regions.values())), "Rxy"):
         hypnotoad_poloidal_mesh.calculateRZ()
     dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
@@ -666,7 +675,7 @@ def hypnotoad_mesh(
     boundaries = get_mesh_boundaries(
         hypnotoad_poloidal_mesh, factory.flux_surface_quad, factory.perpendicular_quad
     )
-    if mesh_core:
+    if mesh_to_core:
         core_points = core_boundary_points(hypnotoad_poloidal_mesh)
         core_elements = list(
             itertools.starmap(

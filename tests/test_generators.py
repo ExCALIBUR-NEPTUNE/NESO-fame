@@ -844,7 +844,7 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
     eq = hypno_mesh.equilibrium
     # Extrude only a very short distance to keep run-times quick
     mesh = generators.hypnotoad_mesh(
-        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, mesh_core=True
+        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, mesh_to_core=True
     )
     tri_prisms = [p for p in mesh if len(p.sides) == 3]
     # Check triangles have been created at the centre of the mesh
