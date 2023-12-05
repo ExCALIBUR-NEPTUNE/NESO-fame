@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypnotoad import Mesh as HypnoMesh
-from hypnotoad import Point2D
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad import Point2D  # type: ignore
 from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
