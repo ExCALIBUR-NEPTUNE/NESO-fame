@@ -54,8 +54,8 @@ class _NektarLayerCommon:
     """The Nektar++ point geometry objects contained in this layer."""
     segments: frozenset[SD.SegGeom]
     """The Nektar++ segment geometry (edge) objects contained in this layer."""
-    layer: SD.Composite
-    """The Nektar++ composite object representing this layer."""
+    layer: Sequence[SD.Composite]
+    """The Nektar++ composite objects representing this layer."""
     near_face: SD.Composite
     """The Nektar++ composite object representing the near face of this layer."""
     far_face: SD.Composite
@@ -150,7 +150,7 @@ class NektarElements:
         """Iterate over all of the elements in the mesh."""
         return itertools.chain.from_iterable(map(attrgetter("elements"), self._layers))
 
-    def layers(self) -> Iterator[SD.Composite]:
+    def layers(self) -> Iterator[Sequence[SD.Composite]]:
         """Iterate over the Composite objects representing each layer of the mesh."""
         return map(attrgetter("layer"), self._layers)
 
@@ -495,8 +495,7 @@ def nektar_layer_elements(
     factory
 
     """
-    # FIXME: Currently inherantly 2D
-    elems = list(layer)
+    elems = iter(layer)
     elements: frozenset[SD.Geometry2D] | frozenset[SD.Geometry3D]
     if issubclass(layer.element_type, Quad):
         elements, edges, points = reduce(
@@ -527,7 +526,10 @@ def nektar_layer_elements(
                     iter(nektar_end_shape(item, order, spatial_dim, layer_id)[0])
                 )
 
-    layer_composite = SD.Composite(list(elements))
+    def type_name(element: SD.Geometry) -> str:
+        return element.__class__.__name__
+
+    layer_composite = [SD.Composite(list(e)) for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)]
     near_face = SD.Composite([make_face(f) for f in layer.near_faces()])
     far_face = SD.Composite([make_face(f) for f in layer.far_faces()])
     bounds = [frozenset(make_face(y) for y in x) for x in layer.boundaries()]
@@ -576,7 +578,7 @@ def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
     )
 
 
-def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeMap:
+def nektar_composite_map(composite_map: dict[int, SD.Composite]) -> SD.CompositeMap:
     """Create Nektar++ CompositeMap objects containing a single composite.
 
     Group
@@ -585,7 +587,8 @@ def nektar_composite_map(comp_id: int, composite: SD.Composite) -> SD.CompositeM
 
     """
     comp_map = SD.CompositeMap()
-    comp_map[comp_id] = composite
+    for i, composite in composite_map.items():
+        comp_map[i] = composite
     return comp_map
 
 
@@ -733,27 +736,32 @@ def nektar_mesh(
     movement = meshgraph.GetMovement()
     print("Assigning domains")
     i = -1
+    j = 0
     for i, layer in enumerate(elements.layers()):
-        composites[i] = layer
-        domain = nektar_composite_map(i, layer)
+        comp_map = {k: comp for k, comp in enumerate(layer, j)}
+        j += len(comp_map)
+        for n, composite in comp_map.items():
+            composites[n] = composite
+        domain = nektar_composite_map(comp_map)
         domains[i] = domain
         if write_movement:
             movement.AddZone(SD.ZoneFixed(i, i, domain, 3))
     n = elements.num_layers()
+    m = len(composites)
     print("Assigning interfaces between layers")
-    near_faces: Iterator[tuple[int, SD.Composite]] = enumerate(elements.near_faces(), n)
+    near_faces: Iterator[tuple[int, SD.Composite]] = enumerate(elements.near_faces(), m)
     first_near = next(near_faces)
     near_faces = itertools.chain(near_faces, [first_near])
-    far_faces = enumerate(elements.far_faces(), 2 * n)
+    far_faces = enumerate(elements.far_faces(), m + n)
     for i, ((j, near), (k, far)) in enumerate(zip(near_faces, far_faces)):
         composites[j] = near
         composites[k] = far
         if write_movement and (i != n - 1 or periodic_interfaces):
-            near_interface = SD.Interface(2 * i, nektar_composite_map(j, near))
-            far_interface = SD.Interface(2 * i + 1, nektar_composite_map(k, far))
+            near_interface = SD.Interface(2 * i, nektar_composite_map({j: near}))
+            far_interface = SD.Interface(2 * i + 1, nektar_composite_map({k: far}))
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
     print("Assigning boundary composites")
-    for i, bound in enumerate(elements.bounds(), 3 * n):
+    for i, bound in enumerate(elements.bounds(), m + 2 * n):
         composites[i] = bound
 
     return meshgraph
