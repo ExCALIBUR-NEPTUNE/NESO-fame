@@ -37,6 +37,7 @@ from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
 from neso_fame.hypnotoad_interface import (
+    connect_to_o_point,
     eqdsk_equilibrium,
     equilibrium_trace,
     flux_surface_edge,
@@ -731,6 +732,66 @@ def test_perpendicular_edges(
     )
     for d, e, p in np.nditer([dist, total_err, positions]):
         np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
+
+
+@settings(deadline=None, report_multiple_bugs=False)
+@given(
+    fake_equilibria,
+    floats(0.0, 2 * np.pi),
+    psis,
+    arrays(
+        np.float64,
+        array_shapes(max_side=3),
+        # The scipy integration routines don't behave well if we have
+        # numbers that differ by around machine-epsilon, so we enforce
+        # larger differences between values. Our semi-analytic
+        # solution doesn't work at the end-point/O-point, so don't try
+        # evaluating for position=1.
+        elements=integers(-500, 499).map(lambda x: (x + 500) / 1000),
+        fill=nothing(),
+    ),
+)
+def test_connect_to_o_point(
+    eq: FakeEquilibrium, angle: float, start_psi: float, positions: npt.NDArray
+) -> None:
+    R_start, Z_start = map(float, eq.to_RZ(start_psi, angle))
+    curve_of_psi = eq.perpendicular_curve(R_start, Z_start)
+    R_end, Z_end = eq.o_point
+    end_psi = eq.psi_func(R_end, Z_end, grid=False)
+    approx_end_psi = start_psi + 0.95 * (end_psi - start_psi)
+    start = SliceCoord(R_start, Z_start, CoordinateSystem.CYLINDRICAL)
+    end = SliceCoord(R_end, Z_end, CoordinateSystem.CYLINDRICAL)
+    edge = connect_to_o_point(cast(TokamakEquilibrium, eq), start)
+    # Check starts and ends of the curve are at the right locations
+    assert edge(0.0).to_coord() == start
+    assert edge(1.0).to_coord() == end
+    actual = edge(positions)
+    actual_psis = eq.psi_func(actual.x1, actual.x2, grid=False)
+    # For values values beyond approx_end_psi, linear interpolation is
+    # used and accuracy is low
+    mask = actual_psis >= approx_end_psi
+    # Check positions of points on line correspond to our
+    # semi-analytic expression, except very near the O-point
+    expected_R, expected_Z = curve_of_psi(actual_psis)
+    np.testing.assert_allclose(actual.x1[mask], expected_R[mask], 1e-8, 1e-8)
+    np.testing.assert_allclose(actual.x2[mask], expected_Z[mask], 1e-8, 1e-8)
+    # Check distances along curve are proportional to the normalised
+    # `position` parameter
+    distance = eq.perpendicular_distance(R_start, Z_start)
+    dist, err = distance(actual_psis)
+    approx_total_distance, terr = distance(approx_end_psi)
+    approx_end_R, approx_end_Z = curve_of_psi(approx_end_psi)
+    # approx_total_distance is negative, so subtract remaining distance from O-point
+    total_distance = approx_total_distance - np.sqrt((approx_end_R - R_end)**2 + (approx_end_Z - Z_end)**2)
+    # Standard uncertainty propagation
+    total_err = (
+        np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2
+    )
+    if np.sum(mask) > 0:
+        for d, e, p in np.nditer([dist[mask], total_err[mask], positions[mask]]):
+            np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
+    # Again, distances will be negative
+    assert np.all(dist[~mask] <= approx_total_distance + terr)
 
 
 @np.vectorize

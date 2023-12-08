@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from enum import Enum
 from functools import partial, reduce
 from pathlib import Path
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Literal, Optional, cast, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -491,6 +491,25 @@ def _handle_x_points(
 
     return x_point, start, end, parameter
 
+@overload
+def _get_integration_distance(
+    f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
+    terminus: Callable[[float, npt.NDArray], float],
+    start: SliceCoord,
+    end: SliceCoord,
+    check_end_close: bool,
+    return_result: Literal[False] = False
+) -> float: ...
+
+@overload
+def _get_integration_distance(
+    f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
+    terminus: Callable[[float, npt.NDArray], float],
+    start: SliceCoord,
+    end: SliceCoord,
+    check_end_close: bool,
+    return_result: Literal[True]
+) -> Any: ...
 
 def _get_integration_distance(
     f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
@@ -498,7 +517,8 @@ def _get_integration_distance(
     start: SliceCoord,
     end: SliceCoord,
     check_end_close: bool,
-) -> float:
+    return_result: Literal[True] | Literal[False] = False
+) -> float | Any:
     terminus.terminal = True  # type: ignore
     # Integrate until reaching the terminus, to work out the distance
     # along the contour to normalise with.
@@ -523,6 +543,8 @@ def _get_integration_distance(
         and not np.isclose(result.y[1, -1], end.x2, 1e-5, 1e-5)
     ):
         raise RuntimeError("Integration did not converge on expected location")
+    if return_result:
+        return result
     total_distance: float = result.t[-1]
     return total_distance
 
@@ -733,6 +755,82 @@ def flux_surface_edge(
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)
         R, Z = solution(s)
+        return SliceCoords(
+            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
+        )
+
+    return solution_coords
+
+
+def connect_to_o_point(
+    eq: TokamakEquilibrium, start: SliceCoord,
+) -> AcrossFieldCurve:
+    """Return a line connecting the start point to the o-point.
+
+    This line will connect the two points on the poloidal plane and
+    will be perpendicular to the flux-surface
+
+    Parameters
+    ----------
+    eq
+        A hypnotaod Equilibrium object describing the magnetic field
+    start
+        The starting point of the line
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.AcrossFieldCurve`
+        Curve that is perpendicular to the magnetic field, connecting
+        the two input points.
+
+    Group
+    -----
+    hypnotoad
+
+    """
+    if start.system != CoordinateSystem.CYLINDRICAL:
+        raise ValueError("Coordinate system of `start` must be CYLINDRICAL")
+
+    psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
+    psi_end = float(eq.psi_func(eq.o_point.R, eq.o_point.Z, grid=False))
+    diff = psi_end - psi_start
+    sign = np.sign(diff)
+    # There won't be a sign-change as we approach the actual O-point,
+    # so instead integrate to near it, then make a linear connection
+    # from there to the O-point.
+    psi_end_approx = psi_start + 0.95 * diff
+    o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
+    # Eventually we'll need to know the distance at which the end_approx point is reached, so we can switch to moving straight towards the O-point. However, the first time we integrate we're doing it to determine what that distance is and don't actually need to stop.
+
+    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+        dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
+        dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
+        norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
+        return sign * dpsidR / norm, sign * dpsidZ / norm
+
+    def terminus(t: float, x: npt.NDArray) -> float:
+        return float(eq.psi(x[0], x[1])) - psi_end_approx
+
+    result = _get_integration_distance(
+        f, terminus, start, o_point, False, True
+    )
+    approx_end_distance = result.t[-1]
+    approx_end_point = result.y[:, -1]
+    total_distance = approx_end_distance + np.sqrt((approx_end_point[0] - o_point.x1)**2 + (approx_end_point[1] - o_point.x2)**2)
+    approx_end_s = approx_end_distance / total_distance
+
+    @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(o_point)})
+    def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+        return f(np.asarray(s) * total_distance, np.asarray(x))
+
+    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+        s = np.asarray(s)
+        mask = s < approx_end_s
+        R_sol, Z_sol = solution(np.where(mask, s, 0.))
+        R_lin = approx_end_point[0] + (s - approx_end_s) / (1 - approx_end_s) * (eq.o_point.R - approx_end_point[0])
+        Z_lin = approx_end_point[1] + (s - approx_end_s) / (1 - approx_end_s) * (eq.o_point.Z - approx_end_point[1])
+        R = np.where(mask, R_sol, R_lin)
+        Z = np.where(mask, Z_sol, Z_lin)
         return SliceCoords(
             R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
         )

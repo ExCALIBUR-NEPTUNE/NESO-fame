@@ -9,6 +9,7 @@ from functools import cache
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
+    connect_to_o_point,
     flux_surface_edge,
     perpendicular_edge,
 )
@@ -134,7 +135,7 @@ class ElementBuilder:
     def make_connecting_quad(self, coord: SliceCoord) -> Quad:
         """Create a quad along a straight line between the point and the magnetic axis."""
         return Quad(
-            StraightLineAcrossField(coord, self._o_point),
+            connect_to_o_point(self._equilibrium, coord),
             self._tracer,
             self._dx3,
             aligned_edges=QuadAlignment.NORTH,

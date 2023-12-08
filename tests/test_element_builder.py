@@ -16,6 +16,7 @@ from hypothesis.strategies import (
     integers,
     sampled_from,
     shared,
+    tuples,
 )
 
 from neso_fame.element_builder import ElementBuilder
@@ -62,6 +63,29 @@ def flux_surface_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCo
     region = draw(sampled_from(list(mesh.regions.values())))
     shape = region.Rxy.corners.shape
     i = draw(integers(0, shape[0] - 1))
+    j = draw(integers(0, shape[1] - 2))
+    if draw(booleans()):
+        j1 = j + 1
+        j2 = j
+    else:
+        j1 = j
+        j2 = j + 1
+    return SliceCoord(
+        region.Rxy.corners[i, j1],
+        region.Zxy.corners[i, j1],
+        CoordinateSystem.CYLINDRICAL,
+    ), SliceCoord(
+        region.Rxy.corners[i, j2],
+        region.Zxy.corners[i, j2],
+        CoordinateSystem.CYLINDRICAL,
+    )
+
+
+@composite
+def connectable_to_o_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCoord]:
+    region = draw(sampled_from([r for r in mesh.regions.values() if r.name.endswith("core(0)")]))
+    shape = region.Rxy.corners.shape
+    i = draw(integers(0, shape[0] - 2))
     j = draw(integers(0, shape[1] - 2))
     if draw(booleans()):
         j1 = j + 1
@@ -173,20 +197,20 @@ def test_flux_surface_quad(
 @settings(deadline=None)
 @given(
     shared_meshes,
-    shared_meshes.flatmap(flux_surface_points),
+    shared_meshes.flatmap(connectable_to_o_points).flatmap(sampled_from),
     integers(2, 20),
     floats(1e-3, 1e3),
 )
 def test_connecting_quad(
     mesh: HypnoMesh,
-    termini: tuple[SliceCoord, SliceCoord],
+    point: SliceCoord,
     interp_resolution: int,
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, frozenset())
-    quad = builder.make_connecting_quad(termini[0])
-    assert quad.shape(0.0).to_coord() == termini[0]
+    quad = builder.make_connecting_quad(point)
+    assert quad.shape(0.0).to_coord() == point
     assert quad.shape(1.0).to_coord() == SliceCoord(
         mesh.equilibrium.o_point.R,
         mesh.equilibrium.o_point.Z,
@@ -223,7 +247,7 @@ def test_make_hex(
 @settings(deadline=None)
 @given(
     shared_meshes,
-    shared_meshes.flatmap(flux_surface_points),
+    shared_meshes.flatmap(connectable_to_o_points),
     integers(2, 20),
     floats(1e-3, 1e3),
 )
