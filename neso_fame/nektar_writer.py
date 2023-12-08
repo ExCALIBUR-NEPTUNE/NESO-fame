@@ -741,7 +741,7 @@ def nektar_mesh(
     i = -1
     j = 0
     for i, layer in enumerate(elements.layers()):
-        comp_map = {k: comp for k, comp in enumerate(layer, j)}
+        comp_map = dict(enumerate(layer, j))
         j += len(comp_map)
         for n, composite in comp_map.items():
             composites[n] = composite
