@@ -20,7 +20,6 @@ from neso_fame.mesh import (
     Quad,
     QuadAlignment,
     SliceCoord,
-    StraightLineAcrossField,
 )
 
 RingFragment = tuple[SliceCoord, ...]

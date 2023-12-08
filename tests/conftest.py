@@ -81,7 +81,7 @@ def mutually_broadcastable_from(
     strategy: SearchStrategy[BroadcastableShapes],
 ) -> SearchStrategy[tuple[npt.NDArray]]:
     def shape_to_array(
-        shapes: BroadcastableShapes
+        shapes: BroadcastableShapes,
     ) -> SearchStrategy[tuple[npt.NDArray]]:
         return tuples(
             *(
@@ -151,7 +151,7 @@ num_divs = shared(integers(1, 10), key=999)
 
 
 def straight_line_for_system(
-    system: mesh.CoordinateSystem
+    system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.StraightLine]:
     coords = builds(
         mesh.Coord, whole_numbers, whole_numbers, whole_numbers, just(system)
@@ -966,7 +966,7 @@ def curved_field_line_for_system(
 
 
 def field_aligned_curve_for_system(
-    system: mesh.CoordinateSystem
+    system: mesh.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     if system in CARTESIAN_SYSTEMS:
         return one_of(

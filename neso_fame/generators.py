@@ -564,7 +564,7 @@ def _handle_nodes_outside_vessel(
         )
 
         def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
         ) -> bool:
             return frozenset(corners).isdisjoint(external_nodes)
 
@@ -572,7 +572,7 @@ def _handle_nodes_outside_vessel(
         outermost_in_vessel = frozenset()
 
         def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
         ) -> bool:
             return True
 

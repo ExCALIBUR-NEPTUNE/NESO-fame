@@ -491,15 +491,6 @@ def _handle_x_points(
 
     return x_point, start, end, parameter
 
-@overload
-def _get_integration_distance(
-    f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
-    terminus: Callable[[float, npt.NDArray], float],
-    start: SliceCoord,
-    end: SliceCoord,
-    check_end_close: bool,
-    return_result: Literal[False] = False
-) -> float: ...
 
 @overload
 def _get_integration_distance(
@@ -508,8 +499,22 @@ def _get_integration_distance(
     start: SliceCoord,
     end: SliceCoord,
     check_end_close: bool,
-    return_result: Literal[True]
-) -> Any: ...
+    return_result: Literal[False] = False,
+) -> float:
+    ...
+
+
+@overload
+def _get_integration_distance(
+    f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
+    terminus: Callable[[float, npt.NDArray], float],
+    start: SliceCoord,
+    end: SliceCoord,
+    check_end_close: bool,
+    return_result: Literal[True],
+) -> Any:
+    ...
+
 
 def _get_integration_distance(
     f: Callable[[npt.NDArray, npt.NDArray], tuple[npt.NDArray, ...]],
@@ -517,7 +522,7 @@ def _get_integration_distance(
     start: SliceCoord,
     end: SliceCoord,
     check_end_close: bool,
-    return_result: Literal[True] | Literal[False] = False
+    return_result: Literal[True] | Literal[False] = False,
 ) -> float | Any:
     terminus.terminal = True  # type: ignore
     # Integrate until reaching the terminus, to work out the distance
@@ -763,7 +768,8 @@ def flux_surface_edge(
 
 
 def connect_to_o_point(
-    eq: TokamakEquilibrium, start: SliceCoord,
+    eq: TokamakEquilibrium,
+    start: SliceCoord,
 ) -> AcrossFieldCurve:
     """Return a line connecting the start point to the o-point.
 
@@ -811,24 +817,31 @@ def connect_to_o_point(
     def terminus(t: float, x: npt.NDArray) -> float:
         return float(eq.psi(x[0], x[1])) - psi_end_approx
 
-    result = _get_integration_distance(
-        f, terminus, start, o_point, False, True
-    )
+    result = _get_integration_distance(f, terminus, start, o_point, False, True)
     approx_end_distance = result.t[-1]
     approx_end_point = result.y[:, -1]
-    total_distance = approx_end_distance + np.sqrt((approx_end_point[0] - o_point.x1)**2 + (approx_end_point[1] - o_point.x2)**2)
+    total_distance = approx_end_distance + np.sqrt(
+        (approx_end_point[0] - o_point.x1) ** 2
+        + (approx_end_point[1] - o_point.x2) ** 2
+    )
     approx_end_s = approx_end_distance / total_distance
 
-    @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(o_point)})
+    @integrate_vectorized(
+        tuple(start), total_distance, {total_distance: tuple(o_point)}
+    )
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         return f(np.asarray(s) * total_distance, np.asarray(x))
 
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = np.asarray(s)
         mask = s < approx_end_s
-        R_sol, Z_sol = solution(np.where(mask, s, 0.))
-        R_lin = approx_end_point[0] + (s - approx_end_s) / (1 - approx_end_s) * (eq.o_point.R - approx_end_point[0])
-        Z_lin = approx_end_point[1] + (s - approx_end_s) / (1 - approx_end_s) * (eq.o_point.Z - approx_end_point[1])
+        R_sol, Z_sol = solution(np.where(mask, s, 0.0))
+        R_lin = approx_end_point[0] + (s - approx_end_s) / (1 - approx_end_s) * (
+            eq.o_point.R - approx_end_point[0]
+        )
+        Z_lin = approx_end_point[1] + (s - approx_end_s) / (1 - approx_end_s) * (
+            eq.o_point.Z - approx_end_point[1]
+        )
         R = np.where(mask, R_sol, R_lin)
         Z = np.where(mask, Z_sol, Z_lin)
         return SliceCoords(
@@ -1031,7 +1044,7 @@ def get_mesh_boundaries(
     """
 
     def merge_bounds(
-        constructor: QuadMaker
+        constructor: QuadMaker,
     ) -> Callable[
         [list[frozenset[Quad]], list[Iterator[SliceCoord]]], list[frozenset[Quad]]
     ]:

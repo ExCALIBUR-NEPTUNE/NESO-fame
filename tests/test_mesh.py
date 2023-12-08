@@ -446,7 +446,7 @@ def test_coords_offset(
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(mutually_broadcastable_arrays(3))
 def test_coords_cartesian_to_cartesian(
-    xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray]
+    xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray],
 ) -> None:
     coords = mesh.Coords(*xs, mesh.CoordinateSystem.CARTESIAN)
     new_coords = coords.to_cartesian()
@@ -464,7 +464,7 @@ def test_coords_cartesian_correct_system(coords: mesh.Coords) -> None:
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(mutually_broadcastable_arrays(3))
 def test_coords_cylindrical_to_cartesian_z_unchanged(
-    xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray]
+    xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray],
 ) -> None:
     coords = mesh.Coords(*xs, mesh.CoordinateSystem.CYLINDRICAL)
     assert np.all(coords.to_cartesian().x3 == coords.x2)
@@ -997,7 +997,7 @@ def test_prism_subdivision(h: mesh.Prism, divisions: int) -> None:
 
 @given(mesh_arguments)
 def test_mesh_layer_elements_no_offset(
-    args: tuple[list[mesh.E], list[frozenset[mesh.B]]]
+    args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
 ) -> None:
     layer = mesh.MeshLayer(*args)
     for actual, expected in zip(layer, args[0]):
@@ -1193,7 +1193,7 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad] | list[mesh.Prism]) -
 
 @given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(
-    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.NormalisedCurve]
+    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.NormalisedCurve],
 ) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 

@@ -16,7 +16,6 @@ from hypothesis.strategies import (
     integers,
     sampled_from,
     shared,
-    tuples,
 )
 
 from neso_fame.element_builder import ElementBuilder
@@ -82,8 +81,12 @@ def flux_surface_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCo
 
 
 @composite
-def connectable_to_o_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCoord]:
-    region = draw(sampled_from([r for r in mesh.regions.values() if r.name.endswith("core(0)")]))
+def connectable_to_o_points(
+    draw: Any, mesh: HypnoMesh
+) -> tuple[SliceCoord, SliceCoord]:
+    region = draw(
+        sampled_from([r for r in mesh.regions.values() if r.name.endswith("core(0)")])
+    )
     shape = region.Rxy.corners.shape
     i = draw(integers(0, shape[0] - 2))
     j = draw(integers(0, shape[1] - 2))

@@ -4,7 +4,6 @@ import itertools
 import operator
 import os
 import pathlib
-from typing_extensions import reveal_type
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import reduce
@@ -606,7 +605,9 @@ def check_curved_faces(
         )
         assert n_curves > 0
         assert len(curved_faces) == n_curves
-        polygons: Iterator[SD._NekMapItem[SD.QuadGeom] | SD._NekMapItem[SD.TriGeom]] = itertools.chain(actual_triangles, actual_quads)
+        polygons: Iterator[
+            SD._NekMapItem[SD.QuadGeom] | SD._NekMapItem[SD.TriGeom]
+        ] = itertools.chain(actual_triangles, actual_quads)
         for item in polygons:
             face = item.data()
             curve = face.GetCurve()
@@ -654,7 +655,11 @@ def test_nektar_mesh(
     periodic: bool,
     compressed: bool,
 ) -> None:
-    num_element_types = len({len(p.sides) for p in mesh.reference_layer}) if issubclass(mesh.reference_layer.element_type, Prism) else 1
+    num_element_types = (
+        len({len(p.sides) for p in mesh.reference_layer})
+        if issubclass(mesh.reference_layer.element_type, Prism)
+        else 1
+    )
     elements = nektar_writer.nektar_elements(
         mesh,
         order,
@@ -730,7 +735,9 @@ def test_nektar_mesh(
     n_layers = len(list(elements.layers()))
     n_comp = n_layers * (2 + num_element_types) + elements.num_bounds()
     assert len(actual_composites) == n_comp
-    expected_layer_composites = comparable_composites(itertools.chain.from_iterable(elements.layers()))
+    expected_layer_composites = comparable_composites(
+        itertools.chain.from_iterable(elements.layers())
+    )
     if periodic:
         expected_near_composites = comparable_composites(elements.near_faces())
         expected_far_composites = comparable_composites(elements.far_faces())
@@ -758,7 +765,11 @@ def test_nektar_mesh(
     domains = meshgraph.GetDomain()
     assert len(domains) == n_layers
     assert all(len(domains[i]) == num_element_types for i in range(n_layers))
-    actual_layers = comparable_composites(itertools.chain.from_iterable((item.data() for item in domains[i]) for i in range(n_layers)))
+    actual_layers = comparable_composites(
+        itertools.chain.from_iterable(
+            (item.data() for item in domains[i]) for i in range(n_layers)
+        )
+    )
     assert len(actual_layers) // num_element_types == n_layers
     assert actual_layers == expected_layer_composites
 
@@ -771,9 +782,9 @@ def test_nektar_mesh(
         for i in range(n_layers):
             zone_domain = zones[i].GetDomain()
             assert len(zone_domain) == num_element_types
-            assert comparable_composites(item.data() for item in zone_domain) == comparable_composites(item.data() for item in 
-                domains[i]
-            )
+            assert comparable_composites(
+                item.data() for item in zone_domain
+            ) == comparable_composites(item.data() for item in domains[i])
 
         assert len(interfaces) == n_layers if periodic else n_layers - 1
         actual_near_composites = comparable_composites(

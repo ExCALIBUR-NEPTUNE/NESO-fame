@@ -256,7 +256,7 @@ class OPoint(NamedTuple):
 
 
 def create_equilibrium_psi_func(
-    o_points: tuple[OPoint, ...]
+    o_points: tuple[OPoint, ...],
 ) -> Callable[[npt.NDArray, npt.NDArray], npt.NDArray]:
     def semi_axes_squared(point: OPoint) -> tuple[float, float]:
         aspect_sq = point.aspect_ratio * point.aspect_ratio
@@ -279,7 +279,7 @@ def create_equilibrium_psi_func(
 
 
 def create_equilibrium_dpsi_dz(
-    o_points: tuple[OPoint, ...]
+    o_points: tuple[OPoint, ...],
 ) -> Callable[[npt.NDArray], npt.NDArray]:
     if len(frozenset(o.R for o in o_points)) > 1:
         raise ValueError(
@@ -782,7 +782,9 @@ def test_connect_to_o_point(
     approx_total_distance, terr = distance(approx_end_psi)
     approx_end_R, approx_end_Z = curve_of_psi(approx_end_psi)
     # approx_total_distance is negative, so subtract remaining distance from O-point
-    total_distance = approx_total_distance - np.sqrt((approx_end_R - R_end)**2 + (approx_end_Z - Z_end)**2)
+    total_distance = approx_total_distance - np.sqrt(
+        (approx_end_R - R_end) ** 2 + (approx_end_Z - Z_end) ** 2
+    )
     # Standard uncertainty propagation
     total_err = (
         np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2

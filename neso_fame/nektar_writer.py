@@ -177,7 +177,7 @@ class NektarElements:
         )
 
         def combine_bounds(
-            bounds: Sequence[frozenset[SD.Geometry]]
+            bounds: Sequence[frozenset[SD.Geometry]],
         ) -> list[SD.Geometry]:
             return list(reduce(or_, bounds))
 
@@ -529,7 +529,10 @@ def nektar_layer_elements(
     def type_name(element: SD.Geometry) -> str:
         return element.__class__.__name__
 
-    layer_composite = [SD.Composite(list(e)) for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)]
+    layer_composite = [
+        SD.Composite(list(e))
+        for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)
+    ]
     near_face = SD.Composite([make_face(f) for f in layer.near_faces()])
     far_face = SD.Composite([make_face(f) for f in layer.far_faces()])
     bounds = [frozenset(make_face(y) for y in x) for x in layer.boundaries()]
