@@ -7,7 +7,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Sequence
 from functools import cache, reduce
-from typing import Callable, Optional, TypeVar, cast
+from typing import Callable, Iterator, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -453,13 +453,6 @@ def field_aligned_3d(
             if _is_fixed(north_bound)
             else QuadAlignment.ALIGNED
         )
-        print(
-            lower_dim_mesh[node1],
-            lower_dim_mesh[node2],
-            north_bound,
-            south_bound,
-            alignment,
-        )
         local_tracer = (
             FieldTracer(
                 _constrain_to_plain(field_line, shape, north_bound, south_bound),
@@ -664,7 +657,7 @@ def hypnotoad_mesh(
     )
     factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3, outermost_in_vessel)
 
-    elements = [
+    main_elements = [
         factory.make_hex(*corners)
         for corners in itertools.chain.from_iterable(
             zip(*map(operator.methodcaller("iter_points"), _element_corners(region)))
@@ -672,7 +665,7 @@ def hypnotoad_mesh(
         )
         if corners_within_vessel(corners)
     ]
-    boundaries = get_mesh_boundaries(
+    all_boundaries = get_mesh_boundaries(
         hypnotoad_poloidal_mesh, factory.flux_surface_quad, factory.perpendicular_quad
     )
     if mesh_to_core:
@@ -682,14 +675,158 @@ def hypnotoad_mesh(
                 factory.make_prism, itertools.pairwise(core_points.iter_points())
             )
         )
-        elements += core_elements
-        boundaries[0] = frozenset()
+        inner_bounds: frozenset[Quad] = frozenset()
+    else:
+        core_elements = []
+        inner_bounds = all_boundaries[0]
+    if mesh_to_wall:
+        wall_elements, outer_bounds = reduce(
+            lambda left, right: (left[0] + right[0], left[1] | right[1]),
+            (
+                _wall_elements_and_bounds(
+                    left_mp, left_wps, right_mp, right_wps, factory
+                )
+                for (left_mp, left_wps), (right_mp, right_wps) in _periodic_pairwise(
+                    _group_wall_points(
+                        hypnotoad_poloidal_mesh, list(factory.outermost_vertices())
+                    )
+                )
+            ),
+        )
+    elif restrict_to_vessel:
+        wall_elements = []
+        outer_bounds = frozenset(factory.outermost_quads())
+    else:
+        wall_elements = []
+        outer_bounds = reduce(operator.or_, all_boundaries[1:])
 
     return GenericMesh(
         MeshLayer(
-            elements,
-            boundaries,
+            core_elements + main_elements + wall_elements,
+            [inner_bounds, outer_bounds],
             subdivisions=subdivisions,
         ),
         x3_mid,
     )
+
+
+def _group_wall_points(
+    poloidal_mesh: HypnoMesh, outermost_vertices: Sequence[SliceCoord]
+) -> Iterator[tuple[SliceCoord, list[SliceCoord]]]:
+    """Iterate over points on the wall, grouped by the closest point on the mesh."""
+    # Get pairs of wall points and the nearest point on the existing mesh
+    wall_points = (
+        (
+            SliceCoord(p.R, p.Z, CoordinateSystem.CYLINDRICAL),
+            min(
+                (
+                    (coord, np.sqrt((p.R - coord.x1) ** 2 + (p.Z - coord.x2) ** 2))
+                    for coord in outermost_vertices
+                ),
+                key=lambda x: x[1],
+            )[0],
+        )
+        for p in poloidal_mesh.equilibrium.wall[:-1]
+    )
+    return (
+        (mp, list(map(operator.itemgetter(0), wps)))
+        for mp, wps in itertools.groupby(wall_points, operator.itemgetter(1))
+    )
+
+
+T = TypeVar("T")
+
+
+def _periodic_pairwise(iterator: Iterator[T]) -> Iterator[tuple[T, T]]:
+    """Return successive overlapping pairs taken from the input iterator.
+
+    This is the same as :func:`itertools.pairwise`, except the last
+    item in the returned iterator will be the pair of the last and
+    first items in the original iterator.
+
+    """
+    first = [next(iterator)]
+    return itertools.pairwise(itertools.chain(first, iterator, first))
+
+
+def _wall_elements_and_bounds(
+    left_mesh_point: SliceCoord,
+    left_wall_points: Sequence[SliceCoord],
+    right_mesh_point: SliceCoord,
+    right_wall_points: list[SliceCoord],
+    factory: ElementBuilder,
+) -> tuple[list[Prism], frozenset[Quad]]:
+    """Make the elements filling the space between the mesh points and the wall.
+
+    Parameters
+    ----------
+    left_mesh_point
+        A point in the existing mesh.
+    left_wall_points
+        The point(s) on the wall for which `left_mesh_point` is the nearest point
+        in the mesh.
+    right_mesh_point
+        A point in the existing mesh
+    right_wall_points
+        The point(s) on the wall for which `right_mesh_point` is the nearest point
+        in the mesh.
+    factory
+        The factory object being used to build the mesh.
+
+    Result
+    ------
+    The triangular prism and hexahedron elements filling the space
+    between the mesh and the wall, as well as the quads making up the
+    surface of the wall.
+
+    """
+    if left_mesh_point == right_mesh_point:
+        prisms = [
+            factory.make_wall_prism(left_mesh_point, w1, w2)
+            for w1, w2 in itertools.pairwise(
+                itertools.chain(left_wall_points, right_wall_points[:1])
+            )
+        ]
+        bounds = frozenset(
+            itertools.starmap(
+                factory.make_wall_quad,
+                itertools.pairwise(
+                    itertools.chain(left_wall_points, right_wall_points[:1])
+                ),
+            )
+        )
+        return prisms, bounds
+
+    prisms = [
+        factory.make_wall_prism(left_mesh_point, w1, w2)
+        for w1, w2 in itertools.pairwise(left_wall_points)
+    ]
+    intermediate_mesh_points = list(
+        factory.outermost_vertices_between(left_mesh_point, right_mesh_point)
+    )
+    n = len(intermediate_mesh_points)
+    start = left_wall_points[-1]
+    end = right_wall_points[0]
+    intermediate_wall_points = SliceCoords(
+        np.linspace(start.x1, end.x1, n),
+        np.linspace(start.x2, end.x2, n),
+        CoordinateSystem.CYLINDRICAL,
+    )
+    hexes = [
+        factory.make_wall_hex(q, mn, ms, wn, ws)
+        for q, (mn, ms), (wn, ws) in zip(
+            factory.outermost_quads_between(start, end),
+            itertools.pairwise(intermediate_mesh_points),
+            itertools.pairwise(intermediate_wall_points.iter_points()),
+        )
+    ]
+    bounds = frozenset(
+        itertools.starmap(
+            factory.make_wall_quad,
+            itertools.chain(
+                itertools.pairwise(left_wall_points),
+                itertools.pairwise(intermediate_wall_points.iter_points()),
+            ),
+        )
+    )
+    return prisms + hexes, bounds

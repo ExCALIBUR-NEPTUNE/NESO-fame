@@ -212,7 +212,7 @@ def test_connecting_quad(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, frozenset())
-    quad = builder.make_connecting_quad(point)
+    quad = builder.make_quad_to_o_point(point)
     assert quad.shape(0.0).to_coord() == point
     assert quad.shape(1.0).to_coord() == SliceCoord(
         mesh.equilibrium.o_point.R,

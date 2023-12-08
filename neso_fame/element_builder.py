@@ -22,6 +22,7 @@ from neso_fame.mesh import (
     Quad,
     QuadAlignment,
     SliceCoord,
+    StraightLineAcrossField,
 )
 
 # The quad is the one connecting this node to the one before it in the ring
@@ -158,13 +159,35 @@ class ElementBuilder:
         return q
 
     @cache
-    def make_connecting_quad(self, coord: SliceCoord) -> Quad:
+    def make_quad_to_o_point(self, coord: SliceCoord) -> Quad:
         """Create a quad along a straight line between the point and the magnetic axis."""
         return Quad(
             connect_to_o_point(self._equilibrium, coord),
             self._tracer,
             self._dx3,
             aligned_edges=QuadAlignment.NORTH,
+        )
+
+    @cache
+    def make_wall_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
+        """Create a quad along the wall of the tokamak."""
+        return Quad(
+            StraightLineAcrossField(north, south),
+            self._tracer,
+            self._dx3,
+            aligned_edges=QuadAlignment.NONALIGNED,
+        )
+
+    @cache
+    def make_mesh_to_wall_quad(
+        self, wall_coord: SliceCoord, mesh_coord: SliceCoord
+    ) -> Quad:
+        """Make a quad stretching from a point on the wall to the existing mesh."""
+        return Quad(
+            StraightLineAcrossField(wall_coord, mesh_coord),
+            self._tracer,
+            self._dx3,
+            aligned_edges=QuadAlignment.SOUTH,
         )
 
     def make_hex(
@@ -181,15 +204,45 @@ class ElementBuilder:
         )
 
     def make_prism(self, north: SliceCoord, south: SliceCoord) -> Prism:
-        """Createa a triangular prism from the two arguments and the O-point."""
+        """Create a a triangular prism from the two arguments and the O-point."""
         # Only half the permutations of edge ordering seem to work
         # with Nektar++, but this is not documented. I can't figure
         # out the rule, but this seems to work.
         return Prism(
             (
-                self.make_connecting_quad(north),
-                self.make_connecting_quad(south),
+                self.make_quad_to_o_point(north),
+                self.make_quad_to_o_point(south),
                 self.flux_surface_quad(north, south),
+            )
+        )
+
+    def make_wall_prism(
+        self, mesh_vertex: SliceCoord, north: SliceCoord, south: SliceCoord
+    ) -> Prism:
+        """Create a triangular prism from two points on the wall and one on the mesh."""
+        return Prism(
+            (
+                self.make_mesh_to_wall_quad(north, mesh_vertex),
+                self.make_mesh_to_wall_quad(south, mesh_vertex),
+                self.make_wall_quad(north, south),
+            )
+        )
+
+    def make_wall_hex(
+        self,
+        mesh_quad: Quad,
+        mesh_north: SliceCoord,
+        mesh_south: SliceCoord,
+        wall_north: SliceCoord,
+        wall_south: SliceCoord,
+    ) -> Prism:
+        """Create a hexahedron with one quad on the mesh and another on the wall."""
+        return Prism(
+            (
+                self.make_wall_quad(wall_north, wall_south),
+                mesh_quad,
+                self.make_mesh_to_wall_quad(wall_north, mesh_north),
+                self.make_mesh_to_wall_quad(wall_south, mesh_south),
             )
         )
 
@@ -247,7 +300,7 @@ class ElementBuilder:
     def outermost_vertices(self) -> Iterator[SliceCoord]:
         """Iterate over the vertices at the outermost edge of the mesh still in the vessel.
 
-        The order of the iteration is the order tehse vertices are
+        The order of the iteration is the order these vertices are
         connected into a ring, moving counter-clockwise. The
         start-point is arbitrary.
 
@@ -255,6 +308,18 @@ class ElementBuilder:
         if not self._outermost_vertex_ring[1]:
             raise ValueError("Outer vertices do not form a ring.")
         return map(itemgetter(0), self._outermost_vertex_ring[0][0])
+
+    def outermost_quads(self) -> Iterator[Quad]:
+        """Iterate over the quads at the outermost edge of the mesh still in the vessel.
+
+        The order of the iteration is the order these quads are
+        connected into a ring, moving counter-clockwise. The
+        start-point is arbitrary.
+
+        """
+        if not self._outermost_vertex_ring[1]:
+            raise ValueError("Outer vertices do not form a ring.")
+        return map(itemgetter(1), self._outermost_vertex_ring[0][0])
 
     def _order_vertices_counter_clockwise(
         self, left: SliceCoord, right: SliceCoord
