@@ -375,6 +375,26 @@ def test_outermost_single_point(vertex: SliceCoord) -> None:
     assert outermost_between[0] == vertex
 
 
+def test_outermost_quads() -> None:
+    ordered_outermost = list(BUILDER.outermost_vertices())
+    outermost_between = frozenset(
+        itertools.chain.from_iterable(
+            q.shape([0.0, 1.0]).iter_points()
+            for q in BUILDER.outermost_quads_between(
+                ordered_outermost[0], ordered_outermost[-1]
+            )
+        )
+    )
+    assert frozenset(ordered_outermost) == outermost_between
+
+
+@given(outer_vertices, outer_vertices)
+def test_outermost_quads_between_termini(start: SliceCoord, end: SliceCoord) -> None:
+    outermost_between = list(BUILDER.outermost_quads_between(start, end))
+    assert start in frozenset(outermost_between[0].shape([0.0, 1.0]).iter_points())
+    assert end in frozenset(outermost_between[-1].shape([0.0, 1.0]).iter_points())
+
+
 def test_unfinished_outermost_vertices_between() -> None:
     start = UNFINISHED_SOUTH_WEST[2]
     end = SOUTH[3]
@@ -440,3 +460,21 @@ def test_unfinished_vertices_wrong_order1(start: SliceCoord, end: SliceCoord) ->
 def test_unfinished_vertices_wrong_order2(start: SliceCoord, end: SliceCoord) -> None:
     with pytest.raises(ValueError):
         _ = BUILDER_UNFINISHED.outermost_vertices_between(start, end)
+
+
+@given(
+    sampled_from(list(UNFINISHED_NORTH_WEST.iter_points())),
+    sampled_from(list(UNFINISHED_NORTH_EAST.iter_points())),
+)
+def test_unfinished_quads_wrong_order1(start: SliceCoord, end: SliceCoord) -> None:
+    with pytest.raises(ValueError):
+        _ = BUILDER_UNFINISHED.outermost_quads_between(start, end)
+
+
+@given(
+    sampled_from(list(UNFINISHED_SOUTH_EAST.iter_points())),
+    sampled_from(list(UNFINISHED_SOUTH_WEST.iter_points())),
+)
+def test_unfinished_quads_wrong_order2(start: SliceCoord, end: SliceCoord) -> None:
+    with pytest.raises(ValueError):
+        _ = BUILDER_UNFINISHED.outermost_quads_between(start, end)
