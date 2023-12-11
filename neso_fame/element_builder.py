@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Iterator
+from dataclasses import dataclass
 from functools import cache
-from operator import itemgetter
-from typing import Optional
+from typing import Optional, cast
 
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
@@ -25,71 +25,169 @@ from neso_fame.mesh import (
     StraightLineAcrossField,
 )
 
-# The quad is the one connecting this node to the one before it in the ring
-RingLink = tuple[SliceCoord, Optional[Quad]]
-RingFragment = tuple[RingLink, ...]
-RingFragments = tuple[RingFragment, ...]
-VertexRing = tuple[RingFragments, bool]
 
+@dataclass(frozen=True)
+class _RingFragment:
+    vertices: list[SliceCoord]
+    quads: list[Quad]
+    counterclockwiseness: int
 
-def _coord_index_in_fragment(fragment: RingFragment, coord: SliceCoord) -> int:
-    try:
-        index = next(
-            itertools.dropwhile(lambda x: x[1][0] != coord, enumerate(fragment))
-        )[0]
-    except StopIteration:
-        raise ValueError(f"{coord} not present in fragment")
-    return index
+    def __iter__(self) -> Iterator[SliceCoord]:
+        if self.counterclockwiseness < 0:
+            return iter(self.vertices[::-1])
+        return iter(self.vertices)
 
+    def vertex_list(self) -> list[SliceCoord]:
+        if self.counterclockwiseness < 0:
+            return self.vertices[::-1]
+        return list(self.vertices)
 
-def _fragment_and_position(
-    fragments: RingFragments, coord: SliceCoord
-) -> tuple[RingFragment, int]:
-    for fragment in fragments:
+    def iter_quads(self) -> Iterator[Quad]:
+        if self.counterclockwiseness < 0:
+            return iter(self.quads[::-1])
+        return iter(self.quads)
+
+    def quad_list(self) -> list[Quad]:
+        if self.counterclockwiseness < 0:
+            return self.quads[::-1]
+        return list(self.quads)
+
+    def coord_index(self, coord: SliceCoord) -> int:
         try:
-            i = _coord_index_in_fragment(fragment, coord)
-            return fragment, i
-        except ValueError:
-            pass
-    raise ValueError(f"{coord} not present in ring fragments.")
+            index = next(
+                itertools.dropwhile(lambda x: x[1] != coord, enumerate(self.vertices))
+            )[0]
+        except StopIteration:
+            raise ValueError(f"{coord} not present in fragment")
+        return index
+
+    def reverse(self) -> _RingFragment:
+        return _RingFragment(
+            self.vertices[::-1], self.quads[::-1], -self.counterclockwiseness
+        )
 
 
-def _fragment_with_coord_at_start(
-    fragments: RingFragments, coord: SliceCoord, q: Quad
-) -> tuple[RingFragment, RingFragments]:
-    for i, fragment in enumerate(fragments):
-        if fragment[0][0] == coord:
-            assert fragment[0][1] is None
-            return ((fragment[0][0], q),) + fragment[1:], fragments[:i] + fragments[
-                i + 1 :
+RingFragments = list[_RingFragment]
+
+
+@dataclass(frozen=True)
+class _VertexRing:
+    fragments: list[_RingFragment]
+    linking_quad: Optional[Quad] = None
+
+    def find_fragment_and_position(
+        self, coord: SliceCoord
+    ) -> tuple[_RingFragment, int]:
+        for fragment in self.fragments:
+            try:
+                i = fragment.coord_index(coord)
+                return fragment, i
+            except ValueError:
+                pass
+        raise ValueError(f"{coord} not present in ring fragments.")
+
+    @property
+    def complete(self) -> bool:
+        return self.linking_quad is not None
+
+    @staticmethod
+    def _fragment_with_coord_at_start(
+        fragments: list[_RingFragment], coord: SliceCoord
+    ) -> tuple[_RingFragment, RingFragments]:
+        for i, fragment in enumerate(fragments):
+            if fragment.vertices[0] == coord:
+                return fragment, fragments[:i] + fragments[i + 1 :]
+        # If can't find at the start of a fragment, maybe the fragment
+        # is the wrong way round and we need to reverse it.
+        for i, fragment in enumerate(fragments):
+            if fragment.vertices[-1] == coord:
+                return fragment.reverse(), fragments[:i] + fragments[i + 1 :]
+        return _RingFragment([coord], [], 0), fragments
+
+    @staticmethod
+    def _fragment_with_coord_at_end(
+        fragments: list[_RingFragment], coord: SliceCoord
+    ) -> tuple[_RingFragment, RingFragments]:
+        for i, fragment in enumerate(fragments):
+            if fragment.vertices[-1] == coord:
+                return fragment, fragments[:i] + fragments[i + 1 :]
+        # If can't find at the end of a fragment, maybe the fragment
+        # is the wrong way round and we need to reverse it.
+        for i, fragment in enumerate(fragments):
+            if fragment.vertices[0] == coord:
+                return fragment.reverse(), fragments[:i] + fragments[i + 1 :]
+        return _RingFragment([coord], [], 0), fragments
+
+    def add_vertices(self, left: SliceCoord, right: SliceCoord, q: Quad) -> _VertexRing:
+        # left and right assumed to be in counter-clockwise order
+        if self.complete:
+            raise ValueError("Can not add vertices to a complete ring.")
+        start_fragment, remaining = self._fragment_with_coord_at_end(
+            self.fragments, left
+        )
+        if right == start_fragment.vertices[0]:
+            if len(remaining) > 0:
+                raise ValueError(
+                    "Fragment forms complete ring while leaving others disconnnected."
+                )
+            return _VertexRing([start_fragment], q)
+        end_fragment, remaining = self._fragment_with_coord_at_start(remaining, right)
+        return _VertexRing(
+            [
+                _RingFragment(
+                    start_fragment.vertices + end_fragment.vertices,
+                    start_fragment.quads + [q] + end_fragment.quads,
+                    start_fragment.counterclockwiseness
+                    + end_fragment.counterclockwiseness
+                    + 1,
+                )
             ]
-    return ((coord, q),), fragments
+            + remaining
+        )
 
+    def __iter__(self) -> Iterator[SliceCoord]:
+        if not self.complete:
+            raise ValueError("Can not iterate over incomplete ring.")
+        return iter(self.fragments[0])
 
-def _fragment_with_coord_at_end(
-    fragments: RingFragments, coord: SliceCoord
-) -> tuple[RingFragment, RingFragments]:
-    for i, fragment in enumerate(fragments):
-        if fragment[-1][0] == coord:
-            assert fragment[-1][1] is not None
-            return fragment, fragments[:i] + fragments[i + 1 :]
-    return ((coord, None),), fragments
+    def quads(self) -> Iterator[Quad]:
+        if not self.complete:
+            raise ValueError("Can not iterate over incomplete ring.")
+        return itertools.chain(
+            [cast(Quad, self.linking_quad)], self.fragments[0].iter_quads()
+        )
 
-
-def _add_vertices(
-    ring: VertexRing, left: SliceCoord, right: SliceCoord, q: Quad
-) -> VertexRing:
-    if ring[1]:
-        raise ValueError("Can not add vertices to a complete ring.")
-    start_fragment, remaining = _fragment_with_coord_at_end(ring[0], left)
-    if right == start_fragment[0][0]:
-        if len(remaining) > 0:
+    def vertices_between(
+        self, start: SliceCoord, end: SliceCoord
+    ) -> Iterator[SliceCoord]:
+        fragment, start_index = self.find_fragment_and_position(start)
+        end_index = fragment.coord_index(end)
+        vertices = fragment.vertex_list()
+        if end_index < start_index:
+            if self.complete:
+                return itertools.chain(
+                    vertices[start_index:], vertices[: end_index + 1]
+                )
             raise ValueError(
-                "Fragment forms complete ring while leaving others disconnnected."
+                f"{end} falls after {start} in a chain that hasn't been joined into a ring."
             )
-        return (((start_fragment[0][0], q),) + start_fragment[1:],), True
-    end_fragment, remaining = _fragment_with_coord_at_start(remaining, right, q)
-    return (start_fragment + end_fragment,) + remaining, False
+        return iter(vertices[start_index : end_index + 1])
+
+    def quads_between(self, start: SliceCoord, end: SliceCoord) -> Iterator[Quad]:
+        fragment, start_index = self.find_fragment_and_position(start)
+        end_index = fragment.coord_index(end)
+        quads = fragment.quad_list()
+        if end_index <= start_index:
+            if self.complete:
+                return itertools.chain(
+                    quads[start_index:],
+                    [cast(Quad, self.linking_quad)],
+                    quads[:end_index],
+                )
+            raise ValueError(
+                f"{end} falls after {start} in a chain that hasn't been joined into a ring."
+            )
+        return iter(quads[start_index:end_index])
 
 
 class ElementBuilder:
@@ -130,7 +228,7 @@ class ElementBuilder:
         self._tracer = tracer
         self._dx3 = dx3
         self._outermost_in_vessel = outermost_in_vessel
-        self._outermost_vertex_ring: VertexRing = ((), False)
+        self._outermost_vertex_ring: _VertexRing = _VertexRing([])
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
         self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
 
@@ -256,19 +354,7 @@ class ElementBuilder:
         `end`. These limits will both be included in the iterator.
 
         """
-        fragments, complete = self._outermost_vertex_ring
-        fragment, start_index = _fragment_and_position(fragments, start)
-        end_index = _coord_index_in_fragment(fragment, end)
-        if end_index < start_index:
-            if complete:
-                return map(
-                    itemgetter(0),
-                    itertools.chain(fragment[start_index:], fragment[: end_index + 1]),
-                )
-            raise ValueError(
-                f"{end} falls after {start} in a chain that hasn't been joined into a ring."
-            )
-        return map(itemgetter(0), fragment[start_index : end_index + 1])
+        return self._outermost_vertex_ring.vertices_between(start, end)
 
     def outermost_quads_between(
         self, start: SliceCoord, end: SliceCoord
@@ -276,26 +362,12 @@ class ElementBuilder:
         """Return the sequence of quads on the outermost edge of the mesh.
 
         The iterator begins with a quad where `start` is at one edge
-        and takes adjacent quads until it finally returns one
-        containing `end`. These limits will both be included in the
-        iterator.
+        and takes adjacent quads, moving counter-clockwise, until it
+        finally returns one containing `end`. These limits will both
+        be included in the iterator.
 
         """
-        fragments, complete = self._outermost_vertex_ring
-        fragment, start_index = _fragment_and_position(fragments, start)
-        end_index = _coord_index_in_fragment(fragment, end)
-        if end_index <= start_index:
-            if complete:
-                return map(
-                    itemgetter(1),
-                    itertools.chain(
-                        fragment[start_index + 1 :], fragment[: end_index + 1]
-                    ),
-                )
-            raise ValueError(
-                f"{end} falls after {start} in a chain that hasn't been joined into a ring."
-            )
-        return map(itemgetter(1), fragment[start_index + 1 : end_index + 1])
+        return iter(self._outermost_vertex_ring.quads_between(start, end))
 
     def outermost_vertices(self) -> Iterator[SliceCoord]:
         """Iterate over the vertices at the outermost edge of the mesh still in the vessel.
@@ -305,9 +377,7 @@ class ElementBuilder:
         start-point is arbitrary.
 
         """
-        if not self._outermost_vertex_ring[1]:
-            raise ValueError("Outer vertices do not form a ring.")
-        return map(itemgetter(0), self._outermost_vertex_ring[0][0])
+        return iter(self._outermost_vertex_ring)
 
     def outermost_quads(self) -> Iterator[Quad]:
         """Iterate over the quads at the outermost edge of the mesh still in the vessel.
@@ -317,9 +387,7 @@ class ElementBuilder:
         start-point is arbitrary.
 
         """
-        if not self._outermost_vertex_ring[1]:
-            raise ValueError("Outer vertices do not form a ring.")
-        return map(itemgetter(1), self._outermost_vertex_ring[0][0])
+        return self._outermost_vertex_ring.quads()
 
     def _order_vertices_counter_clockwise(
         self, left: SliceCoord, right: SliceCoord
@@ -339,8 +407,7 @@ class ElementBuilder:
         return right, left
 
     def _add_vertices(self, left: SliceCoord, right: SliceCoord, q: Quad) -> None:
-        self._outermost_vertex_ring = _add_vertices(
-            self._outermost_vertex_ring,
+        self._outermost_vertex_ring = self._outermost_vertex_ring.add_vertices(
             *self._order_vertices_counter_clockwise(left, right),
             q,
         )

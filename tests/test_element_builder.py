@@ -301,12 +301,7 @@ OUTERMOST = (
     | frozenset(NORTH.iter_points())
     | frozenset(SOUTH.iter_points())
 )
-MOCK_MESH = MagicMock()
-MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
-BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST)
-BUILDER_UNFINISHED = ElementBuilder(
-    MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST
-)
+
 UNFINISHED_NORTH_EAST = SliceCoords(R[7:, -1], Z[7:, -1], CoordinateSystem.CYLINDRICAL)
 UNFINISHED_SOUTH_EAST = SliceCoords(R[:4, -1], Z[:4, -1], CoordinateSystem.CYLINDRICAL)
 UNFINISHED_NORTH_WEST = SliceCoords(R[7:, 0], Z[7:, 0], CoordinateSystem.CYLINDRICAL)
@@ -315,6 +310,14 @@ NOT_IN_UNFINISHED = SliceCoords(
     np.concatenate((R[4:7, 0], R[4:7, -1])),
     np.concatenate((Z[4:7, 0], Z[4:7, 0])),
     CoordinateSystem.CYLINDRICAL,
+)
+
+MOCK_MESH = MagicMock()
+MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
+
+BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST)
+BUILDER_UNFINISHED = ElementBuilder(
+    MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST
 )
 with patch(
     "neso_fame.element_builder.flux_surface_edge",
@@ -343,6 +346,7 @@ with patch(
         ),
     ):
         _ = BUILDER_UNFINISHED.make_hex(*corners)
+
 
 outer_vertices = sampled_from(list(OUTERMOST))
 
@@ -478,3 +482,39 @@ def test_unfinished_quads_wrong_order1(start: SliceCoord, end: SliceCoord) -> No
 def test_unfinished_quads_wrong_order2(start: SliceCoord, end: SliceCoord) -> None:
     with pytest.raises(ValueError):
         _ = BUILDER_UNFINISHED.outermost_quads_between(start, end)
+
+
+@patch(
+    "neso_fame.element_builder.flux_surface_edge",
+    lambda _, north, south: StraightLineAcrossField(north, south),
+)
+@patch(
+    "neso_fame.element_builder.perpendicular_edge",
+    lambda _, north, south: StraightLineAcrossField(north, south),
+)
+def test_complex_outermost_vertices() -> None:
+    # Leave out a few elements to test a more complex shape of the outermost edges
+    unused_outer_point = WEST[7]
+    complex_outermost = (
+        frozenset(EAST.iter_points())
+        | frozenset(p for p in WEST.iter_points() if p != unused_outer_point)
+        | frozenset(NORTH.iter_points())
+        | frozenset(SOUTH.iter_points())
+        | frozenset(
+            SliceCoords(
+                R[6:9, 1], Z[6:9, 1], CoordinateSystem.CYLINDRICAL
+            ).iter_points()
+        )
+    )
+    builder = ElementBuilder(
+        MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, complex_outermost
+    )
+    for corners in zip(
+        *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
+    ):
+        if unused_outer_point not in corners:
+            _ = builder.make_hex(*corners)
+
+    ordered_outermost = list(builder.outermost_vertices())
+    assert len(ordered_outermost) == len(complex_outermost)
+    assert frozenset(ordered_outermost) == complex_outermost
