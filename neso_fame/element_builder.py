@@ -31,26 +31,24 @@ class _RingFragment:
     vertices: list[SliceCoord]
     quads: list[Quad]
     counterclockwiseness: int
+    linking_quad: Optional[Quad] = None
 
     def __iter__(self) -> Iterator[SliceCoord]:
-        if self.counterclockwiseness < 0:
-            return iter(self.vertices[::-1])
-        return iter(self.vertices)
-
-    def vertex_list(self) -> list[SliceCoord]:
-        if self.counterclockwiseness < 0:
-            return self.vertices[::-1]
-        return list(self.vertices)
+        return iter(self.vertices[self._slice()])
 
     def iter_quads(self) -> Iterator[Quad]:
-        if self.counterclockwiseness < 0:
-            return iter(self.quads[::-1])
-        return iter(self.quads)
+        if self.linking_quad is None:
+            return iter(self.quads[self._slice()])
+        return itertools.chain(self.quads[self._slice()], [self.linking_quad])
 
-    def quad_list(self) -> list[Quad]:
+    def _slice(self) -> slice:
         if self.counterclockwiseness < 0:
-            return self.quads[::-1]
-        return list(self.quads)
+            return slice(None, None, -1)
+        return slice(None)
+
+    @property
+    def complete(self) -> bool:
+        return self.linking_quad is not None
 
     def coord_index(self, coord: SliceCoord) -> int:
         try:
@@ -63,7 +61,7 @@ class _RingFragment:
 
     def reverse(self) -> _RingFragment:
         return _RingFragment(
-            self.vertices[::-1], self.quads[::-1], -self.counterclockwiseness
+            self.vertices[::-1], self.quads[::-1], -self.counterclockwiseness, self.linking_quad, 
         )
 
 
@@ -73,7 +71,10 @@ RingFragments = list[_RingFragment]
 @dataclass(frozen=True)
 class _VertexRing:
     fragments: list[_RingFragment]
-    linking_quad: Optional[Quad] = None
+
+    @property
+    def complete(self) -> bool:
+        return len(self.fragments) == 1 and self.fragments[0].complete
 
     def find_fragment_and_position(
         self, coord: SliceCoord
@@ -86,21 +87,17 @@ class _VertexRing:
                 pass
         raise ValueError(f"{coord} not present in ring fragments.")
 
-    @property
-    def complete(self) -> bool:
-        return self.linking_quad is not None
-
     @staticmethod
     def _fragment_with_coord_at_start(
         fragments: list[_RingFragment], coord: SliceCoord
     ) -> tuple[_RingFragment, RingFragments]:
         for i, fragment in enumerate(fragments):
-            if fragment.vertices[0] == coord:
+            if fragment.vertices[0] == coord and fragment.linking_quad is None:
                 return fragment, fragments[:i] + fragments[i + 1 :]
         # If can't find at the start of a fragment, maybe the fragment
         # is the wrong way round and we need to reverse it.
         for i, fragment in enumerate(fragments):
-            if fragment.vertices[-1] == coord:
+            if fragment.vertices[-1] == coord and fragment.linking_quad is None:
                 return fragment.reverse(), fragments[:i] + fragments[i + 1 :]
         return _RingFragment([coord], [], 0), fragments
 
@@ -109,28 +106,22 @@ class _VertexRing:
         fragments: list[_RingFragment], coord: SliceCoord
     ) -> tuple[_RingFragment, RingFragments]:
         for i, fragment in enumerate(fragments):
-            if fragment.vertices[-1] == coord:
+            if fragment.vertices[-1] == coord and fragment.linking_quad is None:
                 return fragment, fragments[:i] + fragments[i + 1 :]
         # If can't find at the end of a fragment, maybe the fragment
         # is the wrong way round and we need to reverse it.
         for i, fragment in enumerate(fragments):
-            if fragment.vertices[0] == coord:
+            if fragment.vertices[0] == coord and fragment.linking_quad is None:
                 return fragment.reverse(), fragments[:i] + fragments[i + 1 :]
         return _RingFragment([coord], [], 0), fragments
 
     def add_vertices(self, left: SliceCoord, right: SliceCoord, q: Quad) -> _VertexRing:
         # left and right assumed to be in counter-clockwise order
-        if self.complete:
-            raise ValueError("Can not add vertices to a complete ring.")
         start_fragment, remaining = self._fragment_with_coord_at_end(
             self.fragments, left
         )
         if right == start_fragment.vertices[0]:
-            if len(remaining) > 0:
-                raise ValueError(
-                    "Fragment forms complete ring while leaving others disconnnected."
-                )
-            return _VertexRing([start_fragment], q)
+            return _VertexRing([_RingFragment(start_fragment.vertices, start_fragment.quads, start_fragment.counterclockwiseness, q)] + remaining)
         end_fragment, remaining = self._fragment_with_coord_at_start(remaining, right)
         return _VertexRing(
             [
@@ -153,16 +144,14 @@ class _VertexRing:
     def quads(self) -> Iterator[Quad]:
         if not self.complete:
             raise ValueError("Can not iterate over incomplete ring.")
-        return itertools.chain(
-            [cast(Quad, self.linking_quad)], self.fragments[0].iter_quads()
-        )
+        return iter(self.fragments[0].iter_quads())
 
     def vertices_between(
         self, start: SliceCoord, end: SliceCoord
     ) -> Iterator[SliceCoord]:
         fragment, start_index = self.find_fragment_and_position(start)
         end_index = fragment.coord_index(end)
-        vertices = fragment.vertex_list()
+        vertices = list(fragment)
         if end_index < start_index:
             if self.complete:
                 return itertools.chain(
@@ -176,12 +165,11 @@ class _VertexRing:
     def quads_between(self, start: SliceCoord, end: SliceCoord) -> Iterator[Quad]:
         fragment, start_index = self.find_fragment_and_position(start)
         end_index = fragment.coord_index(end)
-        quads = fragment.quad_list()
+        quads = list(fragment.iter_quads())
         if end_index <= start_index:
-            if self.complete:
+            if fragment.complete:
                 return itertools.chain(
                     quads[start_index:],
-                    [cast(Quad, self.linking_quad)],
                     quads[:end_index],
                 )
             raise ValueError(
