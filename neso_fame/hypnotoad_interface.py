@@ -979,7 +979,7 @@ def get_region_perpendicular_boundary_points(
         else iter(empty)
     )
     outer_lower_divertor = (
-        _get_bound_points(region, (slice(None), 0))
+        _get_bound_points(region, (slice(None), -1))
         if name == "outer_lower_divertor"
         else iter(empty)
     )
@@ -989,7 +989,7 @@ def get_region_perpendicular_boundary_points(
         else iter(empty)
     )
     outer_upper_divertor = (
-        _get_bound_points(region, (slice(None), -1))
+        _get_bound_points(region, (slice(None), 0))
         if name == "outer_upper_divertor"
         else iter(empty)
     )

@@ -193,7 +193,15 @@ def _find_external_points(
 
 
 def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
-    """Return connectivity information for a logically-rectangular set of points."""
+    """Return connectivity information for a logically-rectangular set of points.
+
+    Some of the nodes returned here aren't actually connected in the
+    sense of having an edge between them, but they are
+    diagonally-opposite points on a common quad. If they are left out,
+    then not all the outermost nodes will be identified in
+    :func:`~neso_fame.wall.find_external_points`.
+
+    """
     shape = np.broadcast(points.x1, points.x2).shape
 
     def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
@@ -202,8 +210,7 @@ def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
         j_min = j - 1 if j > 0 else 0
         j_max = j + 2
         return (
-            points.get_set((slice(i_min, i_max), j))
-            | points.get_set((i, slice(j_min, j_max)))
+            points.get_set((slice(i_min, i_max), slice(j_min, j_max)))
         ) - points.get_set((i, j))
 
     return {
