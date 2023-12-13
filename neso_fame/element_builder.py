@@ -5,8 +5,9 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterator
 from dataclasses import dataclass
-from functools import cache
-from typing import Optional, cast
+from functools import cache, cached_property, reduce
+from typing import Callable, Optional
+from warnings import warn
 
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
@@ -61,7 +62,10 @@ class _RingFragment:
 
     def reverse(self) -> _RingFragment:
         return _RingFragment(
-            self.vertices[::-1], self.quads[::-1], -self.counterclockwiseness, self.linking_quad, 
+            self.vertices[::-1],
+            self.quads[::-1],
+            -self.counterclockwiseness,
+            self.linking_quad,
         )
 
 
@@ -121,7 +125,17 @@ class _VertexRing:
             self.fragments, left
         )
         if right == start_fragment.vertices[0]:
-            return _VertexRing([_RingFragment(start_fragment.vertices, start_fragment.quads, start_fragment.counterclockwiseness, q)] + remaining)
+            return _VertexRing(
+                [
+                    _RingFragment(
+                        start_fragment.vertices,
+                        start_fragment.quads,
+                        start_fragment.counterclockwiseness,
+                        q,
+                    )
+                ]
+                + remaining
+            )
         end_fragment, remaining = self._fragment_with_coord_at_start(remaining, right)
         return _VertexRing(
             [
@@ -137,14 +151,20 @@ class _VertexRing:
         )
 
     def __iter__(self) -> Iterator[SliceCoord]:
-        if not self.complete:
+        if len(self.fragments) > 1:
+            warn("Multiple vertex rings detected; iterating over largest.")
+        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
+        if not fragment.complete:
             raise ValueError("Can not iterate over incomplete ring.")
-        return iter(self.fragments[0])
+        return iter(fragment)
 
     def quads(self) -> Iterator[Quad]:
-        if not self.complete:
+        if len(self.fragments) > 1:
+            warn("Multiple vertex rings detected; iterating over largest.")
+        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
+        if not fragment.complete:
             raise ValueError("Can not iterate over incomplete ring.")
-        return iter(self.fragments[0].iter_quads())
+        return fragment.iter_quads()
 
     def vertices_between(
         self, start: SliceCoord, end: SliceCoord
@@ -195,7 +215,6 @@ class ElementBuilder:
         hypnotoad_poloidal_mesh: HypnoMesh,
         tracer: FieldTracer,
         dx3: float,
-        outermost_in_vessel: frozenset[SliceCoord],
     ) -> None:
         """Instantiate an object of this class.
 
@@ -207,42 +226,47 @@ class ElementBuilder:
             Object to follow along a field line.
         dx3
             Width of a layer of the mesh.
-        outermost_in_vessel
-            The outermost layer of nodes still inside the vessel of the
-            tokamak.
 
         """
         self._equilibrium = hypnotoad_poloidal_mesh.equilibrium
         self._tracer = tracer
         self._dx3 = dx3
-        self._outermost_in_vessel = outermost_in_vessel
-        self._outermost_vertex_ring: _VertexRing = _VertexRing([])
+        self._edges: dict[tuple[SliceCoord, SliceCoord], Quad] = {}
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
         self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
+        self._tracked_perpendicular_quad = self._track_edges(self.perpendicular_quad)
+        self._tracked_flux_surface_quad = self._track_edges(self.flux_surface_quad)
+
+    def _track_edges(
+        self, func: Callable[[SliceCoord, SliceCoord], Quad]
+    ) -> Callable[[SliceCoord, SliceCoord], Quad]:
+        def check_edges(north: SliceCoord, south: SliceCoord) -> Quad:
+            try:
+                return self._edges.pop((north, south))
+            except KeyError:
+                q = func(north, south)
+                self._edges[(north, south)] = q
+                return q
+
+        return check_edges
 
     @cache
     def perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, perpendicular to flux surfaces."""
-        q = Quad(
+        return Quad(
             perpendicular_edge(self._equilibrium, north, south),
             self._tracer,
             self._dx3,
         )
-        if north in self._outermost_in_vessel and south in self._outermost_in_vessel:
-            self._add_vertices(north, south, q)
-        return q
 
     @cache
     def flux_surface_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, following a flux surface."""
-        q = Quad(
+        return Quad(
             flux_surface_edge(self._equilibrium, north, south),
             self._tracer,
             self._dx3,
         )
-        if north in self._outermost_in_vessel and south in self._outermost_in_vessel:
-            self._add_vertices(north, south, q)
-        return q
 
     @cache
     def make_quad_to_o_point(self, coord: SliceCoord) -> Quad:
@@ -282,10 +306,10 @@ class ElementBuilder:
         """Createa a hexahedron from the four points on the poloidal plane."""
         return Prism(
             (
-                self.flux_surface_quad(nw, ne),
-                self.flux_surface_quad(sw, se),
-                self.perpendicular_quad(se, ne),
-                self.perpendicular_quad(sw, nw),
+                self._tracked_flux_surface_quad(nw, ne),
+                self._tracked_flux_surface_quad(sw, se),
+                self._tracked_perpendicular_quad(se, ne),
+                self._tracked_perpendicular_quad(sw, nw),
             )
         )
 
@@ -298,7 +322,7 @@ class ElementBuilder:
             (
                 self.make_quad_to_o_point(north),
                 self.make_quad_to_o_point(south),
-                self.flux_surface_quad(north, south),
+                self._tracked_flux_surface_quad(north, south),
             )
         )
 
@@ -330,6 +354,16 @@ class ElementBuilder:
                 self.make_mesh_to_wall_quad(wall_north, mesh_north),
                 self.make_mesh_to_wall_quad(wall_south, mesh_south),
             )
+        )
+
+    @cached_property
+    def _outermost_vertex_ring(self) -> _VertexRing:
+        return reduce(
+            lambda ring, item: ring.add_vertices(
+                *self._order_vertices_counter_clockwise(*item[0]), item[1]
+            ),
+            self._edges.items(),
+            _VertexRing([]),
         )
 
     def outermost_vertices_between(
@@ -393,9 +427,3 @@ class ElementBuilder:
         if cross_prod > 0:
             return left, right
         return right, left
-
-    def _add_vertices(self, left: SliceCoord, right: SliceCoord, q: Quad) -> None:
-        self._outermost_vertex_ring = self._outermost_vertex_ring.add_vertices(
-            *self._order_vertices_counter_clockwise(left, right),
-            q,
-        )

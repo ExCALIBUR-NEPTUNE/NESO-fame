@@ -518,10 +518,7 @@ def _handle_nodes_outside_vessel(
     hypnotoad_poloidal_mesh: HypnoMesh,
     restrict_to_vessel: bool,
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
-) -> tuple[
-    Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool],
-    frozenset[SliceCoord],
-]:
+) -> Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool]:
     if restrict_to_vessel:
         # TODO: Need to add support for checking along entire length
         # of field line (i.e. by passing in a callable test to
@@ -552,7 +549,7 @@ def _handle_nodes_outside_vessel(
             ),
         )
         wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
-        external_nodes, outermost_in_vessel = find_external_points(
+        external_nodes, _ = find_external_points(
             outermost_nodes, connections, wall, in_tokamak_test
         )
 
@@ -562,14 +559,13 @@ def _handle_nodes_outside_vessel(
             return frozenset(corners).isdisjoint(external_nodes)
 
     else:
-        outermost_in_vessel = frozenset()
 
         def corners_within_vessel(
             corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
         ) -> bool:
             return True
 
-    return corners_within_vessel, outermost_in_vessel
+    return corners_within_vessel
 
 
 def hypnotoad_mesh(
@@ -652,10 +648,10 @@ def hypnotoad_mesh(
             )
         return False
 
-    corners_within_vessel, outermost_in_vessel = _handle_nodes_outside_vessel(
+    corners_within_vessel = _handle_nodes_outside_vessel(
         hypnotoad_poloidal_mesh, restrict_to_vessel, whole_line_in_tokamak
     )
-    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3, outermost_in_vessel)
+    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3)
 
     main_elements = [
         factory.make_hex(*corners)

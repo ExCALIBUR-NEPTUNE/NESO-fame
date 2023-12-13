@@ -165,7 +165,7 @@ def test_perpendicular_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, frozenset())
+    builder = ElementBuilder(mesh, trace, dx3)
     north, south = termini
     quad = builder.perpendicular_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
@@ -188,7 +188,7 @@ def test_flux_surface_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, frozenset())
+    builder = ElementBuilder(mesh, trace, dx3)
     north, south = termini
     quad = builder.flux_surface_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
@@ -211,7 +211,7 @@ def test_connecting_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, frozenset())
+    builder = ElementBuilder(mesh, trace, dx3)
     quad = builder.make_quad_to_o_point(point)
     assert quad.shape(0.0).to_coord() == point
     assert quad.shape(1.0).to_coord() == SliceCoord(
@@ -237,7 +237,7 @@ def test_make_hex(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, frozenset())
+    builder = ElementBuilder(mesh, trace, dx3)
     hexa = builder.make_hex(*termini)
     assert frozenset(hexa.corners().to_slice_coords().iter_points()) == frozenset(
         termini
@@ -261,7 +261,7 @@ def test_make_prism(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, frozenset())
+    builder = ElementBuilder(mesh, trace, dx3)
     north, south = termini
     o_point = SliceCoord(
         mesh.equilibrium.o_point.R,
@@ -315,10 +315,8 @@ NOT_IN_UNFINISHED = SliceCoords(
 MOCK_MESH = MagicMock()
 MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
 
-BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST)
-BUILDER_UNFINISHED = ElementBuilder(
-    MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, OUTERMOST
-)
+BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1)
+BUILDER_UNFINISHED = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1)
 with patch(
     "neso_fame.element_builder.flux_surface_edge",
     lambda _, north, south: StraightLineAcrossField(north, south),
@@ -448,42 +446,6 @@ def test_unfinished_vertices_between_different_fragments(
         _ = BUILDER_UNFINISHED.outermost_vertices_between(start, end)
 
 
-@given(
-    sampled_from(list(UNFINISHED_NORTH_WEST.iter_points())),
-    sampled_from(list(UNFINISHED_NORTH_EAST.iter_points())),
-)
-def test_unfinished_vertices_wrong_order1(start: SliceCoord, end: SliceCoord) -> None:
-    with pytest.raises(ValueError):
-        _ = BUILDER_UNFINISHED.outermost_vertices_between(start, end)
-
-
-@given(
-    sampled_from(list(UNFINISHED_SOUTH_EAST.iter_points())),
-    sampled_from(list(UNFINISHED_SOUTH_WEST.iter_points())),
-)
-def test_unfinished_vertices_wrong_order2(start: SliceCoord, end: SliceCoord) -> None:
-    with pytest.raises(ValueError):
-        _ = BUILDER_UNFINISHED.outermost_vertices_between(start, end)
-
-
-@given(
-    sampled_from(list(UNFINISHED_NORTH_WEST.iter_points())),
-    sampled_from(list(UNFINISHED_NORTH_EAST.iter_points())),
-)
-def test_unfinished_quads_wrong_order1(start: SliceCoord, end: SliceCoord) -> None:
-    with pytest.raises(ValueError):
-        _ = BUILDER_UNFINISHED.outermost_quads_between(start, end)
-
-
-@given(
-    sampled_from(list(UNFINISHED_SOUTH_EAST.iter_points())),
-    sampled_from(list(UNFINISHED_SOUTH_WEST.iter_points())),
-)
-def test_unfinished_quads_wrong_order2(start: SliceCoord, end: SliceCoord) -> None:
-    with pytest.raises(ValueError):
-        _ = BUILDER_UNFINISHED.outermost_quads_between(start, end)
-
-
 @patch(
     "neso_fame.element_builder.flux_surface_edge",
     lambda _, north, south: StraightLineAcrossField(north, south),
@@ -494,7 +456,7 @@ def test_unfinished_quads_wrong_order2(start: SliceCoord, end: SliceCoord) -> No
 )
 def test_complex_outermost_vertices() -> None:
     # Leave out a few elements to test a more complex shape of the outermost edges
-    unused_outer_point = WEST[7]
+    unused_outer_point = WEST[8]
     complex_outermost = (
         frozenset(EAST.iter_points())
         | frozenset(p for p in WEST.iter_points() if p != unused_outer_point)
@@ -502,13 +464,11 @@ def test_complex_outermost_vertices() -> None:
         | frozenset(SOUTH.iter_points())
         | frozenset(
             SliceCoords(
-                R[6:9, 1], Z[6:9, 1], CoordinateSystem.CYLINDRICAL
+                R[7:10, 1], Z[7:10, 1], CoordinateSystem.CYLINDRICAL
             ).iter_points()
         )
     )
-    builder = ElementBuilder(
-        MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, complex_outermost
-    )
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1)
     for corners in zip(
         *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
     ):

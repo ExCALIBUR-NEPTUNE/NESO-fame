@@ -1,6 +1,7 @@
 import itertools
 
 import numpy as np
+import pytest
 
 from neso_fame import generators
 from neso_fame.fields import straight_field
@@ -879,6 +880,7 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
     assert axis_curve(1.0).to_coord().to_slice_coord() == o_point
 
 
+@pytest.mark.filterwarnings("ignore:Multiple vertex rings")
 def test_extruding_hypnotoad_mesh_enforce_bounds() -> None:
     hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
     eq = hypno_mesh.equilibrium
