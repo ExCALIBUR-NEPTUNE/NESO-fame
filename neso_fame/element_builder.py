@@ -240,6 +240,18 @@ class ElementBuilder:
     def _track_edges(
         self, func: Callable[[SliceCoord, SliceCoord], Quad]
     ) -> Callable[[SliceCoord, SliceCoord], Quad]:
+        """Decorate a function to keep a record of quads it creates.
+
+        When a quad is first created, a it will be added to
+        ``self._edges`` with the a key made up of its end-points. If
+        the function is called a second time with the same arguments,
+        the quad will be removed from the dictionary. This means that,
+        after the mesh is constructed, the dictionary will contain all
+        quads that are faces of only one element. These are the
+        external faces.
+
+        """
+
         def check_edges(north: SliceCoord, south: SliceCoord) -> Quad:
             try:
                 return self._edges.pop((north, south))

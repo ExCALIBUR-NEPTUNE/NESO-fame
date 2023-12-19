@@ -1,4 +1,7 @@
 import itertools
+from collections.abc import Iterator
+from functools import reduce
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -6,9 +9,11 @@ import pytest
 from neso_fame import generators
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
+    Coord,
     CoordinateSystem,
     FieldAlignedCurve,
     Prism,
+    Quad,
     Segment,
     SliceCoord,
     SliceCoords,
@@ -903,3 +908,108 @@ def test_extruding_hypnotoad_mesh_enforce_bounds() -> None:
         )
 
     assert all(map(in_domain, mesh))
+
+
+def test_extruding_hypnotoad_mesh_to_wall() -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+    # Extrude only a very short distance to keep run-times quick
+    mesh = generators.hypnotoad_mesh(
+        hypno_mesh,
+        (0.0, 0.001 * np.pi / 3),
+        1,
+        11,
+        restrict_to_vessel=True,
+        mesh_to_core=True,
+        mesh_to_wall=True,
+    )
+
+    assert len(mesh.reference_layer.bounds) == 2
+    assert len(mesh.reference_layer.bounds[0]) == 0
+
+    bounds = mesh.reference_layer.bounds[1]
+    wall = [
+        SliceCoord(p.R, p.Z, CoordinateSystem.CYLINDRICAL)
+        for p in hypno_mesh.equilibrium.wall
+    ]
+
+    def on_wall(q: Quad) -> bool:
+        corners = q.corners()
+        return any(
+            all(point_on_surface(*segment, p) for p in corners.iter_points())
+            for segment in itertools.pairwise(wall)
+        )
+
+    # Check the corners of all bounds fall on the tokamak walls
+    assert all(map(on_wall, bounds))
+
+    wall_remnants, remaining_quads = filter_quads_on_wall(
+        itertools.pairwise(wall),
+        frozenset(frozenset(q.shape([0.0, 1.0]).iter_points()) for q in bounds),
+    )
+    # Check the walls are entirely covered by the boundary quads
+    assert len(wall_remnants) == 0
+    # Check there are no boundary quads not covering the walls
+    assert len(remaining_quads) == 0
+
+
+def point_on_surface(
+    start: SliceCoord, end: SliceCoord, point: Coord | SliceCoord
+) -> bool:
+    if abs(start.x1 - end.x1) > abs(start.x2 - end.x2):
+        x_start, y_start = start
+        x_end, y_end = end
+        x = point.x1
+        y = point.x2
+    else:
+        y_start, x_start = start
+        y_end, x_end = end
+        y = point.x1
+        x = point.x2
+    xmin, xmax = sorted([x_start, x_end])
+    if x < xmin - TOL or x > xmax + TOL:
+        return False
+    y_expected = (y_end - y_start) / (x_end - x_start) * (x - x_start) + y_start
+    return abs(y - y_expected) <= TOL
+
+
+TOL = 1e-8
+QuadPoints = frozenset[frozenset[SliceCoord]]
+WallSegment = tuple[SliceCoord, SliceCoord]
+
+
+def filter_quads_on_wall_segment(
+    start: SliceCoord, end: SliceCoord, quads: QuadPoints
+) -> tuple[Optional[tuple[SliceCoord, SliceCoord]], QuadPoints]:
+    possible_start_quads = [
+        q
+        for q in quads
+        if start in q and point_on_surface(start, end, next(iter(q - {start})))
+    ]
+    # Corrupted mesh
+    if len(possible_start_quads) > 1:
+        raise ValueError("Overlapping quads")
+    # Can't find any more quads on this wall, so return the remainder
+    if len(possible_start_quads) == 0:
+        return (start, end), quads
+    new_start = next(iter(possible_start_quads[0] - {start}))
+    new_quads = quads - {possible_start_quads[0]}
+    # Have found sufficient quads to cover this wall
+    if new_start == end:
+        return None, new_quads
+    return filter_quads_on_wall_segment(new_start, end, new_quads)
+
+
+def filter_quads_on_wall(
+    wall: Iterator[WallSegment], quads: QuadPoints
+) -> tuple[list[WallSegment], QuadPoints]:
+    def process_segment(
+        result: tuple[list[WallSegment], QuadPoints], segment: WallSegment
+    ) -> tuple[list[WallSegment], QuadPoints]:
+        remnants, quads = result
+        new_remnant, remaining_quads = filter_quads_on_wall_segment(*segment, quads)
+        if new_remnant is not None:
+            remnants.append(new_remnant)
+        return remnants, remaining_quads
+
+    leftovers: list[WallSegment] = []
+    return reduce(process_segment, wall, (leftovers, quads))

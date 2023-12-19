@@ -417,7 +417,7 @@ def field_aligned_3d(
         faces_by_nodes[k].append((j, k))
     # Find the nodes that fall on a boundary
 
-    def _bound_type(edges: list[NodePair]) -> BoundType:
+    def bound_type(edges: list[NodePair]) -> BoundType:
         assert len(edges) == 2
         vecs = [
             (n1.x1 - n2.x1, n1.x2 - n2.x2)
@@ -433,7 +433,7 @@ def field_aligned_3d(
         else:
             return True
 
-    boundary_nodes = {i: _bound_type(edges) for i, edges in faces_by_nodes.items()}
+    boundary_nodes = {i: bound_type(edges) for i, edges in faces_by_nodes.items()}
 
     @cache
     def make_quad(node1: Index, node2: Index) -> Quad:
@@ -520,9 +520,6 @@ def _handle_nodes_outside_vessel(
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
 ) -> Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool]:
     if restrict_to_vessel:
-        # TODO: Need to add support for checking along entire length
-        # of field line (i.e. by passing in a callable test to
-        # find_external_points).
         connections = reduce(
             _merge_connections,
             (
@@ -811,7 +808,7 @@ def _wall_elements_and_bounds(
     hexes = [
         factory.make_wall_hex(q, mn, ms, wn, ws)
         for q, (mn, ms), (wn, ws) in zip(
-            factory.outermost_quads_between(start, end),
+            factory.outermost_quads_between(left_mesh_point, right_mesh_point),
             itertools.pairwise(intermediate_mesh_points),
             itertools.pairwise(intermediate_wall_points.iter_points()),
         )

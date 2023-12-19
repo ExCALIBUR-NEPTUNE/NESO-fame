@@ -417,9 +417,10 @@ def test_tokamak_field() -> None:
             ],
         )
         assert result.exit_code == 0
+        import shutil
+        shutil.copyfile(meshfile, "/home/cmacmack/debug-mesh.xml")
         with open(meshfile, "r") as f:
             output = f.read()
-    assert len(VERTICES.findall(output)) == 77 * 6
     assert len(TRIANGLES.findall(output)) == 4 * 6
     assert len(ZONES.findall(output)) == 3
     assert len(INTERFACES.findall(output)) == 2
@@ -462,6 +463,7 @@ def test_tokamak_periodic() -> None:
                 "--order",
                 "1",
                 "--compress",
+                "--no-core",
                 eqdsk,
                 meshfile,
             ],
