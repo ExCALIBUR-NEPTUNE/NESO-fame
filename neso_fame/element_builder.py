@@ -232,7 +232,9 @@ class ElementBuilder:
         self._tracer = tracer
         self._dx3 = dx3
         self._edges: dict[frozenset[SliceCoord], Quad] = {}
-        self._prism_quads: dict[frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]] = {}
+        self._prism_quads: dict[
+            frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]
+        ] = {}
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
         self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
         self._tracked_perpendicular_quad = self._track_edges(self.perpendicular_quad)
@@ -340,7 +342,9 @@ class ElementBuilder:
             )
         )
 
-    def make_quad_for_prism(self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[SliceCoord]) -> tuple[Quad, frozenset[Quad]]:
+    def make_quad_for_prism(
+        self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[SliceCoord]
+    ) -> tuple[Quad, frozenset[Quad]]:
         """Make a quad for use in a triangular prism in the sapce by the wall.
 
         This will always return the same quad between two points,
@@ -358,7 +362,15 @@ class ElementBuilder:
             return self._prism_quads[key]
         outermost_north = north in self._outermost_vertex_set
         outermost_south = south in self._outermost_vertex_set
-        alignment = QuadAlignment.ALIGNED if outermost_north and outermost_south else QuadAlignment.NORTH if outermost_north else QuadAlignment.SOUTH if outermost_south else QuadAlignment.NONALIGNED
+        alignment = (
+            QuadAlignment.ALIGNED
+            if outermost_north and outermost_south
+            else QuadAlignment.NORTH
+            if outermost_north
+            else QuadAlignment.SOUTH
+            if outermost_south
+            else QuadAlignment.NONALIGNED
+        )
         # PROBLEM: What if a triangle is formed connecting two
         # non-adjacent points on the plasma mesh? Termini have to be
         # aligned but then there would be no guarantee that the centre
@@ -376,23 +388,30 @@ class ElementBuilder:
         self._prism_quads[key] = (q, b)
         return q, b
 
-    def make_outer_prism(self, vertex1: SliceCoord, vertex2: SliceCoord, vertex3: SliceCoord, wall_vertices: frozenset[SliceCoord]) -> tuple[Prism, frozenset[Quad]]:
+    def make_outer_prism(
+        self,
+        vertex1: SliceCoord,
+        vertex2: SliceCoord,
+        vertex3: SliceCoord,
+        wall_vertices: frozenset[SliceCoord],
+    ) -> tuple[Prism, frozenset[Quad]]:
         """Create a triangular prism between the hexahedral plasma-mesh and the wall.
 
         It will also return a (possibly empty) set of all the quads in
         that prism that lie on the wall.
 
         """
-        # Not sure if this will be a suitable order (or if there even
-        # is a suitable order that will work for all prisms)
+        # FIXME: None of the orders seem to work for all the prisms in
+        # the mesh. For each prism I create in nektar writer, could I
+        # just try rearanging them until one works?
         q1, b1 = self.make_quad_for_prism(vertex1, vertex2, wall_vertices)
         q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertices)
         q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertices)
-#        return Prism((q1, q2, q3)), b1 | b2 | b3
-#        return Prism((q1, q3, q2)), b1 | b2 | b3
-#        return Prism((q2, q1, q3)), b1 | b2 | b3
-#        return Prism((q2, q3, q1)), b1 | b2 | b3
-#        return Prism((q3, q1, q2)), b1 | b2 | b3
+        #        return Prism((q1, q2, q3)), b1 | b2 | b3
+        #        return Prism((q1, q3, q2)), b1 | b2 | b3
+        #        return Prism((q2, q1, q3)), b1 | b2 | b3
+        #        return Prism((q2, q3, q1)), b1 | b2 | b3
+        #        return Prism((q3, q1, q2)), b1 | b2 | b3
         return Prism((q3, q2, q1)), b1 | b2 | b3
 
     def make_wall_prism(

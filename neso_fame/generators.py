@@ -665,7 +665,8 @@ def hypnotoad_mesh(
         core_points = core_boundary_points(hypnotoad_poloidal_mesh)
         core_elements = list(
             itertools.starmap(
-                factory.make_prism_to_centre, itertools.pairwise(core_points.iter_points())
+                factory.make_prism_to_centre,
+                itertools.pairwise(core_points.iter_points()),
             )
         )
         inner_bounds: frozenset[Quad] = frozenset()
@@ -675,12 +676,18 @@ def hypnotoad_mesh(
     if mesh_to_wall:
         plasma_points = [tuple(p) for p in factory.outermost_vertices()]
         wall_points = [tuple(p) for p in hypnotoad_poloidal_mesh.equilibrium.wall[:-1]]
-        wall_coords = frozenset(SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points)
+        wall_coords = frozenset(
+            SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points
+        )
         n = len(wall_points)
         import meshpy.triangle as triangle  # type: ignore
+
         info = triangle.MeshInfo()
         info.set_points(wall_points + plasma_points)
-        info.set_facets(list(_periodic_pairwise(iter(range(n)))) + list(_periodic_pairwise(iter(range(n, n + len(plasma_points))))))
+        info.set_facets(
+            list(_periodic_pairwise(iter(range(n))))
+            + list(_periodic_pairwise(iter(range(n, n + len(plasma_points)))))
+        )
         info.set_holes([tuple(hypnotoad_poloidal_mesh.equilibrium.o_point)])
         # This approach won't work well if there are highly curved
         # elements. You can get lines crossing over each other. This
@@ -696,10 +703,14 @@ def hypnotoad_mesh(
         # Might be useful to have option to remesh boundary.Get rid of
         # really small segments and/or make the segments of equal
         # length.
-        wall_mesh = triangle.build(info, allow_volume_steiner=True, allow_boundary_steiner=False)
+        wall_mesh = triangle.build(
+            info, allow_volume_steiner=True, allow_boundary_steiner=False
+        )
         wall_mesh_points = np.array(wall_mesh.points)
         triangles = np.array(wall_mesh.elements)
-        wall_mesh_coords = SliceCoords(wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL)
+        wall_mesh_coords = SliceCoords(
+            wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL
+        )
         # How to ensure that triangles are built in right order?
         # Especially since Triangle doesn't keep facet direction
         # consistent for adjacent triangles.
@@ -707,8 +718,15 @@ def hypnotoad_mesh(
         wall_elements, outer_bounds = reduce(
             lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
             (
-                factory.make_outer_prism(wall_mesh_coords[i], wall_mesh_coords[j], wall_mesh_coords[k], wall_coords) for i, j, k in triangles[::-1]
-            ), initial
+                factory.make_outer_prism(
+                    wall_mesh_coords[i],
+                    wall_mesh_coords[j],
+                    wall_mesh_coords[k],
+                    wall_coords,
+                )
+                for i, j, k in triangles[::-1]
+            ),
+            initial,
         )
     elif restrict_to_vessel:
         wall_elements = []

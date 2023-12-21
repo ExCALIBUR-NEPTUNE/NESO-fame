@@ -9,11 +9,10 @@ from typing import Iterable, Iterator, Optional, Sequence, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
-import numpy.typing as npt
 import numpy as np
+import numpy.typing as npt
 
 from .mesh import (
-    AcrossFieldCurve,
     Coord,
     Coords,
     EndShape,
@@ -22,8 +21,8 @@ from .mesh import (
     NormalisedCurve,
     Prism,
     Quad,
-    control_points,
     Segment,
+    control_points,
 )
 
 UNSET_ID = -1
@@ -165,7 +164,9 @@ class NektarElements:
 
     def near_faces(self) -> Iterator[SD.Composite]:
         """Iterate over Composite objects representing the near face of each layer."""
-        return (layer.near_face for layer in self._layers if layer.near_face is not None)
+        return (
+            layer.near_face for layer in self._layers if layer.near_face is not None
+        )
 
     def far_faces(self) -> Iterator[SD.Composite]:
         """Iterate over Composite objects representing the far face of each layer."""
@@ -357,11 +358,14 @@ def nektar_quad(
 
 
 def poloidal_curve(q: Quad) -> NormalisedCurve:
-        def wrapper(s: npt.ArrayLike) -> Coords:
-            slice_coord = q.shape(s)
-            return Coords(slice_coord.x1, slice_coord.x2, np.zeros_like(s), slice_coord.system)
-        return wrapper
+    """Get the curve this quad makes where it intersects the poloidal plane."""
+    def wrapper(s: npt.ArrayLike) -> Coords:
+        slice_coord = q.shape(s)
+        return Coords(
+            slice_coord.x1, slice_coord.x2, np.zeros_like(s), slice_coord.system
+        )
 
+    return wrapper
 
 
 def nektar_poloidal_face(
@@ -381,20 +385,34 @@ def nektar_poloidal_face(
     factory
 
     """
-    if len(solid.sides) == 3:  
-        north, north_termini = nektar_edge(poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id)
-        east, east_termini = nektar_edge(poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id)
-        south, south_termini = nektar_edge(poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id)
+    if len(solid.sides) == 3:
+        north, north_termini = nektar_edge(
+            poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id
+        )
+        east, east_termini = nektar_edge(
+            poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id
+        )
+        south, south_termini = nektar_edge(
+            poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id
+        )
         points = frozenset(north_termini + south_termini + east_termini)
         if len(points) != 3:
             raise RuntimeError("Ill-formed triangle; edges do not join into 3 corners")
         edges: tuple[SD.SegGeom, ...] = (north, east, south)
         nek_shape: SD.Geometry2D = _nektar_triangle(edges, None)
     elif len(solid.sides) == 4:
-        north, north_termini = nektar_edge(poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id)
-        south, south_termini = nektar_edge(poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id)
-        east, east_termini = nektar_edge(poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id)
-        west, west_termini = nektar_edge(poloidal_curve(solid.sides[3]), order, spatial_dim, layer_id)
+        north, north_termini = nektar_edge(
+            poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id
+        )
+        south, south_termini = nektar_edge(
+            poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id
+        )
+        east, east_termini = nektar_edge(
+            poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id
+        )
+        west, west_termini = nektar_edge(
+            poloidal_curve(solid.sides[3]), order, spatial_dim, layer_id
+        )
         points = frozenset(north_termini + south_termini + east_termini + west_termini)
         if len(points) != 4:
             raise RuntimeError("Ill-formed quad; edges do not join into 4 corners")
@@ -644,19 +662,19 @@ def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
     """
     print("Converting FAME mesh to NekPy objects")
     layer = mesh.reference_layer
-    elems = iter(layer)
-    elements: frozenset[SD.Geometry2D] | frozenset[SD.Geometry3D]
     if issubclass(layer.element_type, Quad):
         raise ValueError("Can not create poloidal mesh for 2D mesh")
+    elems = iter(layer)
+    elements: frozenset[SD.Geometry2D]
     elements, edges, points = reduce(
         _combine_2d_items,
         (nektar_poloidal_face(elem, order, 3, 0) for elem in elems),
     )
 
     def make_face(
-            item: Segment | Quad,
+        item: Segment | Quad,
     ) -> SD.SegGeom:
-        assert isinstance(item, Quad) 
+        assert isinstance(item, Quad)
         return nektar_edge(poloidal_curve(item), order, 2, 0)[0]
 
     def type_name(element: SD.Geometry) -> str:
@@ -668,15 +686,19 @@ def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
         for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)
     ]
 
-    return NektarElements([NektarLayer2D(
-            points,
-            edges,
-            layer_composite,
-            None,
-            None,
-            elements,
-            bounds,
-    )])
+    return NektarElements(
+        [
+            NektarLayer2D(
+                points,
+                edges,
+                layer_composite,
+                None,
+                None,
+                elements,
+                bounds,
+            )
+        ]
+    )
 
 
 def nektar_composite_map(composite_map: dict[int, SD.Composite]) -> SD.CompositeMap:

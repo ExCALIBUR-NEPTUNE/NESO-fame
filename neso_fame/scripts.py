@@ -352,7 +352,12 @@ def simple_3d(
     default=StringIO(""),
     help="YAML file with settings used to generate the 2D hypnotoad mesh.",
 )
-@click.option("--full/--poloidal", is_flag=True, default=True, help="Whether to output the full 3D mesh or just the poloidal cross-section.")
+@click.option(
+    "--full/--poloidal",
+    is_flag=True,
+    default=True,
+    help="Whether to output the full 3D mesh or just the poloidal cross-section.",
+)
 @click.argument("geqdsk", type=click.Path(exists=True, dir_okay=False))
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def hypnotoad(
@@ -387,7 +392,9 @@ def hypnotoad(
     print("Building 2D poloidal mesh...")
     hypno_mesh = HypnoMesh(eq, options)
     print("Extruding 2D mesh along magnetic field lines...")
-    mesh = hypnotoad_mesh(hypno_mesh, toroidal_limits, layers, 21, n // layers, core, True, True)
+    mesh = hypnotoad_mesh(
+        hypno_mesh, toroidal_limits, layers, 21, n // layers, core, True, True
+    )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")
     if full:

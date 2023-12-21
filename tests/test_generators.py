@@ -2,7 +2,6 @@ import itertools
 from collections.abc import Iterator
 from functools import reduce
 from typing import Optional
-from neso_fame.nektar_writer import write_poloidal_mesh
 
 import numpy as np
 import pytest
@@ -20,6 +19,7 @@ from neso_fame.mesh import (
     SliceCoords,
     control_points,
 )
+from neso_fame.nektar_writer import write_poloidal_mesh
 
 from .test_hypnotoad import CONNECTED_DOUBLE_NULL, to_mesh
 
@@ -953,7 +953,6 @@ def test_extruding_hypnotoad_mesh_to_wall() -> None:
     assert len(remaining_quads) == 0
 
     write_poloidal_mesh(mesh, 3, "test.xml", False)
-
 
 
 def point_on_surface(

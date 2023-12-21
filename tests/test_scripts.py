@@ -418,6 +418,7 @@ def test_tokamak_field() -> None:
         )
         assert result.exit_code == 0
         import shutil
+
         shutil.copyfile(meshfile, "/home/cmacmack/debug-mesh.xml")
         with open(meshfile, "r") as f:
             output = f.read()

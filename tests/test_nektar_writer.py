@@ -469,6 +469,8 @@ def test_nektar_layer_elements(
         faces = nek_layer.faces
     check_points(mesh, nek_layer.points)
     check_edges(mesh, nek_layer.elements, nek_layer.segments)
+    assert nek_layer.near_face is not None
+    assert nek_layer.far_face is not None
     check_face_composites(mesh.near_faces(), nek_layer.near_face)
     check_face_composites(mesh.far_faces(), nek_layer.far_face)
     assert frozenset(nek_layer.near_face.geometries) <= faces
@@ -748,6 +750,8 @@ def test_nektar_mesh(
         expected_far_composites = comparable_composites(
             itertools.islice(elements.far_faces(), n_layers - 1)
         )
+    assert elements._layers[0].near_face is not None
+    assert elements._layers[-1].far_face is not None
     expected_bound_composites = comparable_composites(elements.bounds()) | frozenset(
         {
             comparable_composite(elements._layers[0].near_face),
