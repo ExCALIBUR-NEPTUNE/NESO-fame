@@ -12,7 +12,7 @@ from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
 from neso_fame.mesh import CoordinateSystem, SliceCoords
-from neso_fame.nektar_writer import write_nektar
+from neso_fame.nektar_writer import write_nektar, write_poloidal_mesh
 
 
 @click.group()
@@ -352,6 +352,7 @@ def simple_3d(
     default=StringIO(""),
     help="YAML file with settings used to generate the 2D hypnotoad mesh.",
 )
+@click.option("--full/--poloidal", is_flag=True, default=True, help="Whether to output the full 3D mesh or just the poloidal cross-section.")
 @click.argument("geqdsk", type=click.Path(exists=True, dir_okay=False))
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def hypnotoad(
@@ -361,6 +362,7 @@ def hypnotoad(
     core: bool,
     order: int,
     compress: bool,
+    full: bool,
     geqdsk: str,
     config: TextIOBase,
     meshfile: str,
@@ -388,6 +390,9 @@ def hypnotoad(
     mesh = hypnotoad_mesh(hypno_mesh, toroidal_limits, layers, 21, n // layers, core, True, True)
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")
-    write_nektar(mesh, order, meshfile, 3, True, periodic, compress)
+    if full:
+        write_nektar(mesh, order, meshfile, 3, True, periodic, compress)
+    else:
+        write_poloidal_mesh(mesh, order, meshfile, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())

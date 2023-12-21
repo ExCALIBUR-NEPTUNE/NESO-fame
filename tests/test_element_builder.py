@@ -268,7 +268,7 @@ def test_make_prism(
         mesh.equilibrium.o_point.Z,
         CoordinateSystem.CYLINDRICAL,
     )
-    prism = builder.make_prism(north, south)
+    prism = builder.make_prism_to_centre(north, south)
     assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
         termini + (o_point,)
     )

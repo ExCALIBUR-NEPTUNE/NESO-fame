@@ -971,6 +971,7 @@ def get_region_perpendicular_boundary_points(
     hypnotoad
 
     """
+    # FIXME: Previously I was getting the wrong boundaries and tests weren't picking it up!
     name = region.equilibriumRegion.name
     empty: list[SliceCoord] = []
     inner_lower_divertor = (

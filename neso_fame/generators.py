@@ -665,7 +665,7 @@ def hypnotoad_mesh(
         core_points = core_boundary_points(hypnotoad_poloidal_mesh)
         core_elements = list(
             itertools.starmap(
-                factory.make_prism, itertools.pairwise(core_points.iter_points())
+                factory.make_prism_to_centre, itertools.pairwise(core_points.iter_points())
             )
         )
         inner_bounds: frozenset[Quad] = frozenset()
@@ -673,18 +673,42 @@ def hypnotoad_mesh(
         core_elements = []
         inner_bounds = all_boundaries[0]
     if mesh_to_wall:
+        plasma_points = [tuple(p) for p in factory.outermost_vertices()]
+        wall_points = [tuple(p) for p in hypnotoad_poloidal_mesh.equilibrium.wall[:-1]]
+        wall_coords = frozenset(SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points)
+        n = len(wall_points)
+        import meshpy.triangle as triangle  # type: ignore
+        info = triangle.MeshInfo()
+        info.set_points(wall_points + plasma_points)
+        info.set_facets(list(_periodic_pairwise(iter(range(n)))) + list(_periodic_pairwise(iter(range(n, n + len(plasma_points))))))
+        info.set_holes([tuple(hypnotoad_poloidal_mesh.equilibrium.o_point)])
+        # This approach won't work well if there are highly curved
+        # elements. You can get lines crossing over each other. This
+        # tends to be the case with low-resolution meshes. Works
+        # pretty well for realistic tokamak data with high resoltuion,
+        # although still problems where mesh gets really close to
+        # wall. Also, there is a very thin layer of elements next to
+        # the wall in some places. This seems to be because there are
+        # spots with some very small wall segments. This would all
+        # work a lot better if I could allow points to be inserted
+        # into the bounds.
+
+        # Might be useful to have option to remesh boundary.Get rid of
+        # really small segments and/or make the segments of equal
+        # length.
+        wall_mesh = triangle.build(info, allow_volume_steiner=True, allow_boundary_steiner=False)
+        wall_mesh_points = np.array(wall_mesh.points)
+        triangles = np.array(wall_mesh.elements)
+        wall_mesh_coords = SliceCoords(wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL)
+        # How to ensure that triangles are built in right order?
+        # Especially since Triangle doesn't keep facet direction
+        # consistent for adjacent triangles.
+        initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
         wall_elements, outer_bounds = reduce(
-            lambda left, right: (left[0] + right[0], left[1] | right[1]),
+            lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
             (
-                _wall_elements_and_bounds(
-                    left_mp, left_wps, right_mp, right_wps, factory
-                )
-                for (left_mp, left_wps), (right_mp, right_wps) in _periodic_pairwise(
-                    _group_wall_points(
-                        hypnotoad_poloidal_mesh, list(factory.outermost_vertices())
-                    )
-                )
-            ),
+                factory.make_outer_prism(wall_mesh_coords[i], wall_mesh_coords[j], wall_mesh_coords[k], wall_coords) for i, j, k in triangles[::-1]
+            ), initial
         )
     elif restrict_to_vessel:
         wall_elements = []
@@ -789,7 +813,6 @@ def _wall_elements_and_bounds(
             )
         )
         return prisms, bounds
-
     prisms = [
         factory.make_wall_prism(left_mesh_point, w1, w2)
         for w1, w2 in itertools.pairwise(left_wall_points)

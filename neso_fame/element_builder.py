@@ -231,7 +231,8 @@ class ElementBuilder:
         self._equilibrium = hypnotoad_poloidal_mesh.equilibrium
         self._tracer = tracer
         self._dx3 = dx3
-        self._edges: dict[tuple[SliceCoord, SliceCoord], Quad] = {}
+        self._edges: dict[frozenset[SliceCoord], Quad] = {}
+        self._prism_quads: dict[frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]] = {}
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
         self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
         self._tracked_perpendicular_quad = self._track_edges(self.perpendicular_quad)
@@ -253,11 +254,12 @@ class ElementBuilder:
         """
 
         def check_edges(north: SliceCoord, south: SliceCoord) -> Quad:
+            key = frozenset({north, south})
             try:
-                return self._edges.pop((north, south))
+                return self._edges.pop(key)
             except KeyError:
                 q = func(north, south)
-                self._edges[(north, south)] = q
+                self._edges[key] = q
                 return q
 
         return check_edges
@@ -325,7 +327,7 @@ class ElementBuilder:
             )
         )
 
-    def make_prism(self, north: SliceCoord, south: SliceCoord) -> Prism:
+    def make_prism_to_centre(self, north: SliceCoord, south: SliceCoord) -> Prism:
         """Create a a triangular prism from the two arguments and the O-point."""
         # Only half the permutations of edge ordering seem to work
         # with Nektar++, but this is not documented. I can't figure
@@ -337,6 +339,61 @@ class ElementBuilder:
                 self._tracked_flux_surface_quad(north, south),
             )
         )
+
+    def make_quad_for_prism(self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[SliceCoord]) -> tuple[Quad, frozenset[Quad]]:
+        """Make a quad for use in a triangular prism in the sapce by the wall.
+
+        This will always return the same quad between two points,
+        regardless of the order of the points. It will also return a
+        frozenset that will contain the quad if it is on the wall and
+        be empty otherwise.
+
+        """
+        key = frozenset({north, south})
+        # Check if this quad will be on the outermost surface of the original hex-mesh
+        if key in self._edges:
+            return self._edges[key], frozenset()
+        # Check if this quad has already been created
+        if key in self._prism_quads:
+            return self._prism_quads[key]
+        outermost_north = north in self._outermost_vertex_set
+        outermost_south = south in self._outermost_vertex_set
+        alignment = QuadAlignment.ALIGNED if outermost_north and outermost_south else QuadAlignment.NORTH if outermost_north else QuadAlignment.SOUTH if outermost_south else QuadAlignment.NONALIGNED
+        # PROBLEM: What if a triangle is formed connecting two
+        # non-adjacent points on the plasma mesh? Termini have to be
+        # aligned but then there would be no guarantee that the centre
+        # would remain within the walls.
+        q = Quad(
+            StraightLineAcrossField(north, south),
+            self._tracer,
+            self._dx3,
+            aligned_edges=alignment,
+        )
+        if north in wall_vertices and south in wall_vertices:
+            b = frozenset({q})
+        else:
+            b = frozenset()
+        self._prism_quads[key] = (q, b)
+        return q, b
+
+    def make_outer_prism(self, vertex1: SliceCoord, vertex2: SliceCoord, vertex3: SliceCoord, wall_vertices: frozenset[SliceCoord]) -> tuple[Prism, frozenset[Quad]]:
+        """Create a triangular prism between the hexahedral plasma-mesh and the wall.
+
+        It will also return a (possibly empty) set of all the quads in
+        that prism that lie on the wall.
+
+        """
+        # Not sure if this will be a suitable order (or if there even
+        # is a suitable order that will work for all prisms)
+        q1, b1 = self.make_quad_for_prism(vertex1, vertex2, wall_vertices)
+        q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertices)
+        q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertices)
+#        return Prism((q1, q2, q3)), b1 | b2 | b3
+#        return Prism((q1, q3, q2)), b1 | b2 | b3
+#        return Prism((q2, q1, q3)), b1 | b2 | b3
+#        return Prism((q2, q3, q1)), b1 | b2 | b3
+#        return Prism((q3, q1, q2)), b1 | b2 | b3
+        return Prism((q3, q2, q1)), b1 | b2 | b3
 
     def make_wall_prism(
         self, mesh_vertex: SliceCoord, north: SliceCoord, south: SliceCoord
@@ -377,6 +434,10 @@ class ElementBuilder:
             self._edges.items(),
             _VertexRing([]),
         )
+
+    @cached_property
+    def _outermost_vertex_set(self) -> frozenset[SliceCoord]:
+        return frozenset(self.outermost_vertices())
 
     def outermost_vertices_between(
         self, start: SliceCoord, end: SliceCoord
