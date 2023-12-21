@@ -359,6 +359,7 @@ def nektar_quad(
 
 def poloidal_curve(q: Quad) -> NormalisedCurve:
     """Get the curve this quad makes where it intersects the poloidal plane."""
+
     def wrapper(s: npt.ArrayLike) -> Coords:
         slice_coord = q.shape(s)
         return Coords(
