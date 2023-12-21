@@ -464,6 +464,93 @@ def nektar_end_shape(
     return frozenset({nek_shape}), frozenset(edges), points
 
 
+def _nektar_hexahedron(
+    solid: Prism, order: int, spatial_dim: int, layer_id: int
+) -> Nektar3dGeomElements:
+    """Return a Nektar++ HexGeom object and its components.
+
+    Curved hexes and will be represented to the given order of
+    accuracy.
+
+    Group
+    -----
+    factory
+
+    """
+    init: tuple[list[SD.Geometry2D], frozenset[SD.SegGeom], frozenset[SD.PointGeom]] = (
+        [],
+        frozenset(),
+        frozenset(),
+    )
+    # Be careful with order of faces; needs to be bottom, vertical
+    # faces, then top (although actual oreintation in space is
+    # irrelevant)
+    ordered_sides = [
+        nektar_end_shape(solid.near, order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[3], order, spatial_dim, layer_id),
+        nektar_end_shape(solid.far, order, spatial_dim, layer_id),
+    ]
+    faces, segments, points = reduce(
+        _combine_2d_items_ordered,
+        ordered_sides,
+        init,
+    )
+    for i, edge in enumerate(segments):
+        edge.SetGlobalID(i)
+    for i, face in enumerate(faces):
+        face.SetGlobalID(i)
+    nek_solid = SD.HexGeom(UNSET_ID, cast(list[SD.QuadGeom], faces))
+    for edge in segments:
+        edge.SetGlobalID(UNSET_ID)
+    return frozenset({nek_solid}), frozenset(faces), segments, points
+
+
+def _nektar_prism(
+    solid: Prism, order: int, spatial_dim: int, layer_id: int
+) -> Optional[Nektar3dGeomElements]:
+    """Return a Nektar++ PrismGeom object and its components.
+
+    Curved  prisms will be represented to the given order of
+    accuracy.
+
+    Group
+    -----
+    factory
+
+    """
+    init: tuple[list[SD.Geometry2D], frozenset[SD.SegGeom], frozenset[SD.PointGeom]] = (
+        [],
+        frozenset(),
+        frozenset(),
+    )
+    ordered_sides = [
+        nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
+        nektar_end_shape(solid.near, order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
+        nektar_end_shape(solid.far, order, spatial_dim, layer_id),
+        nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
+    ]
+    faces, segments, points = reduce(
+        _combine_2d_items_ordered,
+        ordered_sides,
+        init,
+    )
+    for i, edge in enumerate(segments):
+        edge.SetGlobalID(i)
+    for i, face in enumerate(faces):
+        face.SetGlobalID(i)
+    try:
+        nek_solid = SD.PrismGeom(UNSET_ID, faces)
+    except LU.NekError:
+        return None
+    for edge in segments:
+        edge.SetGlobalID(UNSET_ID)
+    return frozenset({nek_solid}), frozenset(faces), segments, points
+
+
 @cache
 def nektar_3d_element(
     solid: Prism, order: int, spatial_dim: int, layer_id: int
@@ -480,53 +567,27 @@ def nektar_3d_element(
     factory
 
     """
-    # Be careful with order of faces; needs to be bottom, vertical
-    # faces, then top (although actual oreintation in space is
-    # irrelevant)
-    init: tuple[list[SD.Geometry2D], frozenset[SD.SegGeom], frozenset[SD.PointGeom]] = (
-        [],
-        frozenset(),
-        frozenset(),
-    )
     if len(solid.sides) == 4:
-        ordered_sides = [
-            nektar_end_shape(solid.near, order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[3], order, spatial_dim, layer_id),
-            nektar_end_shape(solid.far, order, spatial_dim, layer_id),
-        ]
+        return _nektar_hexahedron(solid, order, spatial_dim, layer_id)
     elif len(solid.sides) == 3:
-        ordered_sides = [
-            nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
-            nektar_end_shape(solid.near, order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
-            nektar_end_shape(solid.far, order, spatial_dim, layer_id),
-            nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
-        ]
+        # Nektar++ is very particular about the order of the sides of
+        # triangles used in prisms. I can't come up with a general
+        # rule of this that will work for all the prisms that might be
+        # needed, so just try different ones until something works.
+        possible_results = (
+            _nektar_prism(p, order, spatial_dim, layer_id)
+            for p in map(Prism, itertools.permutations(solid.sides))
+        )
+        try:
+            return next(result for result in possible_results if result is not None)
+        except StopIteration:
+            raise LU.NekError(
+                "Could not find an order for faces of prism that Nektar++ will accept"
+            )
     else:
         raise ValueError(
             f"Element with {len(solid.sides)} quadrilateral faces is not recognized."
         )
-    faces, segments, points = reduce(
-        _combine_2d_items_ordered,
-        ordered_sides,
-        init,
-    )
-    for i, edge in enumerate(segments):
-        edge.SetGlobalID(i)
-    for i, face in enumerate(faces):
-        face.SetGlobalID(i)
-    if len(solid.sides) == 4:
-        nek_solid: SD.Geometry3D = SD.HexGeom(UNSET_ID, cast(list[SD.QuadGeom], faces))
-    elif len(solid.sides) == 3:
-        nek_solid = SD.PrismGeom(UNSET_ID, faces)
-    else:
-        assert False
-    for edge in segments:
-        edge.SetGlobalID(UNSET_ID)
-    return frozenset({nek_solid}), frozenset(faces), segments, points
 
 
 def _combine_2d_items(

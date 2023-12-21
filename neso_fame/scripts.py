@@ -398,6 +398,9 @@ def hypnotoad(
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")
     if full:
+        # FIXME: This seems to be really really slow when I mesh all the way
+        # to the wall. It needs profiling, as I suspect it is
+        # repeating quite a lot of work or something.
         write_nektar(mesh, order, meshfile, 3, True, periodic, compress)
     else:
         write_poloidal_mesh(mesh, order, meshfile, compress)

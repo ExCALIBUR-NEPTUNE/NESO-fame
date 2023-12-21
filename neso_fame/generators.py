@@ -700,9 +700,14 @@ def hypnotoad_mesh(
         # work a lot better if I could allow points to be inserted
         # into the bounds.
 
-        # Might be useful to have option to remesh boundary.Get rid of
+        # Might be useful to have option to remesh boundary. Get rid of
         # really small segments and/or make the segments of equal
         # length.
+
+        # Would a better approach be to project nodes out to
+        # intersection with wall and create a set of quads that
+        # way? If we then want to capture further detail then we can
+        # add additional elements beyond those quads?
         wall_mesh = triangle.build(
             info, allow_volume_steiner=True, allow_boundary_steiner=False
         )
@@ -711,9 +716,6 @@ def hypnotoad_mesh(
         wall_mesh_coords = SliceCoords(
             wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL
         )
-        # How to ensure that triangles are built in right order?
-        # Especially since Triangle doesn't keep facet direction
-        # consistent for adjacent triangles.
         initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
         wall_elements, outer_bounds = reduce(
             lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
@@ -724,7 +726,7 @@ def hypnotoad_mesh(
                     wall_mesh_coords[k],
                     wall_coords,
                 )
-                for i, j, k in triangles[::-1]
+                for i, j, k in triangles
             ),
             initial,
         )

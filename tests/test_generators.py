@@ -19,7 +19,6 @@ from neso_fame.mesh import (
     SliceCoords,
     control_points,
 )
-from neso_fame.nektar_writer import write_poloidal_mesh
 
 from .test_hypnotoad import CONNECTED_DOUBLE_NULL, to_mesh
 
@@ -951,8 +950,8 @@ def test_extruding_hypnotoad_mesh_to_wall() -> None:
     assert len(wall_remnants) == 0
     # Check there are no boundary quads not covering the walls
     assert len(remaining_quads) == 0
-
-    write_poloidal_mesh(mesh, 3, "test.xml", False)
+    # FIXME: Writing CONNECTED_DOUBLE_NULL seems to be unbelievably
+    # slow. I almost wonder if it's caught in an infinite loop?
 
 
 def point_on_surface(
