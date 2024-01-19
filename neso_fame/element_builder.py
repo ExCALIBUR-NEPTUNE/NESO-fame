@@ -9,6 +9,8 @@ from functools import cache, cached_property, reduce
 from typing import Callable, Optional
 from warnings import warn
 
+import numpy as np
+import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
@@ -17,6 +19,7 @@ from neso_fame.hypnotoad_interface import (
     perpendicular_edge,
 )
 from neso_fame.mesh import (
+    AcrossFieldCurve,
     CoordinateSystem,
     FieldTracer,
     Prism,
@@ -67,6 +70,14 @@ class _RingFragment:
             -self.counterclockwiseness,
             self.linking_quad,
         )
+
+    def to_arrays(self) -> tuple[npt.NDArray, npt.NDArray]:
+        return np.array([v.x1 for v in self.vertices]), np.array(
+            [v.x2 for v in self.vertices]
+        )
+
+    def __str__(self) -> str:
+        return "[\n" + ",\n".join(str(tuple(v)) for v in self.vertices) + "\n]"
 
 
 RingFragments = list[_RingFragment]
@@ -153,7 +164,7 @@ class _VertexRing:
     def __iter__(self) -> Iterator[SliceCoord]:
         if len(self.fragments) > 1:
             warn("Multiple vertex rings detected; iterating over largest.")
-        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
+        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[-1]
         if not fragment.complete:
             raise ValueError("Can not iterate over incomplete ring.")
         return iter(fragment)
@@ -388,6 +399,26 @@ class ElementBuilder:
         self._prism_quads[key] = (q, b)
         return q, b
 
+    def make_wall_quad_for_prism(self, shape: AcrossFieldCurve) -> Quad:
+        """Create a quad that is aligned to the vessel wall.
+
+        These quads will be used for building triangular prisms by the
+        tokamak wall. This method can be used for cases where you want
+        the quad to be curved in the poloidal plane. Typically it
+        would be called in advance of the construction of the
+        prism. It will then keep a copy of the quad it builds which
+        will be returned from future calls to
+        :method:`~neso_fame.element_builder.ElementBuilder.make_quad_for_prism`.
+
+        """
+        key = frozenset(shape([0.0, 1.0]).iter_points())
+        if key in self._prism_quads:
+            return self._prism_quads[key][0]
+        q = Quad(shape, self._tracer, self._dx3, aligned_edges=QuadAlignment.NONALIGNED)
+        b = frozenset({q})
+        self._prism_quads[key] = (q, b)
+        return q
+
     def make_outer_prism(
         self,
         vertex1: SliceCoord,
@@ -401,18 +432,10 @@ class ElementBuilder:
         that prism that lie on the wall.
 
         """
-        # FIXME: None of the orders seem to work for all the prisms in
-        # the mesh. For each prism I create in nektar writer, could I
-        # just try rearanging them until one works?
         q1, b1 = self.make_quad_for_prism(vertex1, vertex2, wall_vertices)
         q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertices)
         q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertices)
-        #        return Prism((q1, q2, q3)), b1 | b2 | b3
-        #        return Prism((q1, q3, q2)), b1 | b2 | b3
-        #        return Prism((q2, q1, q3)), b1 | b2 | b3
-        #        return Prism((q2, q3, q1)), b1 | b2 | b3
-        #        return Prism((q3, q1, q2)), b1 | b2 | b3
-        return Prism((q3, q2, q1)), b1 | b2 | b3
+        return Prism((q1, q2, q3)), b1 | b2 | b3
 
     def make_wall_prism(
         self, mesh_vertex: SliceCoord, north: SliceCoord, south: SliceCoord

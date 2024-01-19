@@ -2,6 +2,7 @@
 
 from io import StringIO, TextIOBase
 from sys import argv
+from typing import Optional
 
 import click
 import numpy as np
@@ -310,7 +311,7 @@ def simple_3d(
     show_default=True,
 )
 @click.option(
-    "--toroidal_limits",
+    "--toroidal-limits",
     nargs=2,
     type=float,
     help="The limits of the domain in the x3 direction.",
@@ -332,6 +333,26 @@ def simple_3d(
     is_flag=True,
     default=True,
     help="Whether to fill in the core region of the tokamak with prisms.",
+)
+@click.option(
+    "--wall-resolution",
+    type=click.FloatRange(0., min_open=True),
+    default=None,
+    help="The target size of elements on the tokamak compared to those in the "
+    "outermost layer of hte hypnotoad mesh. If not specified, use the wall "
+    "elements specified in the GEQDSK file (which may vary significantly in size).",
+)
+@click.option(
+    "--wall-angle-threshold",
+    type=click.FloatRange(0., np.pi),
+    default=np.pi/8,
+    help="If adjusting the resolution of the tokamak wall, any vertices with an angle above this threshold will be preserved as sharp corners. Angles below it will be smoothed out."
+)
+@click.option(
+    "--min-wall-distance",
+    type=click.FloatRange(0.),
+    default=0.025,
+    help="The minimum distance to leave between hypnotoad mesh elements and the tokamak wall."
 )
 @click.option(
     "--order",
@@ -365,6 +386,9 @@ def hypnotoad(
     toroidal_limits: tuple[float, float],
     layers: int,
     core: bool,
+    wall_resolution: Optional[float],
+    wall_angle_threshold: float,
+    min_wall_distance: float,
     order: int,
     compress: bool,
     full: bool,
@@ -393,7 +417,17 @@ def hypnotoad(
     hypno_mesh = HypnoMesh(eq, options)
     print("Extruding 2D mesh along magnetic field lines...")
     mesh = hypnotoad_mesh(
-        hypno_mesh, toroidal_limits, layers, 21, n // layers, core, True, True
+        hypno_mesh,
+        toroidal_limits,
+        layers,
+        21,
+        n // layers,
+        core,
+        True,
+        True,
+        min_wall_distance,
+        wall_resolution,
+        wall_angle_threshold,
     )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")

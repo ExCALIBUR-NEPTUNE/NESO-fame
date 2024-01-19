@@ -5,13 +5,13 @@ from __future__ import annotations
 import itertools
 import operator
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Sequence, Iterable, Iterator
 from functools import cache, reduce
-from typing import Callable, Iterator, Optional, TypeVar, cast
+from typing import Callable, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad import Mesh as HypnoMesh, Point2D  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 
 from neso_fame.element_builder import ElementBuilder
@@ -42,8 +42,10 @@ from neso_fame.mesh import (
 from neso_fame.wall import (
     Connections,
     WallSegment,
+    adjust_wall_resolution,
     find_external_points,
     get_rectangular_mesh_connections,
+    periodic_pairwise,
     point_in_tokamak,
     wall_points_to_segments,
 )
@@ -516,6 +518,7 @@ def _element_corners(
 
 def _handle_nodes_outside_vessel(
     hypnotoad_poloidal_mesh: HypnoMesh,
+    wall_points: Iterable[Point2D],
     restrict_to_vessel: bool,
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
 ) -> Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool]:
@@ -545,7 +548,7 @@ def _handle_nodes_outside_vessel(
                 )
             ),
         )
-        wall = wall_points_to_segments(hypnotoad_poloidal_mesh.equilibrium.wall[:-1])
+        wall = wall_points_to_segments(wall_points)
         external_nodes, _ = find_external_points(
             outermost_nodes, connections, wall, in_tokamak_test
         )
@@ -565,6 +568,28 @@ def _handle_nodes_outside_vessel(
     return corners_within_vessel
 
 
+def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
+    def outermost_distances(region: HypnoMeshRegion) -> npt.NDArray:
+        if region.connections["outer"] is None:
+            R = region.Rxy.corners
+            Z = region.Zxy.corners
+            dR = R[-1, 1:] - R[-1, :-1]
+            dZ = Z[-1, 1:] - Z[-1, :-1]
+            return np.sqrt(dR * dR + dZ * dZ)
+        return np.array([])
+
+    return float(
+        np.mean(
+            np.concatenate(
+                [
+                    np.ravel(outermost_distances(r))
+                    for r in hypnotoad_poloidal_mesh.regions.values()
+                ]
+            )
+        )
+    )
+
+
 def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
     extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
@@ -574,6 +599,9 @@ def hypnotoad_mesh(
     mesh_to_core: bool = False,
     restrict_to_vessel: bool = False,
     mesh_to_wall: bool = False,
+    min_distance_to_wall: float = 0.025,
+    wall_resolution: Optional[float] = None,
+    wall_angle_threshold: float = np.pi/12
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -610,6 +638,20 @@ def hypnotoad_mesh(
         Whether to add extra prism and hex elements to fill the space
         between the edge of the field-aligned mesh and the tokamak
         wall. Requires `restrict_to_vesel` to be true.
+    min_distance_to_wall
+        The minimum distance to leave between the hypnotoad mesh and
+        the wall of the tokamak. Only used if `mesh_to_wall` is true.
+    wall_resolution
+        If present, indicates that the resolution of the tokamak wall
+        should be adjusted so that the edges of elements on the wall
+        are approximately the specified fraction of the size of those
+        at the outer edge of the hypnotoad mesh. If `None` then use the
+        wall elements specified in the eqdsk data, which may be of
+        widely varying sizes.
+    wall_angle_threshold
+        If adjusting the resolution of the tokamak wall, any vertices
+        with an angle above this threshold will be preserved as sharp
+        corners. Angles below it will be smoothed out.
 
     Returns
     -------
@@ -635,9 +677,13 @@ def hypnotoad_mesh(
         equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
         spatial_interp_resolution,
     )
+    min_dist_squared = min_distance_to_wall * min_distance_to_wall
 
     def whole_line_in_tokamak(start: SliceCoord, wall: Sequence[WallSegment]) -> bool:
-        if point_in_tokamak(start, wall):
+        if (
+            point_in_tokamak(start, wall)
+            and min(seg.min_distance_squared(start) for seg in wall) >= min_dist_squared
+        ):
             line = FieldAlignedCurve(tracer, start, dx3)
             return all(
                 point_in_tokamak(p.to_slice_coord(), wall)
@@ -645,8 +691,9 @@ def hypnotoad_mesh(
             )
         return False
 
+    wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
     corners_within_vessel = _handle_nodes_outside_vessel(
-        hypnotoad_poloidal_mesh, restrict_to_vessel, whole_line_in_tokamak
+        hypnotoad_poloidal_mesh, wall, restrict_to_vessel, whole_line_in_tokamak
     )
     factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3)
 
@@ -675,7 +722,15 @@ def hypnotoad_mesh(
         inner_bounds = all_boundaries[0]
     if mesh_to_wall:
         plasma_points = [tuple(p) for p in factory.outermost_vertices()]
-        wall_points = [tuple(p) for p in hypnotoad_poloidal_mesh.equilibrium.wall[:-1]]
+        if wall_resolution is not None:
+            target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
+            wall: list[Point2D] = adjust_wall_resolution(
+                wall,
+                target * wall_resolution,
+                angle_threshold=wall_angle_threshold,
+                register_segment=factory.make_wall_quad_for_prism,
+            )
+        wall_points = [tuple(p) for p in wall]
         wall_coords = frozenset(
             SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points
         )
@@ -685,29 +740,21 @@ def hypnotoad_mesh(
         info = triangle.MeshInfo()
         info.set_points(wall_points + plasma_points)
         info.set_facets(
-            list(_periodic_pairwise(iter(range(n))))
-            + list(_periodic_pairwise(iter(range(n, n + len(plasma_points)))))
+            list(periodic_pairwise(iter(range(n))))
+            + list(periodic_pairwise(iter(range(n, n + len(plasma_points)))))
         )
         info.set_holes([tuple(hypnotoad_poloidal_mesh.equilibrium.o_point)])
-        # This approach won't work well if there are highly curved
-        # elements. You can get lines crossing over each other. This
-        # tends to be the case with low-resolution meshes. Works
-        # pretty well for realistic tokamak data with high resoltuion,
-        # although still problems where mesh gets really close to
-        # wall. Also, there is a very thin layer of elements next to
-        # the wall in some places. This seems to be because there are
-        # spots with some very small wall segments. This would all
-        # work a lot better if I could allow points to be inserted
-        # into the bounds.
-
-        # Might be useful to have option to remesh boundary. Get rid of
-        # really small segments and/or make the segments of equal
-        # length.
-
-        # Would a better approach be to project nodes out to
-        # intersection with wall and create a set of quads that
-        # way? If we then want to capture further detail then we can
-        # add additional elements beyond those quads?
+        # It may be worth adding the option to start merging quads
+        # with a really weird aspect ratio (i.e, leading away from the
+        # x-point towards the centre). When aspect ratio of two of
+        # them gets too high, create a triangle. Would need to be
+        # careful about direction though. Would this also be useful
+        # around seperatrix? Want some increase resolution there, but
+        # not necessarily too much. Might a mapping between
+        # hypntoad-generate points and FAME elements be useful here?
+        # Or maybe I can extend _element_corners to be able to do
+        # this? Might also be good to reduce perpendicular resolution
+        # in PFR. Try tracing out from x-points? Quite hard to coordinate.
         wall_mesh = triangle.build(
             info, allow_volume_steiner=True, allow_boundary_steiner=False
         )
@@ -769,21 +816,6 @@ def _group_wall_points(
         (mp, list(map(operator.itemgetter(0), wps)))
         for mp, wps in itertools.groupby(wall_points, operator.itemgetter(1))
     )
-
-
-T = TypeVar("T")
-
-
-def _periodic_pairwise(iterator: Iterator[T]) -> Iterator[tuple[T, T]]:
-    """Return successive overlapping pairs taken from the input iterator.
-
-    This is the same as :func:`itertools.pairwise`, except the last
-    item in the returned iterator will be the pair of the last and
-    first items in the original iterator.
-
-    """
-    first = [next(iterator)]
-    return itertools.pairwise(itertools.chain(first, iterator, first))
 
 
 def _wall_elements_and_bounds(
