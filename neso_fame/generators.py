@@ -5,14 +5,15 @@ from __future__ import annotations
 import itertools
 import operator
 from collections import defaultdict
-from collections.abc import Sequence, Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from functools import cache, reduce
 from typing import Callable, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
-from hypnotoad import Mesh as HypnoMesh, Point2D  # type: ignore
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
+from hypnotoad import Point2D
 
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
@@ -575,7 +576,7 @@ def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
             Z = region.Zxy.corners
             dR = R[-1, 1:] - R[-1, :-1]
             dZ = Z[-1, 1:] - Z[-1, :-1]
-            return np.sqrt(dR * dR + dZ * dZ)
+            return cast(npt.NDArray, np.sqrt(dR * dR + dZ * dZ))
         return np.array([])
 
     return float(
@@ -601,7 +602,7 @@ def hypnotoad_mesh(
     mesh_to_wall: bool = False,
     min_distance_to_wall: float = 0.025,
     wall_resolution: Optional[float] = None,
-    wall_angle_threshold: float = np.pi/12
+    wall_angle_threshold: float = np.pi / 12,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -691,9 +692,9 @@ def hypnotoad_mesh(
             )
         return False
 
-    wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
+    eqdsk_wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
     corners_within_vessel = _handle_nodes_outside_vessel(
-        hypnotoad_poloidal_mesh, wall, restrict_to_vessel, whole_line_in_tokamak
+        hypnotoad_poloidal_mesh, eqdsk_wall, restrict_to_vessel, whole_line_in_tokamak
     )
     factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3)
 
@@ -725,11 +726,13 @@ def hypnotoad_mesh(
         if wall_resolution is not None:
             target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
             wall: list[Point2D] = adjust_wall_resolution(
-                wall,
+                eqdsk_wall,
                 target * wall_resolution,
                 angle_threshold=wall_angle_threshold,
                 register_segment=factory.make_wall_quad_for_prism,
             )
+        else:
+            wall = eqdsk_wall
         wall_points = [tuple(p) for p in wall]
         wall_coords = frozenset(
             SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points

@@ -336,7 +336,7 @@ def simple_3d(
 )
 @click.option(
     "--wall-resolution",
-    type=click.FloatRange(0., min_open=True),
+    type=click.FloatRange(0.0, min_open=True),
     default=None,
     help="The target size of elements on the tokamak compared to those in the "
     "outermost layer of hte hypnotoad mesh. If not specified, use the wall "
@@ -344,15 +344,15 @@ def simple_3d(
 )
 @click.option(
     "--wall-angle-threshold",
-    type=click.FloatRange(0., np.pi),
-    default=np.pi/8,
-    help="If adjusting the resolution of the tokamak wall, any vertices with an angle above this threshold will be preserved as sharp corners. Angles below it will be smoothed out."
+    type=click.FloatRange(0.0, np.pi),
+    default=np.pi / 8,
+    help="If adjusting the resolution of the tokamak wall, any vertices with an angle above this threshold will be preserved as sharp corners. Angles below it will be smoothed out.",
 )
 @click.option(
     "--min-wall-distance",
-    type=click.FloatRange(0.),
+    type=click.FloatRange(0.0),
     default=0.025,
-    help="The minimum distance to leave between hypnotoad mesh elements and the tokamak wall."
+    help="The minimum distance to leave between hypnotoad mesh elements and the tokamak wall.",
 )
 @click.option(
     "--order",

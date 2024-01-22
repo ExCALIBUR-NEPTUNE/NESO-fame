@@ -16,11 +16,11 @@ from hypnotoad import Point2D  # type: ignore
 from scipy.interpolate import interp1d
 
 from neso_fame.mesh import (
+    AcrossFieldCurve,
     CoordinateSystem,
+    Quad,
     SliceCoord,
     SliceCoords,
-    AcrossFieldCurve,
-    Quad,
     StraightLineAcrossField,
 )
 
@@ -221,7 +221,6 @@ def _interpolate_wall(
     R_interp = interp1d(normed_distances, coords[:, 0], kind)
     Z_interp = interp1d(normed_distances, coords[:, 1], kind)
     s = np.linspace(0.0, 1.0, n + 1)
-    x = np.linspace(0., 1., n * 4 + 1)
     Rs = R_interp(s)
     Zs = Z_interp(s)
     if kind != "linear":
@@ -241,6 +240,63 @@ def _interpolate_wall(
         for shape in shapes:
             _ = register_segment(shape)
     return [Point2D(float(R), float(Z)) for R, Z in np.nditer([Rs[:-1], Zs[:-1]])]
+
+
+def _reorder_portions(
+    portions_lengths: Iterator[tuple[list[Point2D], float]],
+    is_small: Callable[[tuple[list[Point2D], float]], bool],
+) -> Iterator[tuple[list[Point2D], float]]:
+    # FIXME: Don't like this. Is there a more functional way to express it?
+    tail: list[tuple[list[Point2D], float]] = []
+    initial = True
+    for p_l in portions_lengths:
+        if initial and is_small((p_l)):
+            tail.append(p_l)
+            continue
+        initial = False
+        yield p_l
+    for p_l in tail:
+        yield p_l
+
+
+def _small_portion_centre_point(
+    points: list[Point2D],
+) -> list[Point2D]:
+    n = len(points)
+    return [Point2D(sum(p.R for p in points) / n, sum(p.Z for p in points) / n)]
+
+
+def _left_terminus(
+    portion: tuple[list[Point2D], float],
+    is_small: Callable[[tuple[list[Point2D], float]], bool],
+) -> list[Point2D]:
+    """Return the left terminus of the portion to the right of this segment."""
+    if is_small(portion):
+        return _small_portion_centre_point(portion[0])
+    return portion[0][-1:]
+
+
+def _right_terminus(
+    portion: tuple[list[Point2D], float],
+    is_small: Callable[[tuple[list[Point2D], float]], bool],
+) -> list[Point2D]:
+    """Return the right terminus of the portion to the left of this segment."""
+    if is_small(portion):
+        return _small_portion_centre_point(portion[0])
+    return portion[0][:1]
+
+
+def _small_portion_length(
+    portion: tuple[list[Point2D], float],
+    is_small: Callable[[tuple[list[Point2D], float]], bool],
+) -> float:
+    """Return the contribution of this portion to the length of a neighbour.
+
+    This will be half its length it is small and 0 otherwise.
+    """
+    if is_small(portion):
+        return 0.5 * portion[1]
+    return 0.0
 
 
 def adjust_wall_resolution(
@@ -298,65 +354,29 @@ def adjust_wall_resolution(
     def is_small(x: tuple[list[Point2D], float]) -> bool:
         return x[1] < target_size * min_size_factor
 
-    # Put any initial small portions at the end. This will ensure that
-    # they will be adjacent to any other small portions already at the
-    # end in the list and can be combined properly.
-    def reorder_portions(
-        portions_lengths: Iterator[tuple[list[Point2D], float]],
-    ) -> Iterator[tuple[list[Point2D], float]]:
-        # FIXME: Don't like this. Is there a more functional way to express it?
-        tail: list[tuple[list[Point2D], float]] = []
-        initial = True
-        for p_l in portions_lengths:
-            if initial and is_small((p_l)):
-                tail.append(p_l)
-                continue
-            initial = False
-            yield p_l
-        for p_l in tail:
-            yield p_l
-
     # Combine adjacent small portions of the wall
     combined_portions = itertools.chain.from_iterable(
         _combine_small_portions(portions) if small else portions
         for small, portions in itertools.groupby(
-            reorder_portions(zip(continuous_portions, portion_sizes)), is_small
+            _reorder_portions(zip(continuous_portions, portion_sizes), is_small),
+            is_small,
         )
     )
 
     # If there are any remaining small portions, merge them with the adjacent larger ones
-    def small_portion_centre_point(
-        points: list[Point2D],
-    ) -> list[Point2D]:
-        n = len(points)
-        return [Point2D(sum(p.R for p in points) / n, sum(p.Z for p in points) / n)]
-
-    def left_terminus(portion: tuple[list[Point2D], float]) -> list[Point2D]:
-        if is_small(portion):
-            return small_portion_centre_point(portion[0])
-        return portion[0][-1:]
-
-    def right_terminus(portion: tuple[list[Point2D], float]) -> list[Point2D]:
-        if is_small(portion):
-            return small_portion_centre_point(portion[0])
-        return portion[0][:1]
-
-    def small_portion_length(
-        portion: tuple[list[Point2D], float],
-    ) -> float:
-        if is_small(portion):
-            return 0.5 * portion[1]
-        return 0.0
-
     portions = (
         (
-            left_terminus(left)
+            _left_terminus(left, is_small)
             + portion[1:-1]
-            + right_terminus(right),
+            + _right_terminus(right, is_small),
             max(
                 1,
                 round(
-                    (small_portion_length(left) + small_portion_length(right) + length)
+                    (
+                        _small_portion_length(left, is_small)
+                        + _small_portion_length(right, is_small)
+                        + length
+                    )
                     / target_size
                 ),
             ),
