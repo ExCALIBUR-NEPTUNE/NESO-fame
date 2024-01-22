@@ -737,12 +737,12 @@ def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
         item: Segment | Quad,
     ) -> SD.SegGeom:
         assert isinstance(item, Quad)
-        return nektar_edge(poloidal_curve(item), order, 2, 0)[0]
+        return nektar_edge(poloidal_curve(item), order, 3, 0)[0]
 
     def type_name(element: SD.Geometry) -> str:
         return element.__class__.__name__
 
-    bounds = [frozenset(make_face(y) for y in x) for x in layer.boundaries()]
+    bounds = [frozenset(map(make_face, x)) for x in layer.boundaries()]
     layer_composite = [
         SD.Composite(list(e))
         for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)
@@ -907,7 +907,7 @@ def nektar_mesh(
         if compressed
         else SD.MeshGraphXml(mesh_dim, spatial_dim)
     )
-    print("Assigning verticse")
+    print("Assigning vertices")
     _assign_points(elements, meshgraph)
     print("Assigning segments")
     _assign_segments(elements, meshgraph)
