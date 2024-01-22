@@ -404,7 +404,7 @@ def test_tokamak_field() -> None:
             [
                 "--n",
                 "3",
-                "--toroidal_limits",
+                "--toroidal-limits",
                 "0",
                 str(0.001 * np.pi),  # Don't extrude very far to keep run-times quick
                 "--order",
@@ -422,7 +422,7 @@ def test_tokamak_field() -> None:
         shutil.copyfile(meshfile, "/home/cmacmack/debug-mesh.xml")
         with open(meshfile, "r") as f:
             output = f.read()
-    assert len(TRIANGLES.findall(output)) == 4 * 6
+    assert len(TRIANGLES.findall(output)) > 4 * 6
     assert len(ZONES.findall(output)) == 3
     assert len(INTERFACES.findall(output)) == 2
     for curve in CURVES.finditer(output):

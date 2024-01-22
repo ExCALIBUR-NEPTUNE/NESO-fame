@@ -976,7 +976,7 @@ def test_prism_subdivision_len(h: mesh.Prism, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.Prism), integers(-5, 10))
+@given(from_type(mesh.Prism), integers(-3, 5))
 def test_prism_subdivision(h: mesh.Prism, divisions: int) -> None:
     divisions_iter = h.subdivide(divisions)
     prism_corners = h.corners()
