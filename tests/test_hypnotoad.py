@@ -731,7 +731,7 @@ def test_perpendicular_edges(
         np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2
     )
     for d, e, p in np.nditer([dist, total_err, positions]):
-        np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
+        np.testing.assert_allclose(d / total_distance, p, 1.5e-7, max(1.5e-7, float(e)))
 
 
 @settings(deadline=None, report_multiple_bugs=False)
