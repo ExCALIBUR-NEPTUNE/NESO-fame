@@ -412,8 +412,7 @@ def test_unfinished_outermost_vertices_between() -> None:
 
 
 def test_unfinished_outermost_vertices() -> None:
-    # FIXME: This is no longer expected behaviour; Instead should check that
-    with pytest.warns(UserWarning, match=r'Multiple vertex rings detected'):
+    with pytest.warns(UserWarning, match=r"Multiple vertex rings detected"):
         _ = BUILDER_UNFINISHED.outermost_vertices()
 
 
