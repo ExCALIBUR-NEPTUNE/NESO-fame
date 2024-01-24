@@ -800,7 +800,7 @@ def _hex_mesh_arguments(
         return hexes, new_bounds
 
     lower_points = np.linspace(sorted_starts[0], sorted_starts[1], num_hexes_x2 + 1)
-    upper_points = np.linspace(sorted_starts[3], sorted_starts[2], num_hexes_x2 + 1)
+    upper_points = np.linspace(sorted_starts[2], sorted_starts[3], num_hexes_x2 + 1)
     points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
     initial: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]] = (
         [],
