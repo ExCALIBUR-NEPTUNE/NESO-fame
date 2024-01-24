@@ -305,28 +305,6 @@ class ElementBuilder:
             aligned_edges=QuadAlignment.NORTH,
         )
 
-    @cache
-    def make_wall_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
-        """Create a quad along the wall of the tokamak."""
-        return Quad(
-            StraightLineAcrossField(north, south),
-            self._tracer,
-            self._dx3,
-            aligned_edges=QuadAlignment.NONALIGNED,
-        )
-
-    @cache
-    def make_mesh_to_wall_quad(
-        self, wall_coord: SliceCoord, mesh_coord: SliceCoord
-    ) -> Quad:
-        """Make a quad stretching from a point on the wall to the existing mesh."""
-        return Quad(
-            StraightLineAcrossField(wall_coord, mesh_coord),
-            self._tracer,
-            self._dx3,
-            aligned_edges=QuadAlignment.SOUTH,
-        )
-
     def make_hex(
         self, sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: SliceCoord
     ) -> Prism:
@@ -436,36 +414,6 @@ class ElementBuilder:
         q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertices)
         q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertices)
         return Prism((q1, q2, q3)), b1 | b2 | b3
-
-    def make_wall_prism(
-        self, mesh_vertex: SliceCoord, north: SliceCoord, south: SliceCoord
-    ) -> Prism:
-        """Create a triangular prism from two points on the wall and one on the mesh."""
-        return Prism(
-            (
-                self.make_mesh_to_wall_quad(north, mesh_vertex),
-                self.make_mesh_to_wall_quad(south, mesh_vertex),
-                self.make_wall_quad(north, south),
-            )
-        )
-
-    def make_wall_hex(
-        self,
-        mesh_quad: Quad,
-        mesh_north: SliceCoord,
-        mesh_south: SliceCoord,
-        wall_north: SliceCoord,
-        wall_south: SliceCoord,
-    ) -> Prism:
-        """Create a hexahedron with one quad on the mesh and another on the wall."""
-        return Prism(
-            (
-                self.make_wall_quad(wall_north, wall_south),
-                mesh_quad,
-                self.make_mesh_to_wall_quad(wall_north, mesh_north),
-                self.make_mesh_to_wall_quad(wall_south, mesh_south),
-            )
-        )
 
     @cached_property
     def _outermost_vertex_ring(self) -> _VertexRing:
