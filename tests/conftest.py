@@ -733,9 +733,9 @@ def _hex_mesh_arguments(
     fixed_bounds: bool,
 ) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits)
-    sorted_starts = sorted(sorted_starts[0:2], key=lambda x: tuple(reversed(x))) + sorted(
-        sorted_starts[2:4], key=lambda x: tuple(reversed(x)), reverse=True
-    )
+    sorted_starts = sorted(
+        sorted_starts[0:2], key=lambda x: tuple(reversed(x))
+    ) + sorted(sorted_starts[2:4], key=lambda x: tuple(reversed(x)), reverse=True)
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
     if c == mesh.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((lim[0] for lim in limits), 2)
