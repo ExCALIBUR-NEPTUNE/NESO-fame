@@ -1,5 +1,6 @@
 import itertools
 import operator
+from functools import cache
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -7,15 +8,21 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
-from hypnotoad import Point2D  # type: ignore
+from hypnotoad import (
+    MeshRegion,
+    Point2D,  # type: ignore
+)
 from hypothesis import given, settings
 from hypothesis.strategies import (
+    SearchStrategy,
     booleans,
     composite,
     floats,
     integers,
+    lists,
     sampled_from,
     shared,
+    tuples,
 )
 
 from neso_fame.element_builder import ElementBuilder
@@ -23,6 +30,7 @@ from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
     CoordinateSystem,
     FieldTracer,
+    QuadAlignment,
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
@@ -32,6 +40,14 @@ from .conftest import simple_trace
 from .test_hypnotoad import real_meshes
 
 shared_meshes = shared(real_meshes, key=-45)
+# Filter out core region for single-null meshes, as the periodicity
+# causes some confusion when testing boundary-related stuff
+shared_regions = shared(
+    real_meshes.flatmap(lambda mesh: sampled_from(list(mesh.regions.values()))).filter(
+        lambda x: x.equilibriumRegion.name != "core"
+    ),
+    key=-46,
+)
 
 
 @composite
@@ -78,6 +94,69 @@ def flux_surface_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCo
         region.Zxy.corners[i, j2],
         CoordinateSystem.CYLINDRICAL,
     )
+
+
+@composite
+def points_in_region(draw: Any, region: MeshRegion) -> SliceCoord:
+    shape = region.Rxy.corners.shape
+    i = draw(integers(0, shape[0] - 1))
+    j = draw(integers(0, shape[1] - 1))
+    return SliceCoord(
+        region.Rxy.corners[i, j], region.Zxy.corners[i, j], CoordinateSystem.CYLINDRICAL
+    )
+
+
+def points_in_mesh(mesh: HypnoMesh) -> SearchStrategy[SliceCoord]:
+    return sampled_from(list(mesh.regions.values())).flatmap(points_in_region)
+
+
+def point_pairs(mesh: HypnoMesh) -> SearchStrategy[tuple[SliceCoord, SliceCoord]]:
+    return tuples(points_in_mesh(mesh), points_in_mesh(mesh))
+
+
+@cache
+def _get_interiors(region: MeshRegion) -> list[tuple[npt.NDArray, ...]]:
+    return list(
+        np.nditer([region.Rxy.corners[1:-1, 1:-1], region.Zxy.corners[1:-1, 1:-1]])
+    )
+
+
+def region_interior_points(region: MeshRegion) -> SearchStrategy[SliceCoord]:
+    return sampled_from(_get_interiors(region)).map(
+        lambda x: SliceCoord(float(x[0]), float(x[1]), CoordinateSystem.CYLINDRICAL)
+    )
+
+
+@cache
+def _get_boundaries(region: MeshRegion) -> list[tuple[npt.NDArray, ...]]:
+    return (
+        list(np.nditer([region.Rxy.corners[0, :], region.Zxy.corners[0, :]]))
+        + list(np.nditer([region.Rxy.corners[-1, :], region.Zxy.corners[-1, :]]))
+        + list(np.nditer([region.Rxy.corners[1:-1, 0], region.Zxy.corners[1:-1, 0]]))
+        + list(np.nditer([region.Rxy.corners[1:-1, -1], region.Zxy.corners[1:-1, -1]]))
+    )
+
+
+def region_boundary_points(region: MeshRegion) -> SearchStrategy[SliceCoord]:
+    return sampled_from(_get_boundaries(region)).map(
+        lambda x: SliceCoord(float(x[0]), float(x[1]), CoordinateSystem.CYLINDRICAL)
+    )
+
+
+def builder_for_region(
+    region: MeshRegion, interp_resolution: int = 5, dx3: float = 1e-1
+) -> ElementBuilder:
+    """Return an element builder with all elements already built for the region."""
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(region.meshParent, trace, dx3)
+    for p1, p2, p3, p4 in zip(
+        *map(
+            operator.methodcaller("iter_points"),
+            _element_corners(region.Rxy.corners, region.Zxy.corners),
+        )
+    ):
+        _ = builder.make_hex(p1, p2, p3, p4)
+    return builder
 
 
 @composite
@@ -254,7 +333,7 @@ def test_make_hex(
     integers(2, 20),
     floats(1e-3, 1e3),
 )
-def test_make_prism(
+def test_make_prism_to_centre(
     mesh: HypnoMesh,
     termini: tuple[SliceCoord, SliceCoord],
     interp_resolution: int,
@@ -275,6 +354,251 @@ def test_make_prism(
     for quad in prism:
         assert quad.field == trace
         assert quad.dx3 == dx3
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_quad_for_prism(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3)
+    quad, boundary_quads = builder.make_quad_for_prism(*points, frozenset())
+    assert quad.shape(0.0).to_coord() == points[0]
+    assert quad.shape(1.0).to_coord() == points[1]
+    assert quad.field == trace
+    assert quad.dx3 == dx3
+    assert quad.aligned_edges == QuadAlignment.NONALIGNED
+    assert len(boundary_quads) == 0
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_quad_for_prism_order_invariant(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3)
+    assert (
+        builder.make_quad_for_prism(points[0], points[1], frozenset())[0]
+        == builder.make_quad_for_prism(points[1], points[0], frozenset())[0]
+    )
+
+
+@settings(deadline=None)
+@given(
+    shared_regions.map(builder_for_region),
+    shared_regions.flatmap(region_boundary_points),
+    shared_regions.flatmap(region_boundary_points),
+)
+def test_quad_for_prism_aligned(
+    builder: ElementBuilder,
+    point1: SliceCoord,
+    point2: SliceCoord,
+) -> None:
+    quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
+    assert quad.aligned_edges == QuadAlignment.ALIGNED
+
+
+@settings(deadline=None)
+@given(
+    shared_regions.map(builder_for_region),
+    shared_regions.flatmap(region_boundary_points),
+    shared_regions.flatmap(region_interior_points),
+)
+def test_quad_for_prism_aligned_north(
+    builder: ElementBuilder,
+    point1: SliceCoord,
+    point2: SliceCoord,
+) -> None:
+    quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
+    assert quad.aligned_edges == QuadAlignment.NORTH
+
+
+@settings(deadline=None)
+@given(
+    shared_regions.map(builder_for_region),
+    shared_regions.flatmap(region_interior_points),
+    shared_regions.flatmap(region_boundary_points),
+    shared_regions,
+)
+def test_quad_for_prism_aligned_south(
+    builder: ElementBuilder,
+    point1: SliceCoord,
+    point2: SliceCoord,
+    region: MeshRegion,
+) -> None:
+    quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
+    assert quad.aligned_edges == QuadAlignment.SOUTH
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_quad_on_wall_for_prism(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3)
+    q, b = builder.make_quad_for_prism(points[0], points[1], frozenset(points))
+    assert len(b) == 1
+    assert q in b
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    sampled_from([0, 1]),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_quad_not_quite_on_wall_for_prism(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    on_wall: int,
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3)
+    q, b = builder.make_quad_for_prism(
+        points[0], points[1], frozenset({points[on_wall]})
+    )
+    if points[0] != points[1]:
+        assert len(b) == 0
+    else:
+        assert len(b) == 1
+        assert q in b
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_wall_quad(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3)
+    shape = StraightLineAcrossField(*points)
+    q1 = builder.make_wall_quad_for_prism(shape)
+    assert q1.shape is shape
+    p1, p2 = shape([1.0, 0.0]).iter_points()
+    q2, b = builder.make_quad_for_prism(p1, p2, frozenset())
+    assert q2 is q1
+    assert q2 in b
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(quad_points),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_outer_prism(
+    mesh: HypnoMesh,
+    termini: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    prism_termini = termini[:3]
+    builder = ElementBuilder(mesh, trace, dx3)
+    prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
+    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
+        prism_termini
+    )
+    for quad in prism:
+        assert quad.field == trace
+        assert quad.dx3 == dx3
+    assert len(bounds) == 0
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(quad_points),
+    integers(0, 2),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_outer_prism_no_bounds(
+    mesh: HypnoMesh,
+    termini: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+    bound_point: int,
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    prism_termini = termini[:3]
+    builder = ElementBuilder(mesh, trace, dx3)
+    prism, bounds = builder.make_outer_prism(
+        *prism_termini, frozenset({prism_termini[bound_point]})
+    )
+    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
+        prism_termini
+    )
+    assert len(bounds) == 0
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(quad_points),
+    lists(integers(0, 2), min_size=2, max_size=2, unique=True),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_outer_prism_one_bound(
+    mesh: HypnoMesh,
+    termini: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+    bound_points: list[int],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    prism_termini = termini[:3]
+    bound_set = frozenset(termini[i] for i in bound_points)
+    builder = ElementBuilder(mesh, trace, dx3)
+    prism, bounds = builder.make_outer_prism(*prism_termini, bound_set)
+    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
+        prism_termini
+    )
+    assert bounds < frozenset(prism)
+    assert len(bounds) == 1
+    bound_quad = next(iter(bounds))
+    assert frozenset(bound_quad.corners().to_slice_coords().iter_points()) == bound_set
 
 
 def _element_corners(
@@ -349,6 +673,11 @@ with patch(
 outer_vertices = sampled_from(list(OUTERMOST))
 
 
+def test_outermost_vertices_empty() -> None:
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1)
+    assert len(list(builder.outermost_vertices())) == 0
+
+
 def test_outermost_vertices() -> None:
     ordered_outermost = list(BUILDER.outermost_vertices())
     assert len(ordered_outermost) == len(OUTERMOST)
@@ -377,7 +706,12 @@ def test_outermost_single_point(vertex: SliceCoord) -> None:
     assert outermost_between[0] == vertex
 
 
-def test_outermost_quads() -> None:
+def test_outermost_quads_empty() -> None:
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1)
+    assert len(list(builder.outermost_quads())) == 0
+
+
+def test_outermost_quads_between() -> None:
     ordered_outermost = list(BUILDER.outermost_vertices())
     outermost_between = frozenset(
         itertools.chain.from_iterable(
@@ -388,6 +722,21 @@ def test_outermost_quads() -> None:
         )
     )
     assert frozenset(ordered_outermost) == outermost_between
+
+
+def test_outermost_quads() -> None:
+    ordered_outermost = list(BUILDER.outermost_vertices())
+    quads = list(BUILDER.outermost_quads())
+    outermost = frozenset(
+        itertools.chain.from_iterable(q.shape([0.0, 1.0]).iter_points() for q in quads)
+    )
+    assert frozenset(ordered_outermost) == outermost
+    assert len(ordered_outermost) == len(quads)
+
+
+def test_unfinished_outermost_quads() -> None:
+    with pytest.warns(UserWarning, match=r"Multiple vertex rings detected"):
+        _ = BUILDER_UNFINISHED.outermost_quads()
 
 
 @given(outer_vertices, outer_vertices)

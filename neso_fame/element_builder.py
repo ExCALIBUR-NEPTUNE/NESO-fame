@@ -9,8 +9,6 @@ from functools import cache, cached_property, reduce
 from typing import Callable, Optional
 from warnings import warn
 
-import numpy as np
-import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
@@ -70,14 +68,6 @@ class _RingFragment:
             -self.counterclockwiseness,
             self.linking_quad,
         )
-
-    def to_arrays(self) -> tuple[npt.NDArray, npt.NDArray]:
-        return np.array([v.x1 for v in self.vertices]), np.array(
-            [v.x2 for v in self.vertices]
-        )
-
-    def __str__(self) -> str:
-        return "[\n" + ",\n".join(str(tuple(v)) for v in self.vertices) + "\n]"
 
 
 RingFragments = list[_RingFragment]
@@ -162,6 +152,8 @@ class _VertexRing:
         )
 
     def __iter__(self) -> Iterator[SliceCoord]:
+        if len(self.fragments) == 0:
+            return iter(())
         if len(self.fragments) > 1:
             warn("Multiple vertex rings detected; iterating over largest.")
         fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[-1]
@@ -170,6 +162,8 @@ class _VertexRing:
         return iter(fragment)
 
     def quads(self) -> Iterator[Quad]:
+        if len(self.fragments) == 0:
+            return iter(())
         if len(self.fragments) > 1:
             warn("Multiple vertex rings detected; iterating over largest.")
         fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
