@@ -732,9 +732,9 @@ def _hex_mesh_arguments(
     resolution: int,
     fixed_bounds: bool,
 ) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
-    sorted_starts = sorted(limits, key=operator.itemgetter(0))
-    sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
-        sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
+    sorted_starts = sorted(limits)
+    sorted_starts = sorted(sorted_starts[0:2], key=lambda x: tuple(reversed(x))) + sorted(
+        sorted_starts[2:4], key=lambda x: tuple(reversed(x)), reverse=True
     )
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
     if c == mesh.CoordinateSystem.CYLINDRICAL and any(
@@ -800,7 +800,7 @@ def _hex_mesh_arguments(
         return hexes, new_bounds
 
     lower_points = np.linspace(sorted_starts[0], sorted_starts[1], num_hexes_x2 + 1)
-    upper_points = np.linspace(sorted_starts[2], sorted_starts[3], num_hexes_x2 + 1)
+    upper_points = np.linspace(sorted_starts[3], sorted_starts[2], num_hexes_x2 + 1)
     points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
     initial: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]] = (
         [],
