@@ -150,7 +150,7 @@ def _split_at_discontinuities(
         nonlocal boundary_point, finished
         if boundary_point is not None:
             yield boundary_point
-        a = -1.
+        a = -1.0
         while a < angle_threshold:
             try:
                 p, a = next(points_and_angles)
@@ -356,13 +356,15 @@ def adjust_wall_resolution(
         return x[1] < target_size * min_size_factor
 
     # Combine adjacent small portions of the wall
-    combined_portions = list(itertools.chain.from_iterable(
-        _combine_small_portions(portions) if small else portions
-        for small, portions in itertools.groupby(
-            _reorder_portions(zip(continuous_portions, portion_sizes), is_small),
-            is_small,
+    combined_portions = list(
+        itertools.chain.from_iterable(
+            _combine_small_portions(portions) if small else portions
+            for small, portions in itertools.groupby(
+                _reorder_portions(zip(continuous_portions, portion_sizes), is_small),
+                is_small,
+            )
         )
-    ))
+    )
 
     # If there are any remaining small portions, merge them with the adjacent larger ones
     portions = (

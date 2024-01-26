@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, call
 
 import numpy as np
 from hypnotoad import Point2D  # type: ignore
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis.strategies import (
     booleans,
     builds,
@@ -12,7 +12,12 @@ from hypothesis.strategies import (
     shared,
 )
 
-from neso_fame.mesh import CoordinateSystem, SliceCoord, SliceCoords, StraightLineAcrossField, CoordinateSystem
+from neso_fame.mesh import (
+    CoordinateSystem,
+    SliceCoord,
+    SliceCoords,
+    StraightLineAcrossField,
+)
 from neso_fame.wall import (
     WallSegment,
     adjust_wall_resolution,
@@ -54,23 +59,67 @@ rad_of_points_outside = builds(operator.mul, floats(1.01, 100.0), radii)
 points_inside = builds(make_point, rad_of_points_inside, angles)
 points_outside = builds(make_point, rad_of_points_outside, angles)
 tolerances = radii.flatmap(lambda r: floats(1e-10 * r, 0.001 * r))
-target_sizes = radii.flatmap(lambda x: floats(0.1*x, 2*x))
-min_sizes = floats(0.02,0.4)
+target_sizes = radii.flatmap(lambda x: floats(0.1 * x, 2 * x))
+min_sizes = floats(0.02, 0.4)
 
 
-@given(floats(-10., 10.), floats(-10., 10), floats(-np.pi, np.pi), floats(0.1, 10.), floats(-5., 5.), floats(0., 1.), floats())
-def test_minimum_distance_perpendicular(R0: float, Z0: float, angle: float, segment_length: float, perpendicular_offset: float, parallel_offset: float, tol: float) -> None:
+@given(
+    floats(-10.0, 10.0),
+    floats(-10.0, 10),
+    floats(-np.pi, np.pi),
+    floats(0.1, 10.0),
+    floats(-5.0, 5.0),
+    floats(0.0, 1.0),
+    floats(),
+)
+def test_minimum_distance_perpendicular(
+    R0: float,
+    Z0: float,
+    angle: float,
+    segment_length: float,
+    perpendicular_offset: float,
+    parallel_offset: float,
+    tol: float,
+) -> None:
     # Check the distance for points at some perpendicular offset from
     # a point along the segment.
     R1 = R0 + segment_length * np.cos(angle)
     Z1 = Z0 + segment_length * np.sin(angle)
     vec = [R1 - R0, Z1 - Z0]
     segment = WallSegment(R0, Z0, R1, Z1, tol)
-    coord = SliceCoord(R0 + perpendicular_offset * vec[1] + parallel_offset*vec[0], Z0 - perpendicular_offset * vec[0] + parallel_offset * vec[1], CoordinateSystem.CYLINDRICAL)
-    np.testing.assert_allclose(segment.min_distance_squared(coord), (perpendicular_offset * segment_length)**2, 1e-8, 1e-8)
+    coord = SliceCoord(
+        R0 + perpendicular_offset * vec[1] + parallel_offset * vec[0],
+        Z0 - perpendicular_offset * vec[0] + parallel_offset * vec[1],
+        CoordinateSystem.CYLINDRICAL,
+    )
+    np.testing.assert_allclose(
+        segment.min_distance_squared(coord),
+        (perpendicular_offset * segment_length) ** 2,
+        1e-8,
+        1e-8,
+    )
 
-@given(floats(-10., 10.), floats(-10., 10), floats(-np.pi, np.pi), floats(0.1, 10.),  floats(0., np.pi), floats(0., 5.), floats(), booleans())
-def test_minimum_distance_beyond_segment(R0: float, Z0: float, angle: float, segment_length: float, coord_angle: float, coord_distance: float, tol: float, switch: bool) -> None:
+
+@given(
+    floats(-10.0, 10.0),
+    floats(-10.0, 10),
+    floats(-np.pi, np.pi),
+    floats(0.1, 10.0),
+    floats(0.0, np.pi),
+    floats(0.0, 5.0),
+    floats(),
+    booleans(),
+)
+def test_minimum_distance_beyond_segment(
+    R0: float,
+    Z0: float,
+    angle: float,
+    segment_length: float,
+    coord_angle: float,
+    coord_distance: float,
+    tol: float,
+    switch: bool,
+) -> None:
     # Check the distance for points for which the nearest point on the segment is one of the ends.
     R1 = R0 + segment_length * np.cos(angle)
     Z1 = Z0 + segment_length * np.sin(angle)
@@ -78,24 +127,34 @@ def test_minimum_distance_beyond_segment(R0: float, Z0: float, angle: float, seg
         segment = WallSegment(R1, Z1, R0, Z0, tol)
     else:
         segment = WallSegment(R0, Z0, R1, Z1, tol)
-    ang = angle + np.pi/2 + coord_angle
-    coord = SliceCoord(R0 + coord_distance*np.cos(ang), Z0 + coord_distance*np.sin(ang), CoordinateSystem.CYLINDRICAL)
-    np.testing.assert_allclose(segment.min_distance_squared(coord), coord_distance**2, 1e-8, 1e-8)
+    ang = angle + np.pi / 2 + coord_angle
+    coord = SliceCoord(
+        R0 + coord_distance * np.cos(ang),
+        Z0 + coord_distance * np.sin(ang),
+        CoordinateSystem.CYLINDRICAL,
+    )
+    np.testing.assert_allclose(
+        segment.min_distance_squared(coord), coord_distance**2, 1e-8, 1e-8
+    )
 
 
-@given(polygons, radii, min_sizes, floats(0., np.pi/3))
-def test_adjust_wall_resolution_distances(wall: list[Point2D], new_resolution: float, min_factor: float, angle: float) -> None:
+@given(polygons, radii, min_sizes, floats(0.0, np.pi / 3))
+def test_adjust_wall_resolution_distances(
+    wall: list[Point2D], new_resolution: float, min_factor: float, angle: float
+) -> None:
     new_wall = adjust_wall_resolution(wall, new_resolution, min_factor, angle)
     min_dist_sq = (min_factor * new_resolution) ** 2
-    max_dist_sq = (1.5*new_resolution) ** 2
+    max_dist_sq = (1.5 * new_resolution) ** 2
     for start, end in periodic_pairwise(new_wall):
-        dist_sq = (end.R - start.R)**2 + (end.Z - start.Z)**2
+        dist_sq = (end.R - start.R) ** 2 + (end.Z - start.Z) ** 2
         assert dist_sq <= max_dist_sq
         assert dist_sq >= min_dist_sq
-    
 
-@given(polygons, radii, integers(5, 1000).map(lambda m: 2*np.pi/(m + 0.5)))
-def test_adjust_wall_resolution_angles(wall: list[Point2D], new_resolution: float, angle: float) -> None:
+
+@given(polygons, radii, integers(5, 1000).map(lambda m: 2 * np.pi / (m + 0.5)))
+def test_adjust_wall_resolution_angles(
+    wall: list[Point2D], new_resolution: float, angle: float
+) -> None:
     # Don't eliminate small edges here, as it makes it really
     # confusing when we can expect a sharp angle to be preserved.
     new_wall = adjust_wall_resolution(wall, new_resolution, 0, angle)
@@ -105,16 +164,20 @@ def test_adjust_wall_resolution_angles(wall: list[Point2D], new_resolution: floa
         line2 = [end.R - mid.R, end.Z - mid.Z]
         mag1 = np.sqrt(np.dot(line1, line1))
         mag2 = np.sqrt(np.dot(line2, line2))
-        ang = np.arccos(np.clip(np.dot(line1, line2) / mag1 / mag2, -1., 1.))
-        return ang >= angle
+        ang = np.arccos(np.clip(np.dot(line1, line2) / mag1 / mag2, -1.0, 1.0))
+        return bool(ang >= angle)
 
-    corners = [tuple(mid) for (start, mid), (_, end) in periodic_pairwise(periodic_pairwise(new_wall)) if sharp_corner(start, mid, end)]
+    corners = [
+        tuple(mid)
+        for (start, mid), (_, end) in periodic_pairwise(periodic_pairwise(new_wall))
+        if sharp_corner(start, mid, end)
+    ]
     comparable_wall = [tuple(p) for p in wall]
     # This test doesn't work when we are splitting a "smooth" portion
     # into too few pieces, because can end up being sharper corners.
     n = len(wall)
     m = len(new_wall)
-    if 2*np.pi / n >= angle:
+    if 2 * np.pi / n >= angle:
         # Case where angles in the original wall are preserved
         assert all((p in comparable_wall) for p in corners)
         assert len(corners) == n
@@ -122,25 +185,52 @@ def test_adjust_wall_resolution_angles(wall: list[Point2D], new_resolution: floa
     elif 2 * np.pi / m >= angle:
         # Case where original wall is smoothed out and interpolated into a
         # polygon with sharp angles
-        #assert all((p not in comparable_wall) for p in corners)
-        assert len(corners) > 0 # Angles won't all be equal due to inaccuracy in interpolation
+        # assert all((p not in comparable_wall) for p in corners)
+        assert (
+            len(corners) > 0
+        )  # Angles won't all be equal due to inaccuracy in interpolation
     else:
         # Case where original wall is smoothed and interpolated into a
         # polygon with shallow angles
-        assert len(corners) < m # Angles won't all be equal due to inaccuracy in interpolation
+        assert (
+            len(corners) < m
+        )  # Angles won't all be equal due to inaccuracy in interpolation
 
 
 def test_adjust_wall_resolution_register() -> None:
     register_func = MagicMock()
-    wall = [Point2D(0.5, -0.5), Point2D(0.5, 0.5), Point2D(-0.5, 0.5), Point2D(-0.5, -0.5)]
-    _ = adjust_wall_resolution(wall, 1., register_segment=register_func)
-    expected = [call(StraightLineAcrossField(SliceCoord(p1.R, p1.Z, CoordinateSystem.CYLINDRICAL), SliceCoord(p2.R, p2.Z, CoordinateSystem.CYLINDRICAL))) for p1, p2 in periodic_pairwise(wall)]
+    wall = [
+        Point2D(0.5, -0.5),
+        Point2D(0.5, 0.5),
+        Point2D(-0.5, 0.5),
+        Point2D(-0.5, -0.5),
+    ]
+    _ = adjust_wall_resolution(wall, 1.0, register_segment=register_func)
+    expected = [
+        call(
+            StraightLineAcrossField(
+                SliceCoord(p1.R, p1.Z, CoordinateSystem.CYLINDRICAL),
+                SliceCoord(p2.R, p2.Z, CoordinateSystem.CYLINDRICAL),
+            )
+        )
+        for p1, p2 in periodic_pairwise(wall)
+    ]
     register_func.assert_has_calls(expected, any_order=True)
+
 
 def test_adjust_wall_resolution_register_higher_order() -> None:
     register_func = MagicMock()
-    wall = [Point2D(0.5, -0.5), Point2D(0.51, 0.), Point2D(0.5, 0.5), Point2D(0., 0.51), Point2D(-0.5, 0.5), Point2D(-0.51, 0.), Point2D(-0.5, -0.5), Point2D(0., -0.51)]
-    _ = adjust_wall_resolution(wall, 1., register_segment=register_func)
+    wall = [
+        Point2D(0.5, -0.5),
+        Point2D(0.51, 0.0),
+        Point2D(0.5, 0.5),
+        Point2D(0.0, 0.51),
+        Point2D(-0.5, 0.5),
+        Point2D(-0.51, 0.0),
+        Point2D(-0.5, -0.5),
+        Point2D(0.0, -0.51),
+    ]
+    _ = adjust_wall_resolution(wall, 1.0, register_segment=register_func)
     assert register_func.call_count == 4
 
 

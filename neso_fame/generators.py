@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import operator
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Sequence
 from functools import cache, reduce
 from typing import Callable, Optional, TypeVar, cast
 
