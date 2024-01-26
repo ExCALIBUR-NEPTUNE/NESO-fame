@@ -954,6 +954,35 @@ def test_extruding_hypnotoad_mesh_to_wall() -> None:
     # slow. I almost wonder if it's caught in an infinite loop?
 
 
+def test_extruding_hypnotoad_mesh_to_wall_remesh() -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+    # Extrude only a very short distance to keep run-times quick
+    mesh = generators.hypnotoad_mesh(
+        hypno_mesh,
+        (0.0, 0.0001 * np.pi / 3),
+        1,
+        11,
+        restrict_to_vessel=True,
+        mesh_to_core=True,
+        mesh_to_wall=True,
+        wall_resolution=1.,
+    )
+
+    assert len(mesh.reference_layer.bounds) == 2
+    assert len(mesh.reference_layer.bounds[0]) == 0
+
+    def distance(start: SliceCoord, end: SliceCoord) -> float:
+        return np.sqrt((start.x1 - end.x1) ** 2 + (start.x2 - end.x2)**2)
+
+    wall_segment_lengths = [
+        distance(*quad.shape([0., 1.0]).iter_points()) for quad in mesh.reference_layer.bounds[1]
+    ]
+    initial_wall = hypno_mesh.equilibrium.wall
+    initial_wall_length = min(np.sqrt((p1.R - p0.R)**2 + (p1.Z - p0.Z)**2) for p0, p1 in itertools.pairwise(initial_wall))
+    assert max(wall_segment_lengths) / min(wall_segment_lengths) <= 3
+    assert all(length < initial_wall_length for length in wall_segment_lengths)
+
+
 def point_on_surface(
     start: SliceCoord, end: SliceCoord, point: Coord | SliceCoord
 ) -> bool:
