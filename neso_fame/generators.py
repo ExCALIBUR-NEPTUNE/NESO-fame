@@ -77,23 +77,6 @@ def _is_planar(bound: BoundType) -> bool:
     return isinstance(bound, tuple)
 
 
-def _is_bound(bound: BoundType) -> bool:
-    if isinstance(bound, tuple):
-        return True
-    return bound
-
-
-def _get_reference(
-    shape: StraightLineAcrossField, north_fixed: bool, south_fixed: bool
-) -> SliceCoord:
-    if north_fixed:
-        return shape(0.0).to_coord()
-    elif south_fixed:
-        return shape(1.0).to_coord()
-    else:
-        return SliceCoord(0.0, 0.0, shape.north.system)
-
-
 def _get_vec(
     north_bound: BoundType,
     south_bound: BoundType,
@@ -108,30 +91,6 @@ def _get_vec(
         return None, None
     normed_vec = vec[0] * vec[0] + vec[1] * vec[1]
     return vec, normed_vec
-
-
-def _get_factors(
-    pos_on_shape: float,
-    north_fixed: bool,
-    south_fixed: bool,
-    north_planar: bool,
-    south_planar: bool,
-) -> tuple[float, float]:
-    if south_fixed:
-        factor_fixed = 1 - pos_on_shape
-    elif north_fixed:
-        factor_fixed = pos_on_shape
-    else:
-        factor_fixed = 1.0
-    if south_planar and north_planar:
-        factor_planar = 0.0
-    elif north_planar:
-        factor_planar = pos_on_shape
-    elif south_planar:
-        factor_planar = 1 - pos_on_shape
-    else:
-        factor_planar = 1.0
-    return factor_fixed * factor_fixed, factor_planar
 
 
 def _constrain_to_plain(
@@ -794,28 +753,4 @@ def hypnotoad_mesh(
             subdivisions=subdivisions,
         ),
         x3_mid,
-    )
-
-
-def _group_wall_points(
-    poloidal_mesh: HypnoMesh, outermost_vertices: Sequence[SliceCoord]
-) -> Iterator[tuple[SliceCoord, list[SliceCoord]]]:
-    """Iterate over points on the wall, grouped by the closest point on the mesh."""
-    # Get pairs of wall points and the nearest point on the existing mesh
-    wall_points = (
-        (
-            SliceCoord(p.R, p.Z, CoordinateSystem.CYLINDRICAL),
-            min(
-                (
-                    (coord, np.sqrt((p.R - coord.x1) ** 2 + (p.Z - coord.x2) ** 2))
-                    for coord in outermost_vertices
-                ),
-                key=lambda x: x[1],
-            )[0],
-        )
-        for p in poloidal_mesh.equilibrium.wall[:-1]
-    )
-    return (
-        (mp, list(map(operator.itemgetter(0), wps)))
-        for mp, wps in itertools.groupby(wall_points, operator.itemgetter(1))
     )
