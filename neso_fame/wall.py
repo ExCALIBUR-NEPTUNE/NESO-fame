@@ -140,7 +140,7 @@ def _split_at_discontinuities(
         periodic_pairwise(map(_points_to_vector, periodic_pairwise(points))),
     )
     points_iter = iter(points[1:])
-    points_with_angles = zip(itertools.chain(points_iter), angles)
+    points_with_angles = zip(points_iter, angles)
     boundary_point: Point2D = points[0]
     finished = False
 
@@ -150,7 +150,7 @@ def _split_at_discontinuities(
         nonlocal boundary_point, finished
         if boundary_point is not None:
             yield boundary_point
-        a = 0.0
+        a = -1.
         while a < angle_threshold:
             try:
                 p, a = next(points_and_angles)
@@ -160,11 +160,12 @@ def _split_at_discontinuities(
             yield p
         boundary_point = p
 
+    # Put the first continuous stretch of points at the end, so that
+    # it can be continuous with any sequence there
+    tail = list(sub_iter(points_with_angles))
     if finished:
         yield iter(points)
-        yield points[0]
         return
-    tail = list(sub_iter(points_with_angles))
     restarted_points_iter = zip(
         itertools.chain(points_iter, tail),
         itertools.chain(angles, itertools.repeat(0.0)),
@@ -355,13 +356,13 @@ def adjust_wall_resolution(
         return x[1] < target_size * min_size_factor
 
     # Combine adjacent small portions of the wall
-    combined_portions = itertools.chain.from_iterable(
+    combined_portions = list(itertools.chain.from_iterable(
         _combine_small_portions(portions) if small else portions
         for small, portions in itertools.groupby(
             _reorder_portions(zip(continuous_portions, portion_sizes), is_small),
             is_small,
         )
-    )
+    ))
 
     # If there are any remaining small portions, merge them with the adjacent larger ones
     portions = (
