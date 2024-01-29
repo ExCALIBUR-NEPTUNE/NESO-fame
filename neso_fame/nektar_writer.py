@@ -358,7 +358,15 @@ def nektar_quad(
 
 
 def poloidal_curve(q: Quad) -> NormalisedCurve:
-    """Get the curve this quad makes where it intersects the poloidal plane."""
+    """Get the curve this quad makes where it intersects the poloidal plane.
+
+    The result will be suitable for conversion to a Nektar++ edge object.
+
+    Group
+    -----
+    factory
+
+    """
 
     def wrapper(s: npt.ArrayLike) -> Coords:
         slice_coord = q.shape(s)
@@ -716,7 +724,10 @@ def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
 
 
 def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
-    """Create a collection of Nektar++ objects representing the mesh.
+    """Create Nektar++ objects for the intersection of the mesh with the poloidal plane.
+
+    This can be useful for visualising the underlying mesh from which
+    the 3D version is extruded.
 
     Group
     -----
@@ -1017,8 +1028,10 @@ def write_poloidal_mesh(
     filename: str,
     compressed: bool = True,
 ) -> None:
-    """Create a Nektar++ MeshGraph object for the poloidal mesh.
+    """Create a Nektar++ MeshGraph object for the underlying poloidal mesh.
 
+    This can be useful to visualise the mesh from which the 3D one is extruded.
+    
     Parameters
     ----------
     mesh

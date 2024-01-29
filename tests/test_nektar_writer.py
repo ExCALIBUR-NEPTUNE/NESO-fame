@@ -15,6 +15,7 @@ from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
     builds,
+    floats,
     from_type,
     integers,
     just,
@@ -32,6 +33,7 @@ from neso_fame.mesh import (
     C,
     Coord,
     CoordinateSystem,
+    Coords,
     E,
     EndShape,
     FieldAlignedCurve,
@@ -58,6 +60,7 @@ from .conftest import (
     flat_sided_prism,
     linear_field_trace,
     non_nans,
+    prism_meshes,
     quad_meshes,
     simple_trace,
 )
@@ -75,6 +78,22 @@ def assert_nek_points_eq(actual: SD.PointGeom, expected: SD.PointGeom) -> None:
 def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
     for a, e in zip(actual.GetCoordinates(), expected.to_cartesian()):
         assert a == approx(e, 1e-8, 1e-8, True)
+
+
+def poloidal_corners(element: Quad | Prism) -> Iterator[Coord]:
+    if isinstance(element, Quad):
+        coords = element.shape([0.0, 1.0])
+        return Coords(
+            coords.x1, coords.x2, np.zeros_like(coords.x1), coords.system
+        ).iter_points()
+    return (
+        c.to_3d_coord(0.0)
+        for c in dict.fromkeys(
+            itertools.chain.from_iterable(
+                side.shape([0.0, 1.0]).iter_points() for side in element.sides
+            )
+        )
+    )
 
 
 ComparableDimensionalGeometry = tuple[str, frozenset[Coord]]
@@ -107,6 +126,19 @@ def comparable_quad(quad: Quad) -> ComparableGeometry:
     return SD.QuadGeom.__name__, frozenset(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )
+
+
+def comparable_poloidal_element(element: Prism | Quad) -> ComparableGeometry:
+    if isinstance(element, Prism):
+        if len(element.sides) == 3:
+            type_name = SD.TriGeom.__name__
+        elif len(element.sides) == 4:
+            type_name = SD.QuadGeom.__name__
+        else:
+            raise ValueError("Unrecognised number of sides in prism.")
+    else:
+        type_name = SD.SegGeom.__name__
+    return type_name, frozenset(map(comparable_coord, poloidal_corners(element)))
 
 
 def comparable_prism(prism: Prism) -> ComparableGeometry:
@@ -281,6 +313,36 @@ def test_nektar_quad_curved(
     assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
 
 
+@given(from_type(Quad), floats(0.0, 1.0))
+def test_poloidal_curve(q: Quad, s: float) -> None:
+    curve = nektar_writer.poloidal_curve(q)
+    x1, x2, x3 = curve(s)
+    expected = q.shape(s)
+    np.testing.assert_allclose(x1, expected.x1, 1e-8, 1e-8)
+    np.testing.assert_allclose(x2, expected.x2, 1e-8, 1e-8)
+    np.testing.assert_allclose(x3, 0.0, 1e-8, 1e-8)
+
+
+@given(from_type(Prism), integers(1, 12), integers())
+def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
+    shapes, segments, points = nektar_writer.nektar_poloidal_face(
+        solid, order, 2, layer
+    )
+    corners = frozenset(map(comparable_geometry, points))
+    n = len(solid.sides)
+    assert len(shapes) == 1
+    assert len(segments) == n
+    nek_shape = next(iter(shapes))
+    assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
+    assert corners == frozenset(
+        map(
+            comparable_geometry,
+            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)),
+        )
+    )
+    assert corners == frozenset(map(comparable_coord, poloidal_corners(solid)))
+
+
 @given(from_type(EndShape), integers(1, 12), integers())
 def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
@@ -288,7 +350,6 @@ def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     n = len(shape.edges)
     assert len(shapes) == 1
     assert len(segments) == n
-    assert len(points) == len(corners)
     nek_shape = next(iter(shapes))
     assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
@@ -332,17 +393,18 @@ def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
     )
 
 
-def check_points(
-    expected: Iterable[Quad | Prism], actual: Iterable[SD.PointGeom]
-) -> None:
-    expected_points = frozenset(
-        map(
-            comparable_coord,
-            itertools.chain.from_iterable(
-                e.corners().to_cartesian().iter_points() for e in expected
-            ),
-        )
+def all_points(elements: Iterable[Quad | Prism]) -> Iterator[Coord]:
+    return itertools.chain.from_iterable(
+        e.corners().to_cartesian().iter_points() for e in elements
     )
+
+
+def check_points(
+    expected: Iterable[Quad | Prism],
+    actual: Iterable[SD.PointGeom],
+    iter_corners: Callable[[Iterable[Quad | Prism]], Iterator[Coord]] = all_points,
+) -> None:
+    expected_points = frozenset(map(comparable_coord, iter_corners(expected)))
     actual_points = comparable_set(actual)
     assert expected_points == actual_points
 
@@ -433,21 +495,20 @@ def check_face_composites(
     assert expected_faces == actual_faces
 
 
+def comparable_element(x: Quad | Prism) -> ComparableGeometry:
+    return (
+        comparable_quad(x) if isinstance(x, Quad) else comparable_prism(cast(Prism, x))
+    )
+
+
 def check_elements(
     expected: Iterable[Quad] | Iterable[Prism],
     actual: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
+    comparator: Callable[[Quad | Prism], ComparableGeometry] = comparable_element,
 ) -> None:
     actual_elements = comparable_set(actual)
-    expected_elements = frozenset(
-        (
-            comparable_quad(x)
-            if isinstance(x, Quad)
-            else comparable_prism(cast(Prism, x))
-            for x in expected
-        )
-    )
+    expected_elements = frozenset(map(comparator, expected))
     assert actual_elements == expected_elements
-    assert len(actual_elements) == len(expected_elements)
 
 
 @settings(deadline=None)
@@ -500,6 +561,50 @@ def test_nektar_elements(
         check_face_composites(layer.near_faces(), near)
         check_face_composites(layer.far_faces(), far)
     check_elements(mesh, nek_mesh.elements())
+    # FIXME: should check bounds
+
+
+def check_poloidal_edges(
+    mesh: PrismMesh,
+    elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
+    edges: Iterable[SD.SegGeom],
+) -> None:
+    expected_edges = frozenset(
+        comparable_edge(lambda s: side.shape(s).to_3d_coords(0.0))
+        for side in itertools.chain.from_iterable(
+            element.sides for element in mesh.reference_layer
+        )
+    )
+    element_edges = frozenset(
+        itertools.chain.from_iterable(
+            map(comparable_geometry, map(e.GetEdge, range(e.GetNumEdges())))
+            for e in elements
+        )
+    )
+    actual_edges = comparable_set(edges)
+    assert actual_edges == element_edges
+    assert expected_edges == actual_edges
+
+
+@settings(deadline=None)
+@given(prism_meshes, integers(1, 3))
+def test_nektar_poloidal_elements(
+    mesh: PrismMesh,
+    order: int,
+) -> None:
+    nek_mesh = nektar_writer.nektar_poloidal_elements(
+        mesh,
+        order,
+    )
+    assert len(list(nek_mesh.layers())) == 1
+    check_points(
+        mesh.reference_layer,
+        nek_mesh.points(),
+        lambda expected: itertools.chain.from_iterable(map(poloidal_corners, expected)),
+    )
+    check_poloidal_edges(mesh, nek_mesh.elements(), nek_mesh.segments())
+    check_elements(mesh, nek_mesh.elements(), comparable_poloidal_element)
+    # FIXME: should check bounds
 
 
 @given(
@@ -1029,3 +1134,21 @@ def test_compressed_mesh(tmp_path: pathlib.Path) -> None:
     compressed_file = tmp_path / "compressed_mesh.xml"
     nektar_writer.write_nektar(SIMPLE_MESH, 1, str(compressed_file), 2, compressed=True)
     assert os.stat(xml_file).st_size > os.stat(compressed_file).st_size
+
+
+@settings(deadline=None)
+@given(prism_meshes, integers(1, 3))
+def test_write_nektar_poloidal(mesh: PrismMesh, order: int) -> None:
+    with TemporaryDirectory() as tmp_path:
+        xml_file = pathlib.Path(tmp_path) / "poloidal_mesh.xml"
+        nektar_writer.write_poloidal_mesh(mesh, order, str(xml_file), False)
+        tree = ET.parse(xml_file)
+
+    root = tree.getroot()
+    assert isinstance(root, ET.Element)
+    assert root.tag == "NEKTAR"
+
+    elements = find_element(root, "GEOMETRY/ELEMENT")
+    assert elements.find("H") is None
+    assert elements.find("P") is None
+    assert elements.find("Q") is not None or elements.find("T") is not None

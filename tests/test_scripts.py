@@ -443,6 +443,7 @@ def test_tokamak_field() -> None:
 )
 @pytest.mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
 @pytest.mark.filterwarnings("ignore:invalid value encountered in divide")
+@pytest.mark.filterwarnings("ignore:Multiple vertex rings detected")
 def test_tokamak_periodic() -> None:
     runner = CliRunner()
     eqdsk_info = eqdsk_data(15, 15, (1.0, 2.0), (-1.0, 1.0), CONNECTED_DOUBLE_NULL[0])
