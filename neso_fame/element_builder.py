@@ -1,6 +1,7 @@
 """Class to build mesh elements."""
 
 from __future__ import annotations
+from collections import defaultdict
 
 import itertools
 from collections.abc import Iterator
@@ -244,6 +245,7 @@ class ElementBuilder:
         self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
         self._tracked_perpendicular_quad = self._track_edges(self.perpendicular_quad)
         self._tracked_flux_surface_quad = self._track_edges(self.flux_surface_quad)
+        self._quad_to_outer_prism_map: defaultdict[Quad, list[Prism]] = defaultdict(list)
 
     def _track_edges(
         self, func: Callable[[SliceCoord, SliceCoord], Quad]
@@ -319,14 +321,14 @@ class ElementBuilder:
         # out the rule, but this seems to work.
         return Prism(
             (
+                self._tracked_flux_surface_quad(north, south),
                 self.make_quad_to_o_point(north),
                 self.make_quad_to_o_point(south),
-                self._tracked_flux_surface_quad(north, south),
             )
         )
 
     def make_quad_for_prism(
-        self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[SliceCoord]
+        self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[tuple[SliceCoord, SliceCoord]]
     ) -> tuple[Quad, frozenset[Quad]]:
         """Make a quad for use in a triangular prism in the sapce by the wall.
 
@@ -364,7 +366,7 @@ class ElementBuilder:
             self._dx3,
             aligned_edges=alignment,
         )
-        if north in wall_vertices and south in wall_vertices:
+        if (north, south) in wall_vertices or (south, north) in wall_vertices:
             b = frozenset({q})
         else:
             b = frozenset()
@@ -396,7 +398,7 @@ class ElementBuilder:
         vertex1: SliceCoord,
         vertex2: SliceCoord,
         vertex3: SliceCoord,
-        wall_vertices: frozenset[SliceCoord],
+        wall_vertex_pairs: frozenset[tuple[SliceCoord, SliceCoord]],
     ) -> tuple[Prism, frozenset[Quad]]:
         """Create a triangular prism between the hexahedral plasma-mesh and the wall.
 
@@ -404,10 +406,24 @@ class ElementBuilder:
         that prism that lie on the wall.
 
         """
-        q1, b1 = self.make_quad_for_prism(vertex1, vertex2, wall_vertices)
-        q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertices)
-        q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertices)
-        return Prism((q1, q2, q3)), b1 | b2 | b3
+        q1, b1 = self.make_quad_for_prism(vertex1, vertex2, wall_vertex_pairs)
+        q2, b2 = self.make_quad_for_prism(vertex2, vertex3, wall_vertex_pairs)
+        q3, b3 = self.make_quad_for_prism(vertex3, vertex1, wall_vertex_pairs)
+        p = Prism((q1, q2, q3))
+        self._quad_to_outer_prism_map[q1].append(p)
+        self._quad_to_outer_prism_map[q2].append(p)
+        self._quad_to_outer_prism_map[q3].append(p)
+        return p, b1 | b2 | b3
+
+    def get_element_for_quad(self, q: Quad) -> list[Prism]:
+        """Return the prisms with quad `q` as a face.
+
+        Currently only prisms in the region near the wall will be
+        returned, as they are the only ones this information is needed
+        for.
+
+        """
+        return self._quad_to_outer_prism_map[q]
 
     @cached_property
     def _outermost_vertex_ring(self) -> _VertexRing:

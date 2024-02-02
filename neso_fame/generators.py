@@ -550,6 +550,114 @@ def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
     )
 
 
+def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
+    """Combine two triangular prisms into a hexahedron."""
+    if len(p1.sides) != 3:
+        raise ValueError("First element is not a triangular prism")
+    if len(p2.sides) != 3:
+        raise ValueError("Second element is not a triangular prism")
+    common_face = set(p1.sides) & set(p2.sides)
+    n = len(common_face)
+    if n == 0:
+        raise ValueError("Prisms do not share a face on which to join")
+    if n > 1:
+        raise ValueError("Prisms share more than one face; unclear how to join")
+    join_on = next(iter(common_face))
+    north, potential_east = (face for face in p1.sides if face != join_on)
+    north_points = frozenset(north.shape([0., 1.]).iter_points())
+    potential_east_points = frozenset(potential_east.shape([0., 1.]).iter_points())
+    q2_1, q2_2 = (face for face in p2.sides if face != join_on)
+    if len(frozenset(q2_1.shape([0., 1.]).iter_points()) & north_points) == 0:
+        south = q2_1
+        potential_west = q2_2
+    else:
+        south = q2_2
+        potential_west = q2_1
+    # Choose east and west segments to ensure a positive Jacobian
+    vertex0 = next(iter(north_points - potential_east_points))
+    vertex1 = next(iter(potential_east_points - north_points))
+    vertex3 = next(iter(frozenset(potential_west.shape([0., 1.]).iter_points()) - north_points))
+    jacobian = (vertex1.x2 - vertex0.x2) * (vertex3.x1 - vertex0.x1) - (vertex1.x1 - vertex0.x1) * (vertex3.x2 - vertex0.x2)
+    if jacobian > 0:
+        east = potential_east
+        west = potential_west
+    else:
+        east = potential_west
+        west = potential_east
+    return Prism((north, south, east, west))
+
+
+def _validate_wall_elements(
+        boundary_faces: frozenset[Quad], elements: Sequence[Prism], quad_to_elements: Callable[[Quad], list[Prism]], validate: Callable[[Prism], bool]) -> tuple[list[Prism], frozenset[Quad]]:
+    """Return the elements with any self-intersections removed from boundaries.
+
+    This is first attempted by combining an element an adjacent
+    element containing the face being intersected. This only works if
+    both elements are triangular prisms. If they are not, or if the
+    new element also has a negative Jacobian, then the element is
+    replaced with one with first-order faces. The routine assumes that 
+    
+    Parameters
+    ----------
+    boundary_faces
+        Those boundary quads that have the potential to intersect
+        other faces of an element. Only elements with one of these
+        faces will be checked.
+    elements
+        All the elements being checked, plus adacent ones with which
+        they may be combined.
+    quad_to_elements
+        A function that maps between a quad and thes elements which
+        have it as a face.
+    validate
+        Function to check whether a given prism has a positive Jacobian
+        (i.e., is not self-intersecting)
+
+    Returns
+    -------
+    A list of prisms with any self-intersecting ones replaced. Also
+    returns a new set of boundary quads with some of them potentially
+    changed to prevent self-intersecting elements.
+
+    """
+    new_elements = set(elements)
+    new_faces = set(boundary_faces)
+    for face in boundary_faces:
+        prisms = quad_to_elements(face)
+        if len(prisms) != 1:
+            breakpoint()
+        prism = prisms[0]
+        # If element not in new_elements, it has already been
+        # processed. If it is already valid there is no need to do
+        # anything.
+        if prism not in new_elements or validate(prism):
+            continue
+        # Will need to replace this element
+        new_elements.remove(prism)
+        # Try merging with adjacent triangles (which haven't already
+        # been merged with another element, which would remove them
+        # from new_elements)
+        merge_candidates = frozenset(item for item in itertools.chain.from_iterable(((_merge_prisms(prism, p), p) for p in quad_to_elements(q) if len(p.sides) == 3 and p in new_elements and p != prism) for q in prism.sides if q != face) if validate(item[0]))
+        # If that works, swap it for `prism` in `new_elements`
+        if len(merge_candidates) != 0:
+            assert len(merge_candidates) == 1 # Doesn't make sense otherwise
+            new_hex, old_prism = next(iter(merge_candidates))
+            new_elements.remove(old_prism)
+            new_elements.add(new_hex)
+        else:
+            # Otherwise, convert the sides of the prism to be flat (in the poloidal plane)
+            face_map = {f: f.make_flat_quad() for f in prism}
+            new_elements.add(Prism(tuple(face_map.values())))
+            # Replace the boundary faces for this prism with the flattened ones
+            new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
+            new_faces -= {old for old in face_map if old in boundary_faces}
+            # Update surrounding prisms to use the flattened faces
+            for p in itertools.chain.from_iterable((p for p in quad_to_elements(q) if p in new_elements and p != prism) for q in face_map):
+                new_elements.remove(p)
+                new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
+    return list(new_elements), frozenset(new_faces)
+
+
 def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
     extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
@@ -562,6 +670,7 @@ def hypnotoad_mesh(
     min_distance_to_wall: float = 0.025,
     wall_resolution: Optional[float] = None,
     wall_angle_threshold: float = np.pi / 12,
+    validator: Callable[[Prism], bool] = lambda x: True,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -612,6 +721,11 @@ def hypnotoad_mesh(
         If adjusting the resolution of the tokamak wall, any vertices
         with an angle above this threshold will be preserved as sharp
         corners. Angles below it will be smoothed out.
+    validator
+        Function that checks whether the geometry of an element is
+        valid. Default will always return True. This argument change
+        should change depending on the format you want to write your mesh
+        to, the order of the basis for the element shapes, etc.
 
     Returns
     -------
@@ -693,9 +807,9 @@ def hypnotoad_mesh(
         else:
             wall = eqdsk_wall
         wall_points = [tuple(p) for p in wall]
-        wall_coords = frozenset(
-            SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points
-        )
+        wall_coord_pairs = frozenset(
+            periodic_pairwise(SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points
+        ))
         n = len(wall_points)
         import meshpy.triangle as triangle  # type: ignore
 
@@ -726,19 +840,20 @@ def hypnotoad_mesh(
             wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL
         )
         initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
-        wall_elements, outer_bounds = reduce(
+        initial_wall_elements, initial_outer_bounds = reduce(
             lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
             (
                 factory.make_outer_prism(
                     wall_mesh_coords[i],
                     wall_mesh_coords[j],
                     wall_mesh_coords[k],
-                    wall_coords,
+                    wall_coord_pairs,
                 )
                 for i, j, k in triangles
             ),
             initial,
         )
+        wall_elements, outer_bounds = _validate_wall_elements(initial_outer_bounds, initial_wall_elements, factory.get_element_for_quad, validator)
     elif restrict_to_vessel:
         wall_elements = []
         outer_bounds = frozenset(factory.outermost_quads())

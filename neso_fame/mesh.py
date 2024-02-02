@@ -916,6 +916,19 @@ class Quad(LazilyOffsetable):
                     self.aligned_edges,
                 )
 
+    def make_flat_quad(self) -> Quad:
+        """Create a new version of this Quad which is flat in the poloidal plane."""
+        if isinstance(self.shape, StraightLineAcrossField):
+            return self
+        return Quad(
+            StraightLineAcrossField(*self.shape([0., 1.]).iter_points()),
+            self.field,
+            self.dx3,
+            self.subdivision,
+            self.num_divisions,
+            self.aligned_edges
+        )
+
 
 @dataclass(frozen=True)
 class EndShape(LazilyOffsetable):

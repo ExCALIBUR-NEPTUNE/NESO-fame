@@ -193,7 +193,6 @@ def comparable_composites(
 @given(from_type(Coord), integers())
 def test_nektar_point(coord: Coord, i: int) -> None:
     nek_coord = nektar_writer.nektar_point(coord, 3, i)
-    assert nek_coord.GetGlobalID() == nektar_writer.UNSET_ID
     assert_points_eq(nek_coord, coord)
 
 
@@ -215,7 +214,6 @@ def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
 @given(from_type(FieldAlignedCurve), integers(1, 10), integers())
 def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
     nek_curve, (start, end) = nektar_writer.nektar_curve(curve, order, 3, layer)
-    assert nek_curve.curveID == nektar_writer.UNSET_ID
     assert nek_curve.ptype == LU.PointsType.PolyEvenlySpaced
     assert_nek_points_eq(nek_curve.points[0], start)
     assert_nek_points_eq(nek_curve.points[-1], end)
@@ -251,7 +249,6 @@ def test_circular_nektar_curve() -> None:
 @given(from_type(FieldAlignedCurve), integers())
 def test_nektar_edge_first_order(curve: FieldAlignedCurve, layer: int) -> None:
     nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 1, 3, layer)
-    assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     assert nek_edge.GetCurve() is None
     assert_nek_points_eq(nek_edge.GetVertex(0), start)
     assert_nek_points_eq(nek_edge.GetVertex(1), end)
@@ -264,7 +261,6 @@ def test_nektar_edge_higher_order(
     curve: FieldAlignedCurve, order: int, layer: int
 ) -> None:
     nek_edge, (start, end) = nektar_writer.nektar_edge(curve, order, 3, layer)
-    assert nek_edge.GetGlobalID() == nektar_writer.UNSET_ID
     nek_curve = nek_edge.GetCurve()
     assert nek_curve is not None
     assert len(nek_curve.points) == order + 1
@@ -284,7 +280,6 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     assert len(segments) == 4
     assert len(points) == len(corners)
     nek_quad = next(iter(quads))
-    assert nek_quad.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(
             comparable_geometry,
@@ -303,7 +298,6 @@ def test_nektar_quad_curved(
     quads, _, _ = nektar_writer.nektar_quad(quad, order, spatial_dim, layer)
     assert len(quads) == 1
     nek_quad = next(iter(quads))
-    assert nek_quad.GetGlobalID() == nektar_writer.UNSET_ID
     nek_curve = nek_quad.GetCurve()
     assert nek_curve is not None
     assert len(nek_curve.points) == (order + 1) ** 2
@@ -333,7 +327,6 @@ def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
-    assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(
             comparable_geometry,
@@ -351,7 +344,6 @@ def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
-    assert nek_shape.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(
             comparable_geometry,
@@ -370,8 +362,6 @@ def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
     assert len(hexes) == 1
     assert len(segments) == 12
     assert len(points) == 8
-    nek_hex = next(iter(hexes))
-    assert nek_hex.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(comparable_coord, hexa.corners().to_cartesian().iter_points())
     )
@@ -386,8 +376,6 @@ def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
     assert len(prisms) == 1
     assert len(segments) == 9
     assert len(points) == 6
-    nek_prism = next(iter(prisms))
-    assert nek_prism.GetGlobalID() == nektar_writer.UNSET_ID
     assert corners == frozenset(
         map(comparable_coord, prism.corners().to_cartesian().iter_points())
     )

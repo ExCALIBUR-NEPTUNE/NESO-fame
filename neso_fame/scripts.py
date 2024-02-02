@@ -13,7 +13,7 @@ from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
 from neso_fame.mesh import CoordinateSystem, SliceCoords
-from neso_fame.nektar_writer import write_nektar, write_poloidal_mesh
+from neso_fame.nektar_writer import nektar_3d_element, write_nektar, write_poloidal_mesh, nektar_poloidal_face
 
 
 @click.group()
@@ -428,6 +428,7 @@ def hypnotoad(
         min_wall_distance,
         wall_resolution,
         wall_angle_threshold,
+        lambda x: next(iter(nektar_3d_element(x, order, 3, -1)[0])).IsValid(),
     )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to Nektar++ format and writing to disk...")
