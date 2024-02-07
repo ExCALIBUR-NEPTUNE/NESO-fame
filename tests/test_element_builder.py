@@ -155,7 +155,7 @@ def builder_for_region(
             _element_corners(region.Rxy.corners, region.Zxy.corners),
         )
     ):
-        _ = builder.make_hex(p1, p2, p3, p4)
+        _ = builder.make_element(p1, p2, p3, p4)
     return builder
 
 
@@ -246,7 +246,7 @@ def test_perpendicular_quad(
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3)
     north, south = termini
-    quad = builder.perpendicular_quad(north, south)
+    quad = builder._perpendicular_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
     assert quad.shape(1.0).to_coord() == south
     assert quad.field == trace
@@ -269,7 +269,7 @@ def test_flux_surface_quad(
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3)
     north, south = termini
-    quad = builder.flux_surface_quad(north, south)
+    quad = builder._flux_surface_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
     assert quad.shape(1.0).to_coord() == south
     assert quad.field == trace
@@ -317,7 +317,7 @@ def test_make_hex(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3)
-    hexa = builder.make_hex(*termini)
+    hexa = builder.make_element(*termini)
     assert frozenset(hexa.corners().to_slice_coords().iter_points()) == frozenset(
         termini
     )
@@ -643,7 +643,7 @@ with patch(
     for corners in zip(
         *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
     ):
-        _ = BUILDER.make_hex(*corners)
+        _ = BUILDER.make_element(*corners)
     # Don't build the middle elements
     for corners in itertools.chain(
         zip(
@@ -659,7 +659,7 @@ with patch(
             )
         ),
     ):
-        _ = BUILDER_UNFINISHED.make_hex(*corners)
+        _ = BUILDER_UNFINISHED.make_element(*corners)
 
 
 outer_vertices = sampled_from(list(OUTERMOST))
@@ -814,7 +814,7 @@ def test_complex_outermost_vertices() -> None:
         *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
     ):
         if unused_outer_point not in corners:
-            _ = builder.make_hex(*corners)
+            _ = builder.make_element(*corners)
 
     ordered_outermost = list(builder.outermost_vertices())
     assert len(ordered_outermost) == len(complex_outermost)

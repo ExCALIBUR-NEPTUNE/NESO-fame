@@ -18,9 +18,7 @@ from hypnotoad import Point2D
 
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
-    core_boundary_points,
     equilibrium_trace,
-    get_mesh_boundaries,
     get_region_flux_surface_boundary_points,
     get_region_perpendicular_boundary_points,
 )
@@ -476,6 +474,181 @@ def _region_element_corners(
         SliceCoords(R[3], Z[3], system),
     )
 
+
+def _element_corners(
+    R_corners: npt.NDArray, Z_corners: npt.NDArray, system: CoordinateSystem
+) -> Iterator[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]]:
+    R = _get_element_corners(R_corners)
+    Z = _get_element_corners(Z_corners)
+    return zip(
+        *map(
+            operator.methodcaller("iter_points"),
+            (SliceCoords(r, z, system) for r, z in zip(R, Z)),
+        )
+    )
+
+
+def _element_aspect_ratio(
+    R_left: npt.NDArray, R_right: npt.NDArray, Z_left: npt.NDArray, Z_right: npt.NDArray
+) -> npt.NDArray:
+    dx = np.sqrt((R_left - R_right) ** 2 + (Z_left - Z_right) ** 2)
+    dy1 = np.sqrt((R_left[:-1] - R_left[1:]) ** 2 + (Z_left[:-1] - Z_left[1:]) ** 2)
+    dy2 = np.sqrt((R_right[:-1] - R_right[1:]) ** 2 + (Z_right[:-1] - Z_right[1:]) ** 2)
+    # return cast(npt.NDArray, np.abs((dx[:-1] + dx[1:]) / (dy1 + dy2)))
+    return cast(npt.NDArray, np.abs((dy1 + dy2) / (dx[:-1] + dx[1:])))
+
+
+Corners = tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]]
+CornersIterator = Iterator[Corners]
+
+
+def _iter_merge_elements(
+    R: npt.NDArray,
+    Z: npt.NDArray,
+    max_aspect_ratio: float,
+    system: CoordinateSystem,
+) -> tuple[int, CornersIterator]:
+    """Iterate over elements, merging those that are too narrow.
+
+    Always starts looking from index [0, 0]
+    """
+
+    def inner_func(
+        count: int,
+        prev_elements: CornersIterator,
+        R_left: npt.NDArray,
+        R_remainder: npt.NDArray,
+        Z_left: npt.NDArray,
+        Z_remainder: npt.NDArray,
+    ) -> tuple[int, CornersIterator]:
+        def iterate_column(merge_start: int | None) -> CornersIterator:
+            # Handle elements that don't need to be merged
+            for (R_sw, R_se, Z_sw, Z_se), (
+                R_nw,
+                R_ne,
+                Z_nw,
+                Z_ne,
+            ) in itertools.pairwise(
+                np.nditer(
+                    (
+                        R_left[:merge_start],
+                        R_remainder[:merge_start, 0],
+                        Z_left[:merge_start],
+                        Z_remainder[:merge_start, 0],
+                    )
+                )
+            ):
+                yield (
+                    SliceCoord(float(R_sw), float(Z_sw), system),
+                    SliceCoord(float(R_se), float(Z_se), system),
+                    SliceCoord(float(R_nw), float(Z_nw), system),
+                    SliceCoord(float(R_ne), float(Z_ne), system),
+                )
+            # Return triangle
+            print("Done pre-merge elements")
+            if merge_start is not None:
+                yield (
+                    SliceCoord(
+                        float(R_left[merge_start - 1]),
+                        float(Z_left[merge_start - 1]),
+                        system,
+                    ),
+                    SliceCoord(
+                        float(R_remainder[merge_start - 1, 0]),
+                        float(Z_remainder[merge_start - 1, 0]),
+                        system,
+                    ),
+                    SliceCoord(
+                        float(R_left[merge_start]),
+                        float(Z_left[merge_start]),
+                        system,
+                    ),
+                    None,
+                )
+
+        ratios = _element_aspect_ratio(
+            R_left, R_remainder[:, 0], Z_left, Z_remainder[:, 0]
+        )
+        first_merging = int(np.argmax(ratios > max_aspect_ratio))
+        # Deal with case where nothing needs to be merged or have reached the last column
+        if (
+            R_remainder.shape[1] == 1
+            or first_merging == 0
+            and not ratios[0] > max_aspect_ratio
+        ):
+            # TODO: Should I add further triangles just before the core?
+            return count + 1, itertools.chain(prev_elements, iterate_column(None))
+        # Never merge the first element, to make sure it stays
+        # conformal across the boundary of the mesh region
+        merge_start = max(1, first_merging)
+        R_next = np.concatenate((R_remainder[:merge_start, 0], R_left[merge_start:]))
+        Z_next = np.concatenate((Z_remainder[:merge_start, 0], Z_left[merge_start:]))
+        return inner_func(
+            count + 1,
+            itertools.chain(prev_elements, iterate_column(merge_start)),
+            R_next,
+            R_remainder[:, 1:],
+            Z_next,
+            Z_remainder[:, 1:],
+        )
+
+    # Copy the first column to ensure we know exactly what its layout
+    # will be in memory. Otherwise this can end up being inconsistent
+    # for the first call compared to subsequent levels of recursion,
+    # which construct this column from scratch.
+    return inner_func(
+        0, iter([]), np.copy(R[:, 0]), R[:, 1:], np.copy(Z[:, 0]), Z[:, 1:]
+    )
+
+
+def _flip_corners_horizontally(corners: Corners) -> Corners:
+    if corners[3] is None:
+        return corners[1], corners[0], corners[2], corners[3]
+    return corners[1], corners[0], corners[3], corners[2]
+
+
+def _flip_corners_vertically(corners: Corners) -> Corners:
+    if corners[3] is None:
+        return corners
+    return corners[2], corners[3], corners[0], corners[1]
+
+
+def _iter_element_corners(
+    region: HypnoMeshRegion,
+    max_aspect_ratio: float,
+    system: CoordinateSystem,
+) -> CornersIterator:
+    """Iterate over the elements, returning the points at the corner for each one.
+
+    This will merge elements radiating from the X-point if they are too oblong.
+    """
+    R = region.Rxy.corners
+    Z = region.Zxy.corners
+    if (
+        region.equilibriumRegion.name.endswith("core")
+        and region.connections["inner"] is None
+    ):
+        half = R.shape[1] // 2 + 1
+        start, left = _iter_merge_elements(
+            R[::-1, :half], Z[::-1, :half], max_aspect_ratio, system
+        )
+        negative_end, right = _iter_merge_elements(
+            np.flip(R[::-1, half:], 1),
+            np.flip(Z[::-1, half:], 1),
+            max_aspect_ratio,
+            system,
+        )
+        end: int | None = None if negative_end == 0 else -negative_end
+    else:
+        empty: list[Corners] = []
+        left = iter(empty)
+        right = iter(empty)
+        start = 0
+        end = None
+    return itertools.chain(
+        map(_flip_corners_vertically, left),
+        _element_corners(R[:, start:end], Z[:, start:end], system),
+        map(_flip_corners_vertically, map(_flip_corners_horizontally, right)),
     )
 
 
@@ -484,7 +657,8 @@ def _handle_nodes_outside_vessel(
     wall_points: Iterable[Point2D],
     restrict_to_vessel: bool,
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
-) -> Callable[[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]], bool]:
+    system: CoordinateSystem,
+) -> Callable[[Corners], bool]:
     if restrict_to_vessel:
         connections = reduce(
             _merge_connections,
@@ -517,14 +691,16 @@ def _handle_nodes_outside_vessel(
         )
 
         def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
         ) -> bool:
-            return frozenset(corners).isdisjoint(external_nodes)
+            return frozenset(c for c in corners if c is not None).isdisjoint(
+                external_nodes
+            )
 
     else:
 
         def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+            corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
         ) -> bool:
             return True
 
@@ -629,6 +805,9 @@ def _validate_wall_elements(
     changed to prevent self-intersecting elements.
 
     """
+    # TODO: Should I validate internal elements too? If I flatten one
+    # then that could end up makign a further element invalid, which
+    # sounds unpleasant to have to deal with...
     new_elements = set(elements)
     new_faces = set(boundary_faces)
     for prism in elements:
@@ -694,6 +873,7 @@ def hypnotoad_mesh(
     n: int = 10,
     spatial_interp_resolution: int = 11,
     subdivisions: int = 1,
+    max_aspect_ratio: float = 100,
     mesh_to_core: bool = False,
     restrict_to_vessel: bool = False,
     mesh_to_wall: bool = False,
@@ -728,6 +908,12 @@ def hypnotoad_mesh(
         line.
     subdivisions
         Depth of cells in x3-direction in each layer.
+    max_aspect_ratio
+        The maximum ratio to allow between the length of the perpendicular
+        and field-aligned edges of an element. If an element exceeds this
+        ratio, it will be merged with an adjacent one. Note that this
+        algorithm only checks elements radiating away from an X-point and
+        may miss a few in order to maintain a conformal mesh.
     mesh_core
         Whether to add extra prism elements to fill in the core of
         the tokamak

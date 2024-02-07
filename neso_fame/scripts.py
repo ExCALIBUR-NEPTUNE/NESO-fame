@@ -13,7 +13,11 @@ from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
 from neso_fame.mesh import CoordinateSystem, SliceCoords
-from neso_fame.nektar_writer import nektar_3d_element, write_nektar, write_poloidal_mesh, nektar_poloidal_face
+from neso_fame.nektar_writer import (
+    nektar_3d_element,
+    write_nektar,
+    write_poloidal_mesh,
+)
 
 
 @click.group()
@@ -329,6 +333,18 @@ def simple_3d(
     show_default=True,
 )
 @click.option(
+    "--max-ratio",
+    type=click.FloatRange(0.0, min_open=True),
+    help=(
+        "The maximum ratio to allow between the length of the perpendicular"
+        "and field-aligned edges of an element. If an element exceeds this"
+        "ratio, it will be merged with an adjacent one. Note that"
+        "only elements radiating away from an X-point are checked and"
+        "some may be left in order to maintain a conformal mesh."
+    ),
+    default=10.0,
+)
+@click.option(
     "--core/--no-core",
     is_flag=True,
     default=True,
@@ -385,6 +401,7 @@ def hypnotoad(
     n: int,
     toroidal_limits: tuple[float, float],
     layers: int,
+    max_ratio: float,
     core: bool,
     wall_resolution: Optional[float],
     wall_angle_threshold: float,
@@ -422,6 +439,7 @@ def hypnotoad(
         layers,
         21,
         n // layers,
+        max_ratio,
         core,
         True,
         True,

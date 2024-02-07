@@ -570,12 +570,16 @@ def _get_integration_distance(
 
 
 def perpendicular_edge(
-    eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
+    eq: TokamakEquilibrium,
+    north: SliceCoord,
+    south: SliceCoord,
+    force: bool = False,
 ) -> AcrossFieldCurve:
     """Return a line traveling at right angles to the magnetic field.
 
     This line will connect the two points on the poloidal plane. If
-    this is not possible, raise an exception.
+    this is not possible, raise an exception or force the line out
+    of perpendicular. The latter will always happen at an X-point.
 
     Parameters
     ----------
@@ -585,6 +589,10 @@ def perpendicular_edge(
         The starting point of the line
     south
         The end point of the line
+    force
+        Whether to force the trajectory to finish exactly at the end
+        point, even if this means the line will no longer be
+        perpendicular.
 
     Returns
     -------
@@ -615,7 +623,7 @@ def perpendicular_edge(
         return float(eq.psi(x[0], x[1])) - psi_end
 
     total_distance = _get_integration_distance(
-        f, terminus, start, end, x_point == _XPointLocation.NONE
+        f, terminus, start, end, x_point == _XPointLocation.NONE and not force
     )
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
@@ -633,7 +641,7 @@ def perpendicular_edge(
         # and a straight line between north and south. The weight of
         # the linaer component increases as the x-point is approached.
         R_sol, Z_sol = solution(s)
-        if x_point == _XPointLocation.NONE:
+        if x_point == _XPointLocation.NONE and not force:
             R = R_sol
             Z = Z_sol
         else:

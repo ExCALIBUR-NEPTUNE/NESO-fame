@@ -1,13 +1,13 @@
 """Class to build mesh elements."""
 
 from __future__ import annotations
-from collections import defaultdict
 
 import itertools
+from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import cache, cached_property, reduce
-from typing import Callable, Optional
+from typing import Callable, Concatenate, Optional, ParamSpec
 from warnings import warn
 
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
@@ -153,20 +153,42 @@ class _VertexRing:
         )
 
     def __iter__(self) -> Iterator[SliceCoord]:
-        if len(self.fragments) == 0:
-            return iter(())
         if len(self.fragments) > 1:
             warn("Multiple vertex rings detected; iterating over largest.")
+        return self.largest_vertex_ring()
+
+    def largest_vertex_ring(self) -> Iterator[SliceCoord]:
+        if len(self.fragments) == 0:
+            return iter(())
         fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[-1]
         if not fragment.complete:
             raise ValueError("Can not iterate over incomplete ring.")
         return iter(fragment)
 
-    def quads(self) -> Iterator[Quad]:
+    def smallest_vertex_ring(self) -> Iterator[SliceCoord]:
         if len(self.fragments) == 0:
             return iter(())
+        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
+        if not fragment.complete:
+            raise ValueError("Can not iterate over incomplete ring.")
+        return iter(fragment)
+
+    def quads(self) -> Iterator[Quad]:
         if len(self.fragments) > 1:
             warn("Multiple vertex rings detected; iterating over largest.")
+        return self.largest_quad_ring()
+
+    def largest_quad_ring(self) -> Iterator[Quad]:
+        if len(self.fragments) == 0:
+            return iter(())
+        fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[-1]
+        if not fragment.complete:
+            raise ValueError("Can not iterate over incomplete ring.")
+        return fragment.iter_quads()
+
+    def smallest_quad_ring(self) -> Iterator[Quad]:
+        if len(self.fragments) == 0:
+            return iter(())
         fragment = sorted(self.fragments, key=lambda x: len(x.vertices))[0]
         if not fragment.complete:
             raise ValueError("Can not iterate over incomplete ring.")
@@ -279,7 +301,7 @@ class ElementBuilder:
         return check_edges
 
     @cache
-    def perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
+    def _perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, perpendicular to flux surfaces."""
         return Quad(
             perpendicular_edge(self._equilibrium, north, south),
@@ -288,7 +310,7 @@ class ElementBuilder:
         )
 
     @cache
-    def flux_surface_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
+    def _flux_surface_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, following a flux surface."""
         return Quad(
             flux_surface_edge(self._equilibrium, north, south),
@@ -306,16 +328,30 @@ class ElementBuilder:
             aligned_edges=QuadAlignment.NORTH,
         )
 
-    def make_hex(
-        self, sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: SliceCoord
+    def make_element(
+        self, sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: Optional[SliceCoord]
     ) -> Prism:
-        """Createa a hexahedron from the four points on the poloidal plane."""
+        """Createa an element from the four points on the poloidal plane.
+
+        If four coordinates are provided this will be a
+        hexahedron. Otherwise this will be a prism.
+
+        """
+        if isinstance(ne, SliceCoord):
+            return Prism(
+                (
+                    self._tracked_flux_surface_quad(nw, ne),
+                    self._tracked_flux_surface_quad(sw, se),
+                    self._tracked_perpendicular_quad(se, ne),
+                    self._tracked_perpendicular_quad(sw, nw),
+                )
+            )
         return Prism(
             (
-                self._tracked_flux_surface_quad(nw, ne),
                 self._tracked_flux_surface_quad(sw, se),
-                self._tracked_perpendicular_quad(se, ne),
                 self._tracked_perpendicular_quad(sw, nw),
+                # FIXME: Should I force this to be linear instead?
+                self._tracked_perpendicular_quad(se, nw),
             )
         )
 
@@ -327,13 +363,16 @@ class ElementBuilder:
         return Prism(
             (
                 self._tracked_flux_surface_quad(north, south),
-                self.make_quad_to_o_point(north),
                 self.make_quad_to_o_point(south),
+                self.make_quad_to_o_point(north),
             )
         )
 
     def make_quad_for_prism(
-        self, north: SliceCoord, south: SliceCoord, wall_vertices: frozenset[tuple[SliceCoord, SliceCoord]]
+        self,
+        north: SliceCoord,
+        south: SliceCoord,
+        wall_vertices: frozenset[tuple[SliceCoord, SliceCoord]],
     ) -> tuple[Quad, frozenset[Quad]]:
         """Make a quad for use in a triangular prism in the sapce by the wall.
 
@@ -352,6 +391,18 @@ class ElementBuilder:
             return self._prism_quads[key]
         outermost_north = north in self._outermost_vertex_set
         outermost_south = south in self._outermost_vertex_set
+        # FIXME: mixing aligned and unaligned edges in an element can
+        # result in it being ill-formed. No fool-proof way to prevent
+        # this, I don't think, but can reduce the probability by
+        # transitioning from alignedto unaligned more
+        # gradually. Probably even just one layer of edges would be
+        # enough. Avoiding elements that are two small would help as well.
+        #
+        # Think I should build up a list of outermost nodes, followed
+        # by those immediately adjacent to them, followed by those
+        # immediately adjacent to those, etc. Can then use that to
+        # assign "alignedness". Will require some refactoring of how I
+        # handle alignment though.
         alignment = (
             QuadAlignment.ALIGNED
             if outermost_north and outermost_south
@@ -431,7 +482,7 @@ class ElementBuilder:
         return self._quad_to_outer_prism_map[q]
 
     @cached_property
-    def _outermost_vertex_ring(self) -> _VertexRing:
+    def _vertex_rings(self) -> _VertexRing:
         return reduce(
             lambda ring, item: ring.add_vertices(
                 *self._order_vertices_counter_clockwise(*item[0]), item[1]
@@ -454,7 +505,7 @@ class ElementBuilder:
         `end`. These limits will both be included in the iterator.
 
         """
-        return self._outermost_vertex_ring.vertices_between(start, end)
+        return self._vertex_rings.vertices_between(start, end)
 
     def outermost_quads_between(
         self, start: SliceCoord, end: SliceCoord
@@ -467,7 +518,7 @@ class ElementBuilder:
         be included in the iterator.
 
         """
-        return iter(self._outermost_vertex_ring.quads_between(start, end))
+        return iter(self._vertex_rings.quads_between(start, end))
 
     def outermost_vertices(self) -> Iterator[SliceCoord]:
         """Iterate over the vertices at the outermost edge of the mesh still in the vessel.
@@ -477,7 +528,17 @@ class ElementBuilder:
         start-point is arbitrary.
 
         """
-        return iter(self._outermost_vertex_ring)
+        return self._vertex_rings.largest_vertex_ring()
+
+    def innermost_vertices(self) -> Iterator[SliceCoord]:
+        """Iterate over the vertices closest to the core.
+
+        The order of the iteration is the order these vertices are
+        connected into a ring, moving counter-clockwise. The
+        start-point is arbitrary.
+
+        """
+        return self._vertex_rings.smallest_vertex_ring()
 
     def outermost_quads(self) -> Iterator[Quad]:
         """Iterate over the quads at the outermost edge of the mesh still in the vessel.
@@ -487,7 +548,17 @@ class ElementBuilder:
         start-point is arbitrary.
 
         """
-        return self._outermost_vertex_ring.quads()
+        return self._vertex_rings.largest_quad_ring()
+
+    def innermost_quads(self) -> Iterator[Quad]:
+        """Iterate over the quads closest to the core.
+
+        The order of the iteration is the order these quads are
+        connected into a ring, moving counter-clockwise. The
+        start-point is arbitrary.
+
+        """
+        return self._vertex_rings.smallest_quad_ring()
 
     def _order_vertices_counter_clockwise(
         self, left: SliceCoord, right: SliceCoord
