@@ -196,13 +196,15 @@ Interpolator = Callable[[npt.ArrayLike], npt.NDArray]
 
 
 def _make_element_shape(
-    R_interp: Interpolator, Z_interp: Interpolator, start: float, end: float
+    R_interp: Interpolator,
+    Z_interp: Interpolator,
+    start: float,
+    end: float,
+    system: CoordinateSystem,
 ) -> AcrossFieldCurve:
     def shape(s: npt.ArrayLike) -> SliceCoords:
         s_prime = start + (end - start) * np.asarray(s)
-        return SliceCoords(
-            R_interp(s_prime), Z_interp(s_prime), CoordinateSystem.CYLINDRICAL
-        )
+        return SliceCoords(R_interp(s_prime), Z_interp(s_prime), system)
 
     return shape
 
@@ -211,6 +213,7 @@ def _interpolate_wall(
     points: Sequence[Point2D],
     n: int,
     register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
+    system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> list[Point2D]:
     coords = np.array([tuple(p) for p in points])
     distances = np.cumsum(
@@ -226,14 +229,14 @@ def _interpolate_wall(
     Zs = Z_interp(s)
     if kind != "linear":
         shapes = (
-            _make_element_shape(R_interp, Z_interp, segment[0], segment[1])
+            _make_element_shape(R_interp, Z_interp, segment[0], segment[1], system)
             for segment in itertools.pairwise(s)
         )
     else:
         shapes = (
             StraightLineAcrossField(
-                SliceCoord(float(R0), float(Z0), CoordinateSystem.CYLINDRICAL),
-                SliceCoord(float(R1), float(Z1), CoordinateSystem.CYLINDRICAL),
+                SliceCoord(float(R0), float(Z0), system),
+                SliceCoord(float(R1), float(Z1), system),
             )
             for (R0, Z0), (R1, Z1) in itertools.pairwise(np.nditer([Rs, Zs]))
         )
@@ -306,6 +309,7 @@ def adjust_wall_resolution(
     min_size_factor: float = 1e-1,
     angle_threshold: float = np.pi / 8,
     register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
+    system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> list[Point2D]:
     """Interpolate the points in the tokamak wall to the desired resolution.
 
@@ -334,6 +338,8 @@ def adjust_wall_resolution(
         that the callback will register or cache them for use when constructing
         prisms in future. This is useful because it allows this method to pass
         in higher-order curvature information.
+    system
+        The coordinate system to use.
 
     Returns
     -------
@@ -394,7 +400,7 @@ def adjust_wall_resolution(
     # the target size as possible
     return reduce(
         lambda x, y: x + y,
-        (_interpolate_wall(p, n, register_segment) for p, n in portions),
+        (_interpolate_wall(p, n, register_segment, system) for p, n in portions),
     )
 
 

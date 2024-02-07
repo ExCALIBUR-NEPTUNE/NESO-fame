@@ -221,6 +221,7 @@ class ElementBuilder:
         hypnotoad_poloidal_mesh: HypnoMesh,
         tracer: FieldTracer,
         dx3: float,
+        system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
     ) -> None:
         """Instantiate an object of this class.
 
@@ -232,6 +233,8 @@ class ElementBuilder:
             Object to follow along a field line.
         dx3
             Width of a layer of the mesh.
+        system
+            The coordinate system to use for the constructed elements.
 
         """
         self._equilibrium = hypnotoad_poloidal_mesh.equilibrium
@@ -242,10 +245,12 @@ class ElementBuilder:
             frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]
         ] = {}
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
-        self._o_point = SliceCoord(op.R, op.Z, CoordinateSystem.CYLINDRICAL)
-        self._tracked_perpendicular_quad = self._track_edges(self.perpendicular_quad)
-        self._tracked_flux_surface_quad = self._track_edges(self.flux_surface_quad)
-        self._quad_to_outer_prism_map: defaultdict[Quad, list[Prism]] = defaultdict(list)
+        self._o_point = SliceCoord(op.R, op.Z, system)
+        self._tracked_perpendicular_quad = self._track_edges(self._perpendicular_quad)
+        self._tracked_flux_surface_quad = self._track_edges(self._flux_surface_quad)
+        self._quad_to_outer_prism_map: defaultdict[Quad, list[Prism]] = defaultdict(
+            list
+        )
 
     def _track_edges(
         self, func: Callable[[SliceCoord, SliceCoord], Quad]
@@ -487,11 +492,10 @@ class ElementBuilder:
     def _order_vertices_counter_clockwise(
         self, left: SliceCoord, right: SliceCoord
     ) -> tuple[SliceCoord, SliceCoord]:
-        if (
-            left.system != CoordinateSystem.CYLINDRICAL
-            or right.system != CoordinateSystem.CYLINDRICAL
-        ):
-            raise ValueError("Both vertices must use cylindrical coordinates")
+        if left.system != self._o_point.system or right.system != self._o_point.system:
+            raise ValueError(
+                f"Both vertices must use same {self._o_point.system} coordinates"
+            )
         o_to_l = (left.x1 - self._o_point.x1, left.x2 - self._o_point.x2)
         l_to_r = (right.x1 - left.x1, right.x2 - left.x2)
         cross_prod = o_to_l[0] * l_to_r[1] - o_to_l[1] * l_to_r[0]

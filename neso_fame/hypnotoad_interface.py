@@ -368,8 +368,21 @@ def _fpol(eq: TokamakEquilibrium, R: npt.NDArray, Z: npt.NDArray) -> npt.NDArray
     return np.asarray(eq.f_spl(eq.psi_func(R, Z, grid=False) * eq.f_psi_sign))
 
 
-def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
+def equilibrium_trace(
+    equilibrium: TokamakEquilibrium,
+    system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
+) -> FieldTrace:
     """Return a field trace from the hypnotoad equilibrium object.
+
+    Parameters
+    ----------
+    equilibrium
+        The equilibrium magnetic field from Hypnotoad.
+    system
+        The coordinate system to use for the result. This normally
+        would not be changed, but when exporting the poloidal
+        cross-section of the mesh it can be useful to set it to be
+        Cartesian.
 
     Returns
     -------
@@ -385,8 +398,10 @@ def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
     def trace(
         start: SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
     ) -> tuple[SliceCoords, npt.NDArray]:
-        if start.system != CoordinateSystem.CYLINDRICAL:
-            raise ValueError("`start` must use a cylindrical coordinate system")
+        if start.system != system:
+            raise ValueError(
+                f"`start` coordinate system {start.system} differs from expected one {system}"
+            )
         b = 1 - start_weight
 
         @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-11, atol=1e-12)
@@ -406,7 +421,7 @@ def equilibrium_trace(equilibrium: TokamakEquilibrium) -> FieldTrace:
         x3 = np.asarray(x3)
         R, Z, dist = integrated(x3)
         return SliceCoords(
-            R.reshape(x3.shape), Z.reshape(x3.shape), CoordinateSystem.CYLINDRICAL
+            R.reshape(x3.shape), Z.reshape(x3.shape), system
         ), dist.reshape(x3.shape)
 
     return trace
@@ -582,10 +597,8 @@ def perpendicular_edge(
     hypnotoad
 
     """
-    if north.system != CoordinateSystem.CYLINDRICAL:
-        raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
-    if south.system != CoordinateSystem.CYLINDRICAL:
-        raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
+    if north.system != south.system:
+        raise ValueError("`north` and `south` have different coordinate systems")
 
     x_point, start, end, parameter = _handle_x_points(eq, north, south)
     psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
@@ -624,14 +637,11 @@ def perpendicular_edge(
             R = R_sol
             Z = Z_sol
         else:
-            m = s * s
             R_lin = start.x1 * (1 - s) + end.x1 * s
             Z_lin = start.x2 * (1 - s) + end.x2 * s
-            R = R_sol * (1 - m) + m * R_lin
-            Z = Z_sol * (1 - m) + m * Z_lin
-        return SliceCoords(
-            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
-        )
+            R = R_sol * (1 - s) + s * R_lin
+            Z = Z_sol * (1 - s) + s * Z_lin
+        return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), north.system)
 
     return solution_coords
 
@@ -702,10 +712,8 @@ def flux_surface_edge(
     hypnotoad
 
     """
-    if north.system != CoordinateSystem.CYLINDRICAL:
-        raise ValueError("Coordinate system of `north` must be CYLINDRICAL")
-    if south.system != CoordinateSystem.CYLINDRICAL:
-        raise ValueError("Coordinate system of `south` must be CYLINDRICAL")
+    if north.system != south.system:
+        raise ValueError("`north` and `south` have different coordinate systems")
 
     # FIXME: This won't be able to handle the inexact seperatrix you
     # will get when doing a realistic connected double null
@@ -760,9 +768,7 @@ def flux_surface_edge(
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)
         R, Z = solution(s)
-        return SliceCoords(
-            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
-        )
+        return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), north.system)
 
     return solution_coords
 
@@ -794,9 +800,6 @@ def connect_to_o_point(
     hypnotoad
 
     """
-    if start.system != CoordinateSystem.CYLINDRICAL:
-        raise ValueError("Coordinate system of `start` must be CYLINDRICAL")
-
     psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
     psi_end = float(eq.psi_func(eq.o_point.R, eq.o_point.Z, grid=False))
     diff = psi_end - psi_start
@@ -805,7 +808,7 @@ def connect_to_o_point(
     # so instead integrate to near it, then make a linear connection
     # from there to the O-point.
     psi_end_approx = psi_start + 0.95 * diff
-    o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
+    o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, start.system)
     # Eventually we'll need to know the distance at which the end_approx point is reached, so we can switch to moving straight towards the O-point. However, the first time we integrate we're doing it to determine what that distance is and don't actually need to stop.
 
     def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
@@ -844,9 +847,7 @@ def connect_to_o_point(
         )
         R = np.where(mask, R_sol, R_lin)
         Z = np.where(mask, Z_sol, Z_lin)
-        return SliceCoords(
-            R.reshape(s.shape), Z.reshape(s.shape), CoordinateSystem.CYLINDRICAL
-        )
+        return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), start.system)
 
     return solution_coords
 
@@ -855,16 +856,15 @@ QuadMaker = Callable[[SliceCoord, SliceCoord], Quad]
 
 
 def _get_bound_points(
-    region: MeshRegion,
-    index: tuple[int | slice, ...],
+    region: MeshRegion, index: tuple[int | slice, ...], system: CoordinateSystem
 ) -> Iterator[SliceCoord]:
     R = region.Rxy.corners[index]
     Z = region.Zxy.corners[index]
-    return SliceCoords(R, Z, CoordinateSystem.CYLINDRICAL).iter_points()
+    return SliceCoords(R, Z, system).iter_points()
 
 
 def get_region_flux_surface_boundary_points(
-    region: MeshRegion,
+    region: MeshRegion, system: CoordinateSystem = CoordinateSystem.CYLINDRICAL
 ) -> list[Iterator[SliceCoord]]:
     """Get the (ordered) boundary points for flux surface boundaries of a region.
 
@@ -872,6 +872,10 @@ def get_region_flux_surface_boundary_points(
     ----------
     region
         The portion of the mesh for which to return boundaries.
+    system
+        The coordinate system to use. This normally should not be
+        changed. However, if you want to export the poloidal cross-section
+        of the mesh then it can be useful to set this to be Cartesian.
 
     Returns
     -------
@@ -895,12 +899,12 @@ def get_region_flux_surface_boundary_points(
     single_null = len(region.meshParent.equilibrium.x_points) == 1
     empty: list[SliceCoord] = []
     centre = (
-        _get_bound_points(region, (0, slice(None)))
+        _get_bound_points(region, (0, slice(None)), system)
         if name.endswith("core") and region.connections["inner"] is None
         else iter(empty)
     )
     inner_edge = (
-        _get_bound_points(region, (-1, slice(None)))
+        _get_bound_points(region, (-1, slice(None)), system)
         if (
             name
             in {
@@ -917,20 +921,20 @@ def get_region_flux_surface_boundary_points(
         else iter(empty)
     )
     outer_edge = (
-        _get_bound_points(region, (-1, slice(None)))
+        _get_bound_points(region, (-1, slice(None)), system)
         if name in {"outer_core", "outer_lower_divertor", "outer_upper_divertor"}
         and not single_null
         and region.connections["outer"] is None
         else iter(empty)
     )
     upper_pfr = (
-        _get_bound_points(region, (0, slice(None)))
+        _get_bound_points(region, (0, slice(None)), system)
         if name in {"inner_upper_divertor", "outer_upper_divertor"}
         and region.connections["inner"] is None
         else iter(empty)
     )
     lower_pfr = (
-        _get_bound_points(region, (0, slice(None)))
+        _get_bound_points(region, (0, slice(None)), system)
         if name in {"inner_lower_divertor", "outer_lower_divertor"}
         and region.connections["inner"] is None
         else iter(empty)
@@ -945,7 +949,7 @@ def get_region_flux_surface_boundary_points(
 
 
 def get_region_perpendicular_boundary_points(
-    region: MeshRegion,
+    region: MeshRegion, system: CoordinateSystem = CoordinateSystem.CYLINDRICAL
 ) -> list[Iterator[SliceCoord]]:
     """Get the (ordered) boundary points for the perpendicular boundaries of a region.
 
@@ -953,6 +957,10 @@ def get_region_perpendicular_boundary_points(
     ----------
     region
         The portion of the mesh for which to return boundaries.
+    system
+        The coordinate system to use. This normally should not be
+        changed. However, if you want to export the poloidal cross-section
+        of the mesh then it can be useful to set this to be Cartesian.
 
     Returns
     -------
@@ -975,22 +983,22 @@ def get_region_perpendicular_boundary_points(
     name = region.equilibriumRegion.name
     empty: list[SliceCoord] = []
     inner_lower_divertor = (
-        _get_bound_points(region, (slice(None), 0))
+        _get_bound_points(region, (slice(None), 0), system)
         if name == "inner_lower_divertor"
         else iter(empty)
     )
     outer_lower_divertor = (
-        _get_bound_points(region, (slice(None), -1))
+        _get_bound_points(region, (slice(None), -1), system)
         if name == "outer_lower_divertor"
         else iter(empty)
     )
     inner_upper_divertor = (
-        _get_bound_points(region, (slice(None), -1))
+        _get_bound_points(region, (slice(None), -1), system)
         if name == "inner_upper_divertor"
         else iter(empty)
     )
     outer_upper_divertor = (
-        _get_bound_points(region, (slice(None), 0))
+        _get_bound_points(region, (slice(None), 0), system)
         if name == "outer_upper_divertor"
         else iter(empty)
     )
@@ -1080,13 +1088,19 @@ def get_mesh_boundaries(
     return flux_surface_boundaries + perpendicular_boundaries
 
 
-def core_boundary_points(mesh: Mesh) -> SliceCoords:
+def core_boundary_points(
+    mesh: Mesh, system: CoordinateSystem = CoordinateSystem.CYLINDRICAL
+) -> SliceCoords:
     """Get all of the nodes at the centre of the core region.
 
     Parameters
     ----------
     mesh
         The hypnotoad mesh object for which to return the points.
+    system
+        The coordinate system to use. This normally should not be
+        changed. However, if you want to export the poloidal cross-section
+        of the mesh then it can be useful to set this to be Cartesian.
 
     Group
     -----
@@ -1096,9 +1110,7 @@ def core_boundary_points(mesh: Mesh) -> SliceCoords:
     regions = {region.name: region for region in mesh.regions.values()}
     if "core(0)" in regions:
         core = regions["core(0)"]
-        return SliceCoords(
-            core.Rxy.corners[0, :], core.Zxy.corners[0, :], CoordinateSystem.CYLINDRICAL
-        )
+        return SliceCoords(core.Rxy.corners[0, :], core.Zxy.corners[0, :], system)
     else:
         inner_core = regions["inner_core(0)"]
         outer_core = regions["outer_core(0)"]
@@ -1109,5 +1121,5 @@ def core_boundary_points(mesh: Mesh) -> SliceCoords:
             np.concatenate(
                 (inner_core.Zxy.corners[0, :], outer_core.Zxy.corners[0, 1:])
             ),
-            CoordinateSystem.CYLINDRICAL,
+            system,
         )

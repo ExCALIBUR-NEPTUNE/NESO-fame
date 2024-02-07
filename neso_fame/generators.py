@@ -464,16 +464,18 @@ def _get_element_corners(
     return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
 
 
-def _element_corners(
-    region: HypnoMeshRegion,
+def _region_element_corners(
+    region: HypnoMeshRegion, system: CoordinateSystem
 ) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
     R = _get_element_corners(region.Rxy.corners)
     Z = _get_element_corners(region.Zxy.corners)
     return (
-        SliceCoords(R[0], Z[0], CoordinateSystem.CYLINDRICAL),
-        SliceCoords(R[1], Z[1], CoordinateSystem.CYLINDRICAL),
-        SliceCoords(R[2], Z[2], CoordinateSystem.CYLINDRICAL),
-        SliceCoords(R[3], Z[3], CoordinateSystem.CYLINDRICAL),
+        SliceCoords(R[0], Z[0], system),
+        SliceCoords(R[1], Z[1], system),
+        SliceCoords(R[2], Z[2], system),
+        SliceCoords(R[3], Z[3], system),
+    )
+
     )
 
 
@@ -491,7 +493,7 @@ def _handle_nodes_outside_vessel(
                     SliceCoords(
                         region.Rxy.corners,
                         region.Zxy.corners,
-                        CoordinateSystem.CYLINDRICAL,
+                        system,
                     )
                 )
                 for region in hypnotoad_poloidal_mesh.regions.values()
@@ -503,8 +505,8 @@ def _handle_nodes_outside_vessel(
             (
                 frozenset(bound)
                 for bound in itertools.chain.from_iterable(
-                    get_region_flux_surface_boundary_points(region)[1:]
-                    + get_region_perpendicular_boundary_points(region)
+                    get_region_flux_surface_boundary_points(region, system)[1:]
+                    + get_region_perpendicular_boundary_points(region, system)
                     for region in hypnotoad_poloidal_mesh.regions.values()
                 )
             ),
@@ -565,10 +567,10 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
         raise ValueError("Prisms share more than one face; unclear how to join")
     join_on = next(iter(common_face))
     north, potential_east = (face for face in p1.sides if face != join_on)
-    north_points = frozenset(north.shape([0., 1.]).iter_points())
-    potential_east_points = frozenset(potential_east.shape([0., 1.]).iter_points())
+    north_points = frozenset(north.shape([0.0, 1.0]).iter_points())
+    potential_east_points = frozenset(potential_east.shape([0.0, 1.0]).iter_points())
     q2_1, q2_2 = (face for face in p2.sides if face != join_on)
-    if len(frozenset(q2_1.shape([0., 1.]).iter_points()) & north_points) == 0:
+    if len(frozenset(q2_1.shape([0.0, 1.0]).iter_points()) & north_points) == 0:
         south = q2_1
         potential_west = q2_2
     else:
@@ -577,8 +579,12 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
     # Choose east and west segments to ensure a positive Jacobian
     vertex0 = next(iter(north_points - potential_east_points))
     vertex1 = next(iter(potential_east_points - north_points))
-    vertex3 = next(iter(frozenset(potential_west.shape([0., 1.]).iter_points()) - north_points))
-    jacobian = (vertex1.x2 - vertex0.x2) * (vertex3.x1 - vertex0.x1) - (vertex1.x1 - vertex0.x1) * (vertex3.x2 - vertex0.x2)
+    vertex3 = next(
+        iter(frozenset(potential_west.shape([0.0, 1.0]).iter_points()) - north_points)
+    )
+    jacobian = (vertex1.x2 - vertex0.x2) * (vertex3.x1 - vertex0.x1) - (
+        vertex1.x1 - vertex0.x1
+    ) * (vertex3.x2 - vertex0.x2)
     if jacobian > 0:
         east = potential_east
         west = potential_west
@@ -695,6 +701,7 @@ def hypnotoad_mesh(
     wall_resolution: Optional[float] = None,
     wall_angle_threshold: float = np.pi / 12,
     validator: Callable[[Prism], bool] = lambda x: True,
+    system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
 
@@ -750,6 +757,10 @@ def hypnotoad_mesh(
         valid. Default will always return True. This argument change
         should change depending on the format you want to write your mesh
         to, the order of the basis for the element shapes, etc.
+    system
+        The coordinate system to use. This normally should not be
+        changed. However, if you want to export the poloidal cross-section
+        of the mesh then it can be useful to set this to be Cartesian.
 
     Returns
     -------
@@ -772,7 +783,7 @@ def hypnotoad_mesh(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
     tracer = FieldTracer(
-        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium),
+        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium, system),
         spatial_interp_resolution,
     )
     min_dist_squared = min_distance_to_wall * min_distance_to_wall
@@ -791,34 +802,35 @@ def hypnotoad_mesh(
 
     eqdsk_wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
     corners_within_vessel = _handle_nodes_outside_vessel(
-        hypnotoad_poloidal_mesh, eqdsk_wall, restrict_to_vessel, whole_line_in_tokamak
+        hypnotoad_poloidal_mesh,
+        eqdsk_wall,
+        restrict_to_vessel,
+        whole_line_in_tokamak,
+        system,
     )
-    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3)
+    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3, system)
 
     main_elements = [
-        factory.make_hex(*corners)
+        factory.make_element(*corners)
         for corners in itertools.chain.from_iterable(
-            zip(*map(operator.methodcaller("iter_points"), _element_corners(region)))
+            _iter_element_corners(region, max_aspect_ratio, system)
             for region in hypnotoad_poloidal_mesh.regions.values()
         )
         if corners_within_vessel(corners)
     ]
-    all_boundaries = get_mesh_boundaries(
-        hypnotoad_poloidal_mesh, factory.flux_surface_quad, factory.perpendicular_quad
-    )
     if mesh_to_core:
-        core_points = core_boundary_points(hypnotoad_poloidal_mesh)
         core_elements = list(
             itertools.starmap(
                 factory.make_prism_to_centre,
-                itertools.pairwise(core_points.iter_points()),
+                periodic_pairwise(factory.innermost_vertices()),
             )
         )
         inner_bounds: frozenset[Quad] = frozenset()
     else:
         core_elements = []
-        inner_bounds = all_boundaries[0]
+        inner_bounds = frozenset(factory.innermost_quads())
     if mesh_to_wall:
+        # FIXME: Not capturing the curves of the outermost hypnotoad quads now, for some reason.
         plasma_points = [tuple(p) for p in factory.outermost_vertices()]
         if wall_resolution is not None:
             target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
@@ -832,8 +844,8 @@ def hypnotoad_mesh(
             wall = eqdsk_wall
         wall_points = [tuple(p) for p in wall]
         wall_coord_pairs = frozenset(
-            periodic_pairwise(SliceCoord(p[0], p[1], CoordinateSystem.CYLINDRICAL) for p in wall_points
-        ))
+            periodic_pairwise(SliceCoord(p[0], p[1], system) for p in wall_points)
+        )
         n = len(wall_points)
         import meshpy.triangle as triangle  # type: ignore
 
@@ -861,7 +873,7 @@ def hypnotoad_mesh(
         wall_mesh_points = np.array(wall_mesh.points)
         triangles = np.array(wall_mesh.elements)
         wall_mesh_coords = SliceCoords(
-            wall_mesh_points[:, 0], wall_mesh_points[:, 1], CoordinateSystem.CYLINDRICAL
+            wall_mesh_points[:, 0], wall_mesh_points[:, 1], system
         )
         initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
         initial_wall_elements, initial_outer_bounds = reduce(
