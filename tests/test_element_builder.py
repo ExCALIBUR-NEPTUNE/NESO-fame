@@ -463,7 +463,7 @@ def test_quad_on_wall_for_prism(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3)
-    q, b = builder.make_quad_for_prism(points[0], points[1], frozenset(points))
+    q, b = builder.make_quad_for_prism(points[0], points[1], frozenset({points}))
     assert len(b) == 1
     assert q in b
 
@@ -485,14 +485,8 @@ def test_quad_not_quite_on_wall_for_prism(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3)
-    q, b = builder.make_quad_for_prism(
-        points[0], points[1], frozenset({points[on_wall]})
-    )
-    if points[0] != points[1]:
-        assert len(b) == 0
-    else:
-        assert len(b) == 1
-        assert q in b
+    q, b = builder.make_quad_for_prism(points[0], points[1], frozenset())
+    assert len(b) == 0
 
 
 @settings(deadline=None)
@@ -563,9 +557,7 @@ def test_make_outer_prism_no_bounds(
     trace = FieldTracer(simple_trace, interp_resolution)
     prism_termini = termini[:3]
     builder = ElementBuilder(mesh, trace, dx3)
-    prism, bounds = builder.make_outer_prism(
-        *prism_termini, frozenset({prism_termini[bound_point]})
-    )
+    prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
     assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
         prism_termini
     )
@@ -589,7 +581,7 @@ def test_make_outer_prism_one_bound(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     prism_termini = termini[:3]
-    bound_set = frozenset(termini[i] for i in bound_points)
+    bound_set = frozenset({(termini[bound_points[0]], termini[bound_points[1]])})
     builder = ElementBuilder(mesh, trace, dx3)
     prism, bounds = builder.make_outer_prism(*prism_termini, bound_set)
     assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(

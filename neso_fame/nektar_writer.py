@@ -1,11 +1,11 @@
 """Tools for creating Nektar++ objects for representing a mesh."""
 
 import itertools
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
-from typing import Callable, Optional, cast
-from collections.abc import Iterable, Iterator, Sequence
+from typing import Optional, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
@@ -210,6 +210,7 @@ _curve_count = -1
 _edge_count = -1
 _face_count = -1
 _solid_count = -1
+
 
 @cache
 def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:

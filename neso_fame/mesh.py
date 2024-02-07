@@ -921,12 +921,12 @@ class Quad(LazilyOffsetable):
         if isinstance(self.shape, StraightLineAcrossField):
             return self
         return Quad(
-            StraightLineAcrossField(*self.shape([0., 1.]).iter_points()),
+            StraightLineAcrossField(*self.shape([0.0, 1.0]).iter_points()),
             self.field,
             self.dx3,
             self.subdivision,
             self.num_divisions,
-            self.aligned_edges
+            self.aligned_edges,
         )
 
 
@@ -1034,6 +1034,10 @@ class Prism(LazilyOffsetable):
         else:
             for sides in zip(*(s.subdivide(num_divisions) for s in self.sides)):
                 yield Prism(sides)
+
+    def make_flat_faces(self) -> Prism:
+        """Create a new prism where sides don't curve in the poloidal plane."""
+        return Prism(tuple(face.make_flat_quad() for face in self.sides))
 
 
 E = TypeVar("E", Quad, Prism)

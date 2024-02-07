@@ -5,9 +5,10 @@ from __future__ import annotations
 import itertools
 import operator
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from functools import cache, reduce
 from typing import Callable, Optional, TypeVar, cast
+from warnings import warn
 
 import numpy as np
 import numpy.typing as npt
@@ -588,21 +589,23 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
 
 
 def _validate_wall_elements(
-        boundary_faces: frozenset[Quad], elements: Sequence[Prism], quad_to_elements: Callable[[Quad], list[Prism]], validate: Callable[[Prism], bool]) -> tuple[list[Prism], frozenset[Quad]]:
+    boundary_faces: frozenset[Quad],
+    elements: Sequence[Prism],
+    quad_to_elements: Callable[[Quad], list[Prism]],
+    validate: Callable[[Prism], bool],
+) -> tuple[list[Prism], frozenset[Quad]]:
     """Return the elements with any self-intersections removed from boundaries.
 
     This is first attempted by combining an element an adjacent
     element containing the face being intersected. This only works if
     both elements are triangular prisms. If they are not, or if the
     new element also has a negative Jacobian, then the element is
-    replaced with one with first-order faces. The routine assumes that 
-    
+    replaced with one with first-order faces. The routine assumes that
+
     Parameters
     ----------
     boundary_faces
-        Those boundary quads that have the potential to intersect
-        other faces of an element. Only elements with one of these
-        faces will be checked.
+        Quads in the external boundary of the mesh.
     elements
         All the elements being checked, plus adacent ones with which
         they may be combined.
@@ -622,39 +625,60 @@ def _validate_wall_elements(
     """
     new_elements = set(elements)
     new_faces = set(boundary_faces)
-    for face in boundary_faces:
-        prisms = quad_to_elements(face)
-        if len(prisms) != 1:
-            breakpoint()
-        prism = prisms[0]
+    for prism in elements:
         # If element not in new_elements, it has already been
         # processed. If it is already valid there is no need to do
         # anything.
         if prism not in new_elements or validate(prism):
             continue
-        # Will need to replace this element
-        new_elements.remove(prism)
         # Try merging with adjacent triangles (which haven't already
         # been merged with another element, which would remove them
         # from new_elements)
-        merge_candidates = frozenset(item for item in itertools.chain.from_iterable(((_merge_prisms(prism, p), p) for p in quad_to_elements(q) if len(p.sides) == 3 and p in new_elements and p != prism) for q in prism.sides if q != face) if validate(item[0]))
+        merge_candidates = frozenset(
+            item
+            for item in itertools.chain.from_iterable(
+                (
+                    (_merge_prisms(prism, p), p)
+                    for p in quad_to_elements(q)
+                    if len(p.sides) == 3 and p in new_elements and p != prism
+                )
+                for q in prism.sides
+            )
+            if validate(item[0])
+        )
         # If that works, swap it for `prism` in `new_elements`
         if len(merge_candidates) != 0:
-            assert len(merge_candidates) == 1 # Doesn't make sense otherwise
+            # Will need to replace this element
+            new_elements.remove(prism)
+            assert len(merge_candidates) == 1  # Doesn't make sense otherwise
             new_hex, old_prism = next(iter(merge_candidates))
             new_elements.remove(old_prism)
             new_elements.add(new_hex)
         else:
             # Otherwise, convert the sides of the prism to be flat (in the poloidal plane)
             face_map = {f: f.make_flat_quad() for f in prism}
+            # FIXME: This isn't detecting elements on the main plasma mesh...
+            adjacent_elements = itertools.chain.from_iterable(
+                (element for element in quad_to_elements(q) if element != prism)
+                for q in face_map
+            )
+            # Don't fix elements that would require you to modify a
+            # hex, as that would probably result in the hex becoming
+            # self-intersecting.
+            if any(len(element.sides) == 4 for element in adjacent_elements):
+                warn("Can not fix negative Jacobian in prism without modifying a hex")
+                continue
+            # Will need to replace this element
+            new_elements.remove(prism)
             new_elements.add(Prism(tuple(face_map.values())))
             # Replace the boundary faces for this prism with the flattened ones
             new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
             new_faces -= {old for old in face_map if old in boundary_faces}
             # Update surrounding prisms to use the flattened faces
-            for p in itertools.chain.from_iterable((p for p in quad_to_elements(q) if p in new_elements and p != prism) for q in face_map):
-                new_elements.remove(p)
-                new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
+            for p in adjacent_elements:
+                if p in new_elements:
+                    new_elements.remove(p)
+                    new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
     return list(new_elements), frozenset(new_faces)
 
 
@@ -853,13 +877,15 @@ def hypnotoad_mesh(
             ),
             initial,
         )
-        wall_elements, outer_bounds = _validate_wall_elements(initial_outer_bounds, initial_wall_elements, factory.get_element_for_quad, validator)
-    elif restrict_to_vessel:
-        wall_elements = []
-        outer_bounds = frozenset(factory.outermost_quads())
+        wall_elements, outer_bounds = _validate_wall_elements(
+            initial_outer_bounds,
+            initial_wall_elements,
+            factory.get_element_for_quad,
+            validator,
+        )
     else:
         wall_elements = []
-        outer_bounds = reduce(operator.or_, all_boundaries[1:])
+        outer_bounds = frozenset(factory.outermost_quads())
 
     return GenericMesh(
         MeshLayer(
