@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import cache, cached_property, reduce
-from typing import Callable, Concatenate, Optional, ParamSpec
+from typing import Callable, Optional
 from warnings import warn
 
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
@@ -23,7 +23,6 @@ from neso_fame.mesh import (
     FieldTracer,
     Prism,
     Quad,
-    QuadAlignment,
     SliceCoord,
     StraightLineAcrossField,
 )
@@ -325,7 +324,7 @@ class ElementBuilder:
             connect_to_o_point(self._equilibrium, coord),
             self._tracer,
             self._dx3,
-            aligned_edges=QuadAlignment.NORTH,
+            south_start_weight=1.0,
         )
 
     def make_element(
@@ -403,15 +402,7 @@ class ElementBuilder:
         # immediately adjacent to those, etc. Can then use that to
         # assign "alignedness". Will require some refactoring of how I
         # handle alignment though.
-        alignment = (
-            QuadAlignment.ALIGNED
-            if outermost_north and outermost_south
-            else QuadAlignment.NORTH
-            if outermost_north
-            else QuadAlignment.SOUTH
-            if outermost_south
-            else QuadAlignment.NONALIGNED
-        )
+
         # PROBLEM: What if a triangle is formed connecting two
         # non-adjacent points on the plasma mesh? Termini have to be
         # aligned but then there would be no guarantee that the centre
@@ -420,7 +411,8 @@ class ElementBuilder:
             StraightLineAcrossField(north, south),
             self._tracer,
             self._dx3,
-            aligned_edges=alignment,
+            north_start_weight=0 if outermost_north else 1,
+            south_start_weight=0 if outermost_south else 1,
         )
         if (north, south) in wall_vertices or (south, north) in wall_vertices:
             b = frozenset({q})
@@ -444,7 +436,9 @@ class ElementBuilder:
         key = frozenset(shape([0.0, 1.0]).iter_points())
         if key in self._prism_quads:
             return self._prism_quads[key][0]
-        q = Quad(shape, self._tracer, self._dx3, aligned_edges=QuadAlignment.NONALIGNED)
+        q = Quad(
+            shape, self._tracer, self._dx3, north_start_weight=1, south_start_weight=1
+        )
         b = frozenset({q})
         self._prism_quads[key] = (q, b)
         return q

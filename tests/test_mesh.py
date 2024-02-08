@@ -695,29 +695,31 @@ def test_striaght_line_subdivision(curve: mesh.StraightLine, divisions: int) -> 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
     actual = q.north(s)
-    if q.aligned_edges in {mesh.QuadAlignment.ALIGNED, mesh.QuadAlignment.NORTH}:
-        x3_offset = q.x3_offset
-        x1, x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - x3_offset)[0]
-        np.testing.assert_allclose(actual.x1, x1, rtol=2e-4, atol=1e-5)
-        np.testing.assert_allclose(actual.x2, x2, rtol=2e-4, atol=1e-5)
-    else:
-        x1, x2 = q.shape(0.0)
-        np.testing.assert_allclose(actual.x1, x1, rtol=1e-8, atol=1e-8)
-        np.testing.assert_allclose(actual.x2, x2, rtol=1e-8, atol=1e-8)
+    x3_offset = q.x3_offset
+    field_x1, field_x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - x3_offset)[
+        0
+    ]
+    start_x1, start_x2 = q.shape(0.0)
+    w = q.north_start_weight
+    expected_x1 = w * start_x1 + (1 - w) * field_x1
+    expected_x2 = w * start_x2 + (1 - w) * field_x2
+    np.testing.assert_allclose(actual.x1, expected_x1, rtol=2e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x2, expected_x2, rtol=2e-4, atol=1e-5)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
     actual = q.south(s)
-    if q.aligned_edges in {mesh.QuadAlignment.ALIGNED, mesh.QuadAlignment.SOUTH}:
-        x3_offset = q.x3_offset
-        x1, x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - x3_offset)[0]
-        np.testing.assert_allclose(actual.x1, x1, rtol=1e-4, atol=1e-5)
-        np.testing.assert_allclose(actual.x2, x2, rtol=1e-4, atol=1e-5)
-    else:
-        x1, x2 = q.shape(1.0)
-        np.testing.assert_allclose(actual.x1, x1, rtol=1e-8, atol=1e-8)
-        np.testing.assert_allclose(actual.x2, x2, rtol=1e-8, atol=1e-8)
+    x3_offset = q.x3_offset
+    field_x1, field_x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - x3_offset)[
+        0
+    ]
+    start_x1, start_x2 = q.shape(1.0)
+    w = q.south_start_weight
+    expected_x1 = w * start_x1 + (1 - w) * field_x1
+    expected_x2 = w * start_x2 + (1 - w) * field_x2
+    np.testing.assert_allclose(actual.x1, expected_x1, rtol=2e-4, atol=1e-5)
+    np.testing.assert_allclose(actual.x2, expected_x2, rtol=2e-4, atol=1e-5)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0), floats(0.0, 1.0))
@@ -753,17 +755,9 @@ def test_quad_get_field_line(q: mesh.Quad, s: float, t: float) -> None:
     # Check location along the line
     actual_x1, actual_x2, actual_x3 = line(t).to_coord()
     field_coord = q.field.trace(start, actual_x3 - q.x3_offset)[0].to_coord()
-    if q.aligned_edges == mesh.QuadAlignment.ALIGNED:
-        expected_x1, expected_x2 = field_coord
-    elif q.aligned_edges == mesh.QuadAlignment.NONALIGNED:
-        expected_x1, expected_x2 = start
-    elif q.aligned_edges == mesh.QuadAlignment.NORTH:
-        expected_x1 = s * start.x1 + (1 - s) * field_coord.x1
-        expected_x2 = s * start.x2 + (1 - s) * field_coord.x2
-    else:
-        assert q.aligned_edges == mesh.QuadAlignment.SOUTH
-        expected_x1 = (1 - s) * start.x1 + s * field_coord.x1
-        expected_x2 = (1 - s) * start.x2 + s * field_coord.x2
+    weight = (q.south_start_weight - q.north_start_weight) * s + q.north_start_weight
+    expected_x1 = weight * start.x1 + (1 - weight) * field_coord.x1
+    expected_x2 = weight * start.x2 + (1 - weight) * field_coord.x2
     np.testing.assert_allclose(actual_x1, expected_x1, rtol=2e-4, atol=1e-5)
     np.testing.assert_allclose(actual_x2, expected_x2, rtol=2e-4, atol=1e-5)
     assert actual_x3 <= q.x3_offset + 0.5 * np.abs(q.dx3) + 1e12
@@ -830,15 +824,9 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     x1_starts = np.expand_dims(start_points.x1, 1)
     x2_starts = np.expand_dims(start_points.x2, 1)
     x3_offset = q.x3_offset
-    if q.aligned_edges == mesh.QuadAlignment.ALIGNED:
-        weights = np.zeros_like(x1_starts)
-    elif q.aligned_edges == mesh.QuadAlignment.NONALIGNED:
-        weights = np.ones_like(x1_starts)
-    elif q.aligned_edges == mesh.QuadAlignment.NORTH:
-        weights = np.expand_dims(samples, 1)
-    else:
-        assert q.aligned_edges == mesh.QuadAlignment.SOUTH
-        weights = np.expand_dims(1 - samples, 1)
+    weights = (q.south_start_weight - q.north_start_weight) * np.expand_dims(
+        samples, 1
+    ) + q.north_start_weight
     distances = np.vectorize(
         lambda x1, x2, x3, start_weight: q.field.trace(
             mesh.SliceCoord(x1, x2, start_points.system), x3, start_weight

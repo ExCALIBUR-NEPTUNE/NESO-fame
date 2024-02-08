@@ -724,21 +724,6 @@ class StraightLine(LazilyOffsetable):
 Segment = FieldAlignedCurve | StraightLine
 
 
-class QuadAlignment(Enum):
-    """Indicates whether Quad boundaries are field-aligned.
-
-    Group
-    -----
-    elements
-
-    """
-
-    ALIGNED = 0
-    NORTH = 1
-    SOUTH = 2
-    NONALIGNED = 3
-
-
 @dataclass(frozen=True)
 class Quad(LazilyOffsetable):
     """Representation of a four-sided polygon (quadrilateral).
@@ -767,8 +752,22 @@ class Quad(LazilyOffsetable):
     split into `num_divisions` in teh x3 direction."""
     num_divisions: int = 1
     """The number of conformal quads to split this into along the x3 direction."""
-    aligned_edges: QuadAlignment = QuadAlignment.ALIGNED
-    """Whether the edges of the quad are field-aligned."""
+    north_start_weight: float = 0.0
+    """The extent to which the south edge of the quad stays fixed at
+    the starting poloidal position. A value of 0 corresponds to it
+    completely following the field line while 1 means it doesn't
+    follow it at all (the x1 and x2 coordinates are unchanged as
+    moving in the x3 direction). Values in between result in linear
+    interpolation between these two extremes."""
+    south_start_weight: float = 0.0
+    """The extent to which the south edge of the quad stays fixed at
+    the starting poloidal position. A value of 0 corresponds to it
+    completely following the field line while 1 means it doesn't
+    follow it at all (the x1 and x2 coordinates are unchanged as
+    moving in the x3 direction). Values in between result in linear
+    interpolation between these two extremes.
+
+    """
 
     def __iter__(self) -> Iterator[Segment]:
         """Iterate over the two curves defining the edges of the quadrilateral."""
@@ -778,15 +777,9 @@ class Quad(LazilyOffsetable):
     def get_field_line(self, s: float) -> Segment:
         """Get the field lign passing through location ``s`` of `Quad.shape`."""
         start = self.shape(s).to_coord()
-        if self.aligned_edges == QuadAlignment.ALIGNED:
-            weight = 0.0
-        elif self.aligned_edges == QuadAlignment.NONALIGNED:
-            weight = 1.0
-        elif self.aligned_edges == QuadAlignment.NORTH:
-            weight = s
-        else:
-            assert self.aligned_edges == QuadAlignment.SOUTH
-            weight = 1 - s
+        weight = (
+            self.south_start_weight - self.north_start_weight
+        ) * s + self.north_start_weight
         return FieldAlignedCurve(
             self.field,
             SliceCoord(start.x1, start.x2, start.system),
@@ -806,35 +799,15 @@ class Quad(LazilyOffsetable):
         s = np.linspace(0.0, 1.0, self.field.resolution)
         x1_coord = np.empty(self.field.resolution)
         x2_coord = np.empty(self.field.resolution)
-        if self.aligned_edges == QuadAlignment.ALIGNED:
+        alignment_diff = self.south_start_weight - self.north_start_weight
 
-            def calc_coord(
-                start: SliceCoord, field: SliceCoord, s: float
-            ) -> tuple[float, float]:
-                return field.x1, field.x2
-        elif self.aligned_edges == QuadAlignment.NONALIGNED:
-
-            def calc_coord(
-                start: SliceCoord, field: SliceCoord, s: float
-            ) -> tuple[float, float]:
-                return start.x1, start.x2
-        elif self.aligned_edges == QuadAlignment.NORTH:
-
-            def calc_coord(
-                start: SliceCoord, field: SliceCoord, s: float
-            ) -> tuple[float, float]:
-                return start.x1 * s + (1 - s) * field.x1, start.x2 * s + (
-                    1 - s
-                ) * field.x2
-        else:
-            assert self.aligned_edges == QuadAlignment.SOUTH
-
-            def calc_coord(
-                start: SliceCoord, field: SliceCoord, s: float
-            ) -> tuple[float, float]:
-                return start.x1 * (1 - s) + s * field.x1, start.x2 * (
-                    1 - s
-                ) + s * field.x2
+        def calc_coord(
+            start: SliceCoord, field: SliceCoord, s: float
+        ) -> tuple[float, float]:
+            weight = alignment_diff * s + self.north_start_weight
+            return start.x1 * weight + (1 - weight) * field.x1, start.x2 * weight + (
+                1 - weight
+            ) * field.x2
 
         for i, (sval, start) in enumerate(zip(s, self.shape(s).iter_points())):
             # FIXME: This is duplicating work in the case of the actual edges.
@@ -913,7 +886,8 @@ class Quad(LazilyOffsetable):
                     self.dx3,
                     self.subdivision * num_divisions + i,
                     self.num_divisions * num_divisions,
-                    self.aligned_edges,
+                    self.north_start_weight,
+                    self.south_start_weight,
                 )
 
     def make_flat_quad(self) -> Quad:
@@ -926,7 +900,8 @@ class Quad(LazilyOffsetable):
             self.dx3,
             self.subdivision,
             self.num_divisions,
-            self.aligned_edges,
+            self.north_start_weight,
+            self.south_start_weight,
         )
 
 

@@ -249,7 +249,8 @@ def trapezoidal_quad(
     resolution: int,
     division: int,
     num_divisions: int,
-    alignment: mesh.QuadAlignment,
+    north_start_weight: float,
+    south_start_weight: float,
     offset: float,
 ) -> Optional[mesh.Quad]:
     centre = (
@@ -270,7 +271,8 @@ def trapezoidal_quad(
             a3,
             division,
             num_divisions,
-            alignment,
+            north_start_weight,
+            south_start_weight,
         ),
         offset,
     )
@@ -324,16 +326,10 @@ def end_triangle(
     )
 
 
-def _get_alignment(fixed1: bool, fixed2: bool) -> mesh.QuadAlignment:
-    return (
-        mesh.QuadAlignment.NONALIGNED
-        if fixed1 and fixed2
-        else mesh.QuadAlignment.SOUTH
-        if fixed1
-        else mesh.QuadAlignment.NORTH
-        if fixed2
-        else mesh.QuadAlignment.ALIGNED
-    )
+def _get_start_weight(fixed: bool) -> float:
+    if fixed:
+        return 1
+    return 0
 
 
 def trapezohedronal_hex(
@@ -375,7 +371,8 @@ def trapezohedronal_hex(
                 a3,
                 division,
                 num_divisions,
-                _get_alignment(fixed1, fixed2),
+                _get_start_weight(fixed1),
+                _get_start_weight(fixed2),
             ),
             offset,
         )
@@ -433,7 +430,8 @@ def simple_prism(
                 a3,
                 division,
                 num_divisions,
-                _get_alignment(fixed1, fixed2),
+                _get_start_weight(fixed1),
+                _get_start_weight(fixed2),
             ),
             offset,
         )
@@ -504,7 +502,8 @@ def curved_quad(
     resolution: int,
     division: int,
     num_divisions: int,
-    alignment: mesh.QuadAlignment,
+    north_start_weight: float,
+    south_start_weight: float,
     offset: float,
 ) -> mesh.Quad:
     trace = cylindrical_field_trace(centre, x2_slope)
@@ -519,7 +518,8 @@ def curved_quad(
             dx3,
             division,
             num_divisions,
-            alignment,
+            north_start_weight,
+            south_start_weight,
         ),
         offset,
     )
@@ -555,7 +555,8 @@ def curved_hex(
                 dx3,
                 division,
                 num_divisions,
-                _get_alignment(fixed1, fixed2),
+                _get_start_weight(fixed1),
+                _get_start_weight(fixed2),
             ),
             offset,
         )
@@ -604,7 +605,8 @@ def curved_prism(
                 dx3,
                 division,
                 num_divisions,
-                _get_alignment(fixed1, fixed2),
+                _get_start_weight(fixed1),
+                _get_start_weight(fixed2),
             ),
             offset,
         )
@@ -657,7 +659,13 @@ def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     q = q.get_underlying_object()
     return Offset(
         mesh.Quad(
-            curve, q.field, q.dx3, q.subdivision, q.num_divisions, q.aligned_edges
+            curve,
+            q.field,
+            q.dx3,
+            q.subdivision,
+            q.num_divisions,
+            q.north_start_weight,
+            q.south_start_weight,
         ),
         x3,
     )
@@ -713,10 +721,16 @@ def _quad_mesh_elements(
     fixed = [left_fixed] + [False] * (num_quads - 1) + [right_fixed]
 
     return [
-        mesh.Quad(shape, trace, a3, aligned_edges=align)
-        for shape, align in zip(
+        mesh.Quad(
+            shape,
+            trace,
+            a3,
+            north_start_weight=north_weight,
+            south_start_weight=south_weight,
+        )
+        for shape, (north_weight, south_weight) in zip(
             map(make_shape, itertools.pairwise(points)),
-            itertools.starmap(_get_alignment, itertools.pairwise(fixed)),
+            itertools.pairwise(map(_get_start_weight, fixed)),
         )
     ]
 
@@ -748,14 +762,15 @@ def _hex_mesh_arguments(
             mesh.SliceCoord(end[0], end[1], c),
         )
 
-    def get_alignment(
-        is_bound: bool, north_bound: bool, south_bound: bool
-    ) -> mesh.QuadAlignment:
+    def get_start_weight(
+        quad_is_bound: bool,
+        edge_is_bound: bool,
+    ) -> float:
         if not fixed_bounds:
-            return mesh.QuadAlignment.ALIGNED
-        if is_bound:
-            return mesh.QuadAlignment.NONALIGNED
-        return _get_alignment(north_bound, south_bound)
+            return 0.0
+        if quad_is_bound:
+            return 1.0
+        return _get_start_weight(edge_is_bound)
 
     def make_element_and_bounds(
         pairs: list[Pair], is_bound: list[bool]
@@ -765,25 +780,29 @@ def _hex_mesh_arguments(
                 make_line(pairs[0], pairs[1]),
                 trace,
                 a3,
-                aligned_edges=get_alignment(is_bound[0], is_bound[2], is_bound[3]),
+                north_start_weight=get_start_weight(is_bound[0], is_bound[2]),
+                south_start_weight=get_start_weight(is_bound[0], is_bound[3]),
             ),
             mesh.Quad(
                 make_line(pairs[2], pairs[3]),
                 trace,
                 a3,
-                aligned_edges=get_alignment(is_bound[1], is_bound[2], is_bound[3]),
+                north_start_weight=get_start_weight(is_bound[1], is_bound[2]),
+                south_start_weight=get_start_weight(is_bound[1], is_bound[3]),
             ),
             mesh.Quad(
                 make_line(pairs[0], pairs[2]),
                 trace,
                 a3,
-                aligned_edges=get_alignment(is_bound[2], is_bound[0], is_bound[1]),
+                north_start_weight=get_start_weight(is_bound[2], is_bound[0]),
+                south_start_weight=get_start_weight(is_bound[2], is_bound[1]),
             ),
             mesh.Quad(
                 make_line(pairs[1], pairs[3]),
                 trace,
                 a3,
-                aligned_edges=get_alignment(is_bound[3], is_bound[0], is_bound[1]),
+                north_start_weight=get_start_weight(is_bound[3], is_bound[0]),
+                south_start_weight=get_start_weight(is_bound[3], is_bound[1]),
             ),
         )
         return mesh.Prism(edges), [
@@ -826,10 +845,6 @@ def _hex_mesh_arguments(
     return result
 
 
-NORTH_ALIGNED = {mesh.QuadAlignment.ALIGNED, mesh.QuadAlignment.NORTH}
-SOUTH_ALIGNED = {mesh.QuadAlignment.ALIGNED, mesh.QuadAlignment.SOUTH}
-
-
 @composite
 def _hex_and_tri_prism_arguments(
     draw: Any, args: Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]
@@ -840,29 +855,23 @@ def _hex_and_tri_prism_arguments(
 
     def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
         v1 = {
-            (q1.shape(0.0).to_coord(), q1.aligned_edges in NORTH_ALIGNED),
-            (q1.shape(1.0).to_coord(), q1.aligned_edges in SOUTH_ALIGNED),
+            (q1.shape(0.0).to_coord(), q1.north_start_weight),
+            (q1.shape(1.0).to_coord(), q1.south_start_weight),
         }
         v2 = {
-            (q2.shape(0.0).to_coord(), q2.aligned_edges in NORTH_ALIGNED),
-            (q2.shape(1.0).to_coord(), q2.aligned_edges in SOUTH_ALIGNED),
+            (q2.shape(0.0).to_coord(), q2.north_start_weight),
+            (q2.shape(1.0).to_coord(), q2.south_start_weight),
         }
         point1 = next(iter(v1 - v2))
         point2 = next(iter(v2 - v1))
-        alignment = (point1[1], point2[1])
         return mesh.Quad(
             mesh.StraightLineAcrossField(point1[0], point2[0]),
             q1.field,
             q1.dx3,
             q1.subdivision,
             q1.num_divisions,
-            mesh.QuadAlignment.ALIGNED
-            if all(alignment)
-            else mesh.QuadAlignment.NORTH
-            if alignment[0]
-            else mesh.QuadAlignment.SOUTH
-            if alignment[1]
-            else mesh.QuadAlignment.NONALIGNED,
+            point1[1],
+            point2[1],
         )
 
     def maybe_divide_hex(hexa: mesh.Prism, divide: bool) -> tuple[mesh.Prism, ...]:
@@ -1075,7 +1084,8 @@ linear_quad = cast(
         integers(3, 5),
         _divisions,
         _num_divisions,
-        sampled_from(mesh.QuadAlignment),
+        floats(0.0, 1.0),
+        floats(0.0, 1.0),
         whole_numbers,
     )
     .filter(lambda x: x is not None)
@@ -1140,7 +1150,8 @@ nonlinear_quad = builds(
     integers(100, 200),
     _divisions,
     _num_divisions,
-    sampled_from(mesh.QuadAlignment),
+    floats(0.0, 1.0),
+    floats(0.0, 1.0),
     whole_numbers,
 )
 nonlinear_hex = builds(

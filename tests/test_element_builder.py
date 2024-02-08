@@ -30,7 +30,6 @@ from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
     CoordinateSystem,
     FieldTracer,
-    QuadAlignment,
     SliceCoord,
     SliceCoords,
     StraightLineAcrossField,
@@ -376,7 +375,7 @@ def test_quad_for_prism(
     assert quad.shape(1.0).to_coord() == points[1]
     assert quad.field == trace
     assert quad.dx3 == dx3
-    assert quad.aligned_edges == QuadAlignment.NONALIGNED
+    assert quad.south_start_weight == 1
     assert len(boundary_quads) == 0
 
 
@@ -413,7 +412,8 @@ def test_quad_for_prism_aligned(
     point2: SliceCoord,
 ) -> None:
     quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
-    assert quad.aligned_edges == QuadAlignment.ALIGNED
+    assert quad.north_start_weight == 0
+    assert quad.south_start_weight == 0
 
 
 @settings(deadline=None)
@@ -428,7 +428,8 @@ def test_quad_for_prism_aligned_north(
     point2: SliceCoord,
 ) -> None:
     quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
-    assert quad.aligned_edges == QuadAlignment.NORTH
+    assert quad.north_start_weight == 0
+    assert quad.south_start_weight == 1
 
 
 @settings(deadline=None)
@@ -445,7 +446,8 @@ def test_quad_for_prism_aligned_south(
     region: MeshRegion,
 ) -> None:
     quad, _ = builder.make_quad_for_prism(point1, point2, frozenset())
-    assert quad.aligned_edges == QuadAlignment.SOUTH
+    assert quad.north_start_weight == 1
+    assert quad.south_start_weight == 0
 
 
 @settings(deadline=None)

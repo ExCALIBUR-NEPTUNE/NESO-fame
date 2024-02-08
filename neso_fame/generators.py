@@ -32,7 +32,6 @@ from neso_fame.mesh import (
     Prism,
     PrismMesh,
     Quad,
-    QuadAlignment,
     QuadMesh,
     SliceCoord,
     SliceCoords,
@@ -230,16 +229,13 @@ def field_aligned_2d(
         shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
         north_bound = node1 in (0, num_nodes - 1) and conform_to_bounds
         south_bound = node2 in (0, num_nodes - 1) and conform_to_bounds
-        alignment = (
-            QuadAlignment.NONALIGNED
-            if north_bound and south_bound
-            else QuadAlignment.NORTH
-            if south_bound
-            else QuadAlignment.SOUTH
-            if north_bound
-            else QuadAlignment.ALIGNED
+        return Quad(
+            shape,
+            tracer,
+            dx3,
+            north_start_weight=1 if north_bound else 0,
+            south_start_weight=1 if south_bound else 0,
         )
-        return Quad(shape, tracer, dx3, aligned_edges=alignment)
 
     quads = list(itertools.starmap(make_quad, connectivity))
 
@@ -405,15 +401,6 @@ def field_aligned_3d(
         else:
             north_bound = False
             south_bound = False
-        alignment = (
-            QuadAlignment.NONALIGNED
-            if _is_fixed(north_bound) and _is_fixed(south_bound)
-            else QuadAlignment.NORTH
-            if _is_fixed(south_bound)
-            else QuadAlignment.SOUTH
-            if _is_fixed(north_bound)
-            else QuadAlignment.ALIGNED
-        )
         local_tracer = (
             FieldTracer(
                 _constrain_to_plain(field_line, shape, north_bound, south_bound),
@@ -422,7 +409,13 @@ def field_aligned_3d(
             if _is_planar(north_bound) or _is_planar(south_bound)
             else tracer
         )
-        return Quad(shape, local_tracer, dx3, aligned_edges=alignment)
+        return Quad(
+            shape,
+            local_tracer,
+            dx3,
+            north_start_weight=1 if _is_fixed(north_bound) else 0,
+            south_start_weight=1 if _is_fixed(south_bound) else 0,
+        )
 
     hexes = [
         Prism(tuple(itertools.starmap(make_quad, pairs)))
