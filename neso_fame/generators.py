@@ -538,7 +538,6 @@ def _iter_merge_elements(
                     SliceCoord(float(R_ne), float(Z_ne), system),
                 )
             # Return triangle
-            print("Done pre-merge elements")
             if merge_start is not None:
                 yield (
                     SliceCoord(
@@ -621,9 +620,9 @@ def _iter_element_corners(
         region.equilibriumRegion.name.endswith("core")
         and region.connections["inner"] is None
     ):
-        half = R.shape[1] // 2 + 1
+        half = R.shape[1] // 2
         start, left = _iter_merge_elements(
-            R[::-1, :half], Z[::-1, :half], max_aspect_ratio, system
+            R[::-1, : half + 1], Z[::-1, : half + 1], max_aspect_ratio, system
         )
         negative_end, right = _iter_merge_elements(
             np.flip(R[::-1, half:], 1),

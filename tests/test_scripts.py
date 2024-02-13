@@ -431,7 +431,7 @@ def test_tokamak_field() -> None:
 # Patch the various hypnotoad interface methods to keep run-times short
 @patch(
     "neso_fame.generators.equilibrium_trace",
-    lambda _: simple_trace,
+    lambda _1, _2: simple_trace,
 )
 @patch(
     "neso_fame.element_builder.flux_surface_edge",

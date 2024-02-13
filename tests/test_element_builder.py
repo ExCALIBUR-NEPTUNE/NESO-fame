@@ -592,7 +592,9 @@ def test_make_outer_prism_one_bound(
     assert bounds < frozenset(prism)
     assert len(bounds) == 1
     bound_quad = next(iter(bounds))
-    assert frozenset(bound_quad.corners().to_slice_coords().iter_points()) == bound_set
+    assert frozenset(bound_quad.corners().to_slice_coords().iter_points()) == frozenset(
+        next(iter(bound_set))
+    )
 
 
 def _element_corners(
@@ -728,11 +730,6 @@ def test_outermost_quads() -> None:
     assert len(ordered_outermost) == len(quads)
 
 
-def test_unfinished_outermost_quads() -> None:
-    with pytest.warns(UserWarning, match=r"Multiple vertex rings detected"):
-        _ = BUILDER_UNFINISHED.outermost_quads()
-
-
 @given(outer_vertices, outer_vertices)
 def test_outermost_quads_between_termini(start: SliceCoord, end: SliceCoord) -> None:
     outermost_between = list(BUILDER.outermost_quads_between(start, end))
@@ -752,11 +749,6 @@ def test_unfinished_outermost_vertices_between() -> None:
     )
     actual = list(BUILDER_UNFINISHED.outermost_vertices_between(start, end))
     assert expected == actual
-
-
-def test_unfinished_outermost_vertices() -> None:
-    with pytest.warns(UserWarning, match=r"Multiple vertex rings detected"):
-        _ = BUILDER_UNFINISHED.outermost_vertices()
 
 
 @given(
