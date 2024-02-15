@@ -362,13 +362,22 @@ def simple_3d(
     "--wall-angle-threshold",
     type=click.FloatRange(0.0, np.pi),
     default=np.pi / 8,
-    help="If adjusting the resolution of the tokamak wall, any vertices with an angle above this threshold will be preserved as sharp corners. Angles below it will be smoothed out.",
+    help="If adjusting the resolution of the tokamak wall, any vertices with an "
+    "angle above this threshold will be preserved as sharp corners. Angles below "
+    "it will be smoothed out.",
 )
 @click.option(
     "--min-wall-distance",
     type=click.FloatRange(0.0),
     default=0.025,
     help="The minimum distance to leave between hypnotoad mesh elements and the tokamak wall.",
+)
+@click.option(
+    "--alignment-steps",
+    type=NONNEGATIVE,
+    default=1,
+    help="How quickly to transition between a field-aligned and unaligned mesh "
+    "near the tokamak wall.",
 )
 @click.option(
     "--order",
@@ -406,6 +415,7 @@ def hypnotoad(
     wall_resolution: Optional[float],
     wall_angle_threshold: float,
     min_wall_distance: float,
+    alignment_steps: int,
     order: int,
     compress: bool,
     full: bool,
@@ -446,6 +456,7 @@ def hypnotoad(
         min_wall_distance,
         wall_resolution,
         wall_angle_threshold,
+        alignment_steps,
         lambda x: next(iter(nektar_3d_element(x, order, 3, -1)[0])).IsValid(),
     )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)

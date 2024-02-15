@@ -644,42 +644,58 @@ def _iter_element_corners(
     )
 
 
-def _handle_nodes_outside_vessel(
+def _find_internal_neighbours(
+    outermost: frozenset[SliceCoord],
+    external_points: frozenset[SliceCoord],
+    connections: Connections,
+) -> Iterator[frozenset[SliceCoord]]:
+    yield outermost
+    candidates: frozenset[SliceCoord] = reduce(
+        operator.or_, (connections[p] for p in outermost)
+    )
+    new_external = external_points | outermost
+    new_outermost = candidates - new_external
+    yield from _find_internal_neighbours(new_outermost, new_external, connections)
+
+
+def _handle_edge_nodes(
     hypnotoad_poloidal_mesh: HypnoMesh,
     wall_points: Iterable[Point2D],
     restrict_to_vessel: bool,
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
+    alignment_steps: int,
     system: CoordinateSystem,
-) -> Callable[[Corners], bool]:
-    if restrict_to_vessel:
-        connections = reduce(
-            _merge_connections,
-            (
-                get_rectangular_mesh_connections(
-                    SliceCoords(
-                        region.Rxy.corners,
-                        region.Zxy.corners,
-                        system,
-                    )
+) -> tuple[Callable[[Corners], bool], dict[SliceCoord, float]]:
+    """Work out which nodes fall outside the vessle and degree of field-alignment."""
+    connections = reduce(
+        _merge_connections,
+        (
+            get_rectangular_mesh_connections(
+                SliceCoords(
+                    region.Rxy.corners,
+                    region.Zxy.corners,
+                    system,
                 )
-                for region in hypnotoad_poloidal_mesh.regions.values()
-            ),
-        )
+            )
+            for region in hypnotoad_poloidal_mesh.regions.values()
+        ),
+    )
 
-        outermost_nodes = reduce(
-            operator.or_,
-            (
-                frozenset(bound)
-                for bound in itertools.chain.from_iterable(
-                    get_region_flux_surface_boundary_points(region, system)[1:]
-                    + get_region_perpendicular_boundary_points(region, system)
-                    for region in hypnotoad_poloidal_mesh.regions.values()
-                )
-            ),
-        )
-        wall = wall_points_to_segments(wall_points)
-        external_nodes, _ = find_external_points(
-            outermost_nodes, connections, wall, in_tokamak_test
+    initial_outermost_nodes = reduce(
+        operator.or_,
+        (
+            frozenset(bound)
+            for bound in itertools.chain.from_iterable(
+                get_region_flux_surface_boundary_points(region, system)[1:]
+                + get_region_perpendicular_boundary_points(region, system)
+                for region in hypnotoad_poloidal_mesh.regions.values()
+            )
+        ),
+    )
+    wall = wall_points_to_segments(wall_points)
+    if restrict_to_vessel:
+        external_nodes, outermost_nodes = find_external_points(
+            initial_outermost_nodes, connections, wall, in_tokamak_test
         )
 
         def corners_within_vessel(
@@ -696,7 +712,20 @@ def _handle_nodes_outside_vessel(
         ) -> bool:
             return True
 
-    return corners_within_vessel
+        external_nodes = frozenset()
+        outermost_nodes = initial_outermost_nodes
+
+    steps = np.flip(np.linspace(0.0, 1.0, alignment_steps + 1, endpoint=False))
+    vertex_weights = dict(
+        itertools.chain.from_iterable(
+            zip(points, itertools.repeat(w))
+            for w, points in zip(
+                steps,
+                _find_internal_neighbours(outermost_nodes, external_nodes, connections),
+            )
+        )
+    )
+    return corners_within_vessel, vertex_weights
 
 
 def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
@@ -872,6 +901,7 @@ def hypnotoad_mesh(
     min_distance_to_wall: float = 0.025,
     wall_resolution: Optional[float] = None,
     wall_angle_threshold: float = np.pi / 12,
+    alignment_steps: int = 0,
     validator: Callable[[Prism], bool] = lambda x: True,
     system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> PrismMesh:
@@ -930,6 +960,14 @@ def hypnotoad_mesh(
         If adjusting the resolution of the tokamak wall, any vertices
         with an angle above this threshold will be preserved as sharp
         corners. Angles below it will be smoothed out.
+    alignment_steps
+        The number of steps to take between aligned and unaligned elements
+        near the wall. I.e., 0 indicates that the change happens immediately
+        between the hypnotoad-generated elements and the traingular
+        elements. 1 indicates that there will be nodes in-between which are
+        averaged between aligned and unaligned. Higher values indicate
+        additional nodes with the weight between aligned and unaligned
+        changing more gradually.
     validator
         Function that checks whether the geometry of an element is
         valid. Default will always return True. This argument change
@@ -966,12 +1004,14 @@ def hypnotoad_mesh(
     )
     min_dist_squared = min_distance_to_wall * min_distance_to_wall
 
+    outermost_weight = alignment_steps / (alignment_steps + 1)
+
     def whole_line_in_tokamak(start: SliceCoord, wall: Sequence[WallSegment]) -> bool:
         if (
             point_in_tokamak(start, wall)
             and min(seg.min_distance_squared(start) for seg in wall) >= min_dist_squared
         ):
-            line = FieldAlignedCurve(tracer, start, dx3)
+            line = FieldAlignedCurve(tracer, start, dx3, start_weight=outermost_weight)
             return all(
                 point_in_tokamak(p.to_slice_coord(), wall)
                 for p in control_points(line, spatial_interp_resolution).iter_points()
@@ -979,14 +1019,17 @@ def hypnotoad_mesh(
         return False
 
     eqdsk_wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
-    corners_within_vessel = _handle_nodes_outside_vessel(
+    corners_within_vessel, vertex_weights = _handle_edge_nodes(
         hypnotoad_poloidal_mesh,
         eqdsk_wall,
         restrict_to_vessel,
         whole_line_in_tokamak,
+        alignment_steps,
         system,
     )
-    factory = ElementBuilder(hypnotoad_poloidal_mesh, tracer, dx3, system)
+    factory = ElementBuilder(
+        hypnotoad_poloidal_mesh, tracer, dx3, vertex_weights, system
+    )
 
     main_elements = [
         factory.make_element(*corners)

@@ -242,6 +242,7 @@ class ElementBuilder:
         hypnotoad_poloidal_mesh: HypnoMesh,
         tracer: FieldTracer,
         dx3: float,
+        vertex_start_weights: dict[SliceCoord, float],
         system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
     ) -> None:
         """Instantiate an object of this class.
@@ -254,6 +255,12 @@ class ElementBuilder:
             Object to follow along a field line.
         dx3
             Width of a layer of the mesh.
+        vertex_start_weights
+            A map from vertices to the `start_weight` to use for edges
+            originating from them. If a vertex is not present in this,
+            then the weight will be assumed to be 0 or 1, as appropriate
+            for the context. It should always contain at least the
+            "outermost" nodes of the plasma-aligned mesh.
         system
             The coordinate system to use for the constructed elements.
 
@@ -261,6 +268,7 @@ class ElementBuilder:
         self._equilibrium = hypnotoad_poloidal_mesh.equilibrium
         self._tracer = tracer
         self._dx3 = dx3
+        self._vertex_start_weights = vertex_start_weights
         self._edges: dict[frozenset[SliceCoord], Quad] = {}
         self._prism_quads: dict[
             frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]
@@ -302,10 +310,17 @@ class ElementBuilder:
     @cache
     def _perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, perpendicular to flux surfaces."""
+        try:
+            shape = perpendicular_edge(self._equilibrium, north, south)
+        except RuntimeError:
+            # This is to account for when we're joining two narrow quads together
+            shape = perpendicular_edge(self._equilibrium, north, south, True)
         return Quad(
-            perpendicular_edge(self._equilibrium, north, south),
+            shape,
             self._tracer,
             self._dx3,
+            north_start_weight=self._vertex_start_weights.get(north, 0.0),
+            south_start_weight=self._vertex_start_weights.get(south, 0.0),
         )
 
     @cache
@@ -315,6 +330,8 @@ class ElementBuilder:
             flux_surface_edge(self._equilibrium, north, south),
             self._tracer,
             self._dx3,
+            north_start_weight=self._vertex_start_weights.get(north, 0.0),
+            south_start_weight=self._vertex_start_weights.get(south, 0.0),
         )
 
     @cache
@@ -324,6 +341,7 @@ class ElementBuilder:
             connect_to_o_point(self._equilibrium, coord),
             self._tracer,
             self._dx3,
+            north_start_weight=self._vertex_start_weights.get(coord, 0.0),
             south_start_weight=1.0,
         )
 
@@ -388,8 +406,6 @@ class ElementBuilder:
         # Check if this quad has already been created
         if key in self._prism_quads:
             return self._prism_quads[key]
-        outermost_north = north in self._outermost_vertex_set
-        outermost_south = south in self._outermost_vertex_set
         # FIXME: mixing aligned and unaligned edges in an element can
         # result in it being ill-formed. No fool-proof way to prevent
         # this, I don't think, but can reduce the probability by
@@ -411,8 +427,8 @@ class ElementBuilder:
             StraightLineAcrossField(north, south),
             self._tracer,
             self._dx3,
-            north_start_weight=0 if outermost_north else 1,
-            south_start_weight=0 if outermost_south else 1,
+            north_start_weight=self._vertex_start_weights.get(north, 1.0),
+            south_start_weight=self._vertex_start_weights.get(south, 1.0),
         )
         if (north, south) in wall_vertices or (south, north) in wall_vertices:
             b = frozenset({q})
@@ -484,10 +500,6 @@ class ElementBuilder:
             self._edges.items(),
             _VertexRing([]),
         )
-
-    @cached_property
-    def _outermost_vertex_set(self) -> frozenset[SliceCoord]:
-        return frozenset(self.outermost_vertices())
 
     def outermost_vertices_between(
         self, start: SliceCoord, end: SliceCoord

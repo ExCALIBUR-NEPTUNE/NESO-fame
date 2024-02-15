@@ -801,19 +801,10 @@ class Quad(LazilyOffsetable):
         x2_coord = np.empty(self.field.resolution)
         alignment_diff = self.south_start_weight - self.north_start_weight
 
-        def calc_coord(
-            start: SliceCoord, field: SliceCoord, s: float
-        ) -> tuple[float, float]:
-            weight = alignment_diff * s + self.north_start_weight
-            return start.x1 * weight + (1 - weight) * field.x1, start.x2 * weight + (
-                1 - weight
-            ) * field.x2
-
         for i, (sval, start) in enumerate(zip(s, self.shape(s).iter_points())):
             # FIXME: This is duplicating work in the case of the actual edges.
-            x1_coord[i], x2_coord[i] = calc_coord(
-                start, self.field.trace(start, x3)[0].to_coord(), sval
-            )
+            weight = alignment_diff * sval + self.north_start_weight
+            x1_coord[i], x2_coord[i] = self.field.trace(start, x3, weight)[0].to_coord()
         coordinates = np.stack([x1_coord, x2_coord])
         order = (
             "cubic"
