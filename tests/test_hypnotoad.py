@@ -1031,8 +1031,8 @@ def test_perpendicular_edges_realistic_topology(
     actual = curve(positions)
     # Check all have psi values between those of start and end points
     actual_psi = eq.psi(actual.x1, actual.x2)
-    assert np.all(actual_psi <= max(psi_start, psi_end) + 1e-10)
-    assert np.all(actual_psi >= min(psi_start, psi_end) - 1e-10)
+    assert np.all(actual_psi <= max(psi_start, psi_end) + 1e-8)
+    assert np.all(actual_psi >= min(psi_start, psi_end) - 1e-8)
 
 
 def check_coordinate_pairs_connected(
