@@ -531,7 +531,18 @@ def _find_external_points(
     )
 
 
-def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
+def _get_mesh_connections(
+    points: SliceCoords, get_neighbours: Callable[[int, int], frozenset[SliceCoord]]
+) -> Connections:
+    shape = np.broadcast(points.x1, points.x2).shape
+    return {
+        points[i, j]: get_neighbours(i, j)
+        for i in range(shape[0])
+        for j in range(shape[1])
+    }
+
+
+def get_all_rectangular_mesh_connections(points: SliceCoords) -> Connections:
     """Return connectivity information for a logically-rectangular set of points.
 
     Some of the nodes returned here aren't actually connected in the
@@ -541,7 +552,6 @@ def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
     :func:`~neso_fame.wall.find_external_points`.
 
     """
-    shape = np.broadcast(points.x1, points.x2).shape
 
     def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
         i_min = i - 1 if i > 0 else 0
@@ -552,11 +562,29 @@ def get_rectangular_mesh_connections(points: SliceCoords) -> Connections:
             points.get_set((slice(i_min, i_max), slice(j_min, j_max)))
         ) - points.get_set((i, j))
 
-    return {
-        points[i, j]: get_neighbours(i, j)
-        for i in range(shape[0])
-        for j in range(shape[1])
-    }
+    return _get_mesh_connections(points, get_neighbours)
+
+
+def get_immediate_rectangular_mesh_connections(points: SliceCoords) -> Connections:
+    """Return connectivity information for a logically-rectangular set of points.
+
+    Only edges which actually have an edge between them will be marked
+    as connected. Those that are diagonally across from each other are
+    not. It should not be used in association with
+    :func:`~neso_fame.wall.find_external_points`, as it will result in
+    nodes outside the vessel being missed..
+
+    """
+    shape = np.broadcast(points.x1, points.x2).shape
+
+    def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
+        south = {points[i - 1, j]} if i > 0 else set()
+        north = {points[i + 1, j]} if i < shape[0] - 1 else set()
+        west = {points[i, j - 1]} if j > 0 else set()
+        east = {points[i, j + 1]} if j < shape[1] - 1 else set()
+        return frozenset(north | south | east | west)
+
+    return _get_mesh_connections(points, get_neighbours)
 
 
 T = TypeVar("T")

@@ -22,7 +22,7 @@ from neso_fame.wall import (
     WallSegment,
     adjust_wall_resolution,
     find_external_points,
-    get_rectangular_mesh_connections,
+    get_all_rectangular_mesh_connections,
     periodic_pairwise,
     point_in_tokamak,
     wall_points_to_segments,
@@ -288,7 +288,7 @@ mesh_points = builds(np.meshgrid, grid_1d, grid_1d).map(
 
 @given(mesh_points)
 def test_mesh_connections_corners(points: SliceCoords) -> None:
-    connections = get_rectangular_mesh_connections(points)
+    connections = get_all_rectangular_mesh_connections(points)
     assert len(connections[points[0, 0]]) == 3
     assert len(connections[points[0, -1]]) == 3
     assert len(connections[points[-1, 0]]) == 3
@@ -297,7 +297,7 @@ def test_mesh_connections_corners(points: SliceCoords) -> None:
 
 @given(mesh_points)
 def test_mesh_connections_edges(points: SliceCoords) -> None:
-    connections = get_rectangular_mesh_connections(points)
+    connections = get_all_rectangular_mesh_connections(points)
     shape = points.x1.shape
     assert all(len(connections[points[0, j]]) == 5 for j in range(1, shape[1] - 1))
     assert all(len(connections[points[-1, j]]) == 5 for j in range(1, shape[1] - 1))
@@ -307,7 +307,7 @@ def test_mesh_connections_edges(points: SliceCoords) -> None:
 
 @given(mesh_points)
 def test_mesh_connections_interior(points: SliceCoords) -> None:
-    connections = get_rectangular_mesh_connections(points)
+    connections = get_all_rectangular_mesh_connections(points)
     shape = points.x1.shape
     assert all(
         len(connections[points[i, j]]) == 8
@@ -329,7 +329,7 @@ def get_bounds(points: SliceCoords) -> frozenset[SliceCoord]:
 @given(mesh_points, polygons)
 def test_find_external_points(points: SliceCoords, wall_points: list[Point2D]) -> None:
     wall = wall_points_to_segments(wall_points)
-    connections = get_rectangular_mesh_connections(points)
+    connections = get_all_rectangular_mesh_connections(points)
     outside, skin = find_external_points(get_bounds(points), connections, wall)
     points_set = frozenset(points.iter_points())
     inside = points_set - outside

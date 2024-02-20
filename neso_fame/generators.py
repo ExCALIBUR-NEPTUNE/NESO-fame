@@ -43,7 +43,8 @@ from neso_fame.wall import (
     WallSegment,
     adjust_wall_resolution,
     find_external_points,
-    get_rectangular_mesh_connections,
+    get_all_rectangular_mesh_connections,
+    get_immediate_rectangular_mesh_connections,
     periodic_pairwise,
     point_in_tokamak,
     wall_points_to_segments,
@@ -667,20 +668,6 @@ def _handle_edge_nodes(
     system: CoordinateSystem,
 ) -> tuple[Callable[[Corners], bool], dict[SliceCoord, float]]:
     """Work out which nodes fall outside the vessle and degree of field-alignment."""
-    connections = reduce(
-        _merge_connections,
-        (
-            get_rectangular_mesh_connections(
-                SliceCoords(
-                    region.Rxy.corners,
-                    region.Zxy.corners,
-                    system,
-                )
-            )
-            for region in hypnotoad_poloidal_mesh.regions.values()
-        ),
-    )
-
     initial_outermost_nodes = reduce(
         operator.or_,
         (
@@ -694,6 +681,19 @@ def _handle_edge_nodes(
     )
     wall = wall_points_to_segments(wall_points)
     if restrict_to_vessel:
+        connections = reduce(
+            _merge_connections,
+            (
+                get_all_rectangular_mesh_connections(
+                    SliceCoords(
+                        region.Rxy.corners,
+                        region.Zxy.corners,
+                        system,
+                    )
+                )
+                for region in hypnotoad_poloidal_mesh.regions.values()
+            ),
+        )
         external_nodes, outermost_nodes = find_external_points(
             initial_outermost_nodes, connections, wall, in_tokamak_test
         )
@@ -716,12 +716,27 @@ def _handle_edge_nodes(
         outermost_nodes = initial_outermost_nodes
 
     steps = np.flip(np.linspace(0.0, 1.0, alignment_steps + 1, endpoint=False))
+    connections2 = reduce(
+        _merge_connections,
+        (
+            get_immediate_rectangular_mesh_connections(
+                SliceCoords(
+                    region.Rxy.corners,
+                    region.Zxy.corners,
+                    system,
+                )
+            )
+            for region in hypnotoad_poloidal_mesh.regions.values()
+        ),
+    )
     vertex_weights = dict(
         itertools.chain.from_iterable(
             zip(points, itertools.repeat(w))
             for w, points in zip(
                 steps,
-                _find_internal_neighbours(outermost_nodes, external_nodes, connections),
+                _find_internal_neighbours(
+                    outermost_nodes, external_nodes, connections2
+                ),
             )
         )
     )

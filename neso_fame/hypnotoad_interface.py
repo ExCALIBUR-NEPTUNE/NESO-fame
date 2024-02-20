@@ -403,6 +403,7 @@ def equilibrium_trace(
                 f"`start` coordinate system {start.system} differs from expected one {system}"
             )
         b = 1 - start_weight
+        bsq = b * b
 
         @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-11, atol=1e-12)
         def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
@@ -410,18 +411,35 @@ def equilibrium_trace(
             Z = y[1]
             # Use low-level functions on equilibrium in order to avoid overheads
             inverse_B_tor = R / _fpol(equilibrium, R, Z)
-            dR_dphi = b * equilibrium.psi_func(R, Z, dy=1, grid=False) * inverse_B_tor
-            dZ_dphi = -b * equilibrium.psi_func(R, Z, dx=1, grid=False) * inverse_B_tor
+            dR_dphi = equilibrium.psi_func(R, Z, dy=1, grid=False) * inverse_B_tor
+            dZ_dphi = -equilibrium.psi_func(R, Z, dx=1, grid=False) * inverse_B_tor
+            # Calculate distance accounting for weight here, but defer
+            # applying weights to actual position until after
+            # integration is finished, so not biasing calculation of
+            # derivative in future steps.
+            if start.system == CoordinateSystem.CYLINDRICAL:
+                distance = np.sqrt(
+                    bsq * dR_dphi * dR_dphi
+                    + bsq * dZ_dphi * dZ_dphi
+                    + (b * R + start_weight * start.x1) ** 2
+                )
+            else:
+                distance = np.sqrt(
+                    bsq * dR_dphi * dR_dphi + bsq * dZ_dphi * dZ_dphi + 1
+                )
+
             return (
                 dR_dphi,
                 dZ_dphi,
-                np.sqrt(dR_dphi * dR_dphi + dZ_dphi * dZ_dphi + 1),
+                distance,
             )
 
         x3 = np.asarray(x3)
         R, Z, dist = integrated(x3)
         return SliceCoords(
-            R.reshape(x3.shape), Z.reshape(x3.shape), system
+            b * R.reshape(x3.shape) + start.x1 * start_weight,
+            b * Z.reshape(x3.shape) + start.x2 * start_weight,
+            system,
         ), dist.reshape(x3.shape)
 
     return trace
