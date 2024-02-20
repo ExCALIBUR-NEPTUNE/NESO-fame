@@ -405,6 +405,16 @@ def equilibrium_trace(
         b = 1 - start_weight
         bsq = b * b
 
+        if start_weight == 1.0:
+            dist_factor = (
+                start.x1 if start.system == CoordinateSystem.CYLINDRICAL else 1.0
+            )
+            return SliceCoords(
+                np.full_like(x3, start.x1),
+                np.full_like(x3, start.x2),
+                start.system,
+            ), np.asarray(x3) * dist_factor
+
         @integrate_vectorized([start.x1, start.x2, 0.0], rtol=1e-11, atol=1e-12)
         def integrated(_: npt.ArrayLike, y: npt.NDArray) -> tuple[npt.NDArray, ...]:
             R = y[0]
