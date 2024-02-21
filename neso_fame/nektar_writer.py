@@ -212,6 +212,22 @@ _face_count = -1
 _solid_count = -1
 
 
+# FIXME: Should use a class or an argument or something, rather than
+# setting global state
+def reset_id_counts() -> None:
+    """Reset geometry IDs to start at 0."""
+    global _point_count
+    global _curve_count
+    global _edge_count
+    global _face_count
+    global _solid_count
+    _point_count = -1
+    _curve_count = -1
+    _edge_count = -1
+    _face_count = -1
+    _solid_count = -1
+
+
 @cache
 def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Return a Nektar++ PointGeom object at the specified position.
@@ -503,6 +519,7 @@ def _nektar_hexahedron(
 
     """
     global _solid_count
+    _solid_count += 1
     init: tuple[list[SD.Geometry2D], frozenset[SD.SegGeom], frozenset[SD.PointGeom]] = (
         [],
         frozenset(),
@@ -784,16 +801,15 @@ def nektar_composite_map(composite_map: dict[int, SD.Composite]) -> SD.Composite
 
 def _assign_points(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
     points = meshgraph.GetAllPointGeoms()
-    for i, point in enumerate(elements.points()):
-        point.SetGlobalID(i)
-        points[i] = point
+    for point in elements.points():
+        points[point.GetGlobalID()] = point
 
 
 def _assign_segments(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
     segments = meshgraph.GetAllSegGeoms()
     curved_edges = meshgraph.GetCurvedEdges()
-    for i, seg in enumerate(elements.segments()):
-        seg.SetGlobalID(i)
+    for seg in elements.segments():
+        i = seg.GetGlobalID()
         segments[i] = seg
         curve = seg.GetCurve()
         if curve is not None:
@@ -806,8 +822,8 @@ def _assign_faces(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
     tris = meshgraph.GetAllTriGeoms()
     quads = meshgraph.GetAllQuadGeoms()
     curved_faces = meshgraph.GetCurvedFaces()
-    for i, face in enumerate(elements.faces()):
-        face.SetGlobalID(i)
+    for face in elements.faces():
+        i = face.GetGlobalID()
         if isinstance(face, SD.TriGeom):
             tris[i] = face
         elif isinstance(face, SD.QuadGeom):
@@ -838,8 +854,8 @@ def _assign_elements(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> No
     prisms = meshgraph.GetAllPrismGeoms()
     pyrs = meshgraph.GetAllPyrGeoms()
     hexes = meshgraph.GetAllHexGeoms()
-    for i, element in enumerate(elements.elements()):
-        element.SetGlobalID(i)
+    for element in elements.elements():
+        i = element.GetGlobalID()
         if isinstance(element, SD.SegGeom):
             segments[i] = element
         elif isinstance(element, SD.TriGeom):

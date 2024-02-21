@@ -776,7 +776,6 @@ def test_nektar_mesh(
         meshgraph.GetAllPrismGeoms(),
         meshgraph.GetAllHexGeoms(),
     ]
-    extract_and_merge(SD.TriGeom, elements.faces(), elements.elements())
     expected_geometries: list[list[SD.Geometry]] = list(
         map(
             list,
@@ -798,28 +797,6 @@ def test_nektar_mesh(
         actual_comparable = comparable_set(item.data() for item in actual)
         expected_comparable = comparable_set(expected)
         assert actual_comparable == expected_comparable
-
-    # Check points numbered from 0 to n, without gaps
-    assert {item.key() for item in actual_geometries[0]} == frozenset(
-        range(len(expected_geometries[0]))
-    )
-
-    # Check segments numbered from 0 to n, without gaps
-    assert {item.key() for item in actual_geometries[1]} == frozenset(
-        range(len(expected_geometries[1]))
-    )
-
-    # Check faces numbered from 0 to n, without gaps
-    assert reduce(
-        operator.or_,
-        ({item.key() for item in geoms} for geoms in actual_geometries[2:4]),
-    ) == frozenset(range(sum(map(len, expected_geometries[2:4]))))
-
-    # Check 3d elements numbered from 0 to n, without gaps
-    assert reduce(
-        operator.or_,
-        ({item.key() for item in geoms} for geoms in actual_geometries[4:]),
-    ) == frozenset(range(sum(map(len, expected_geometries[4:]))))
 
     curved_edges = meshgraph.GetCurvedEdges()
     check_curved_edges(order, elements, curved_edges, actual_segments)
@@ -931,9 +908,9 @@ SIMPLE_MESH = GenericMesh(
 def check_xml_vertices(vertices: ET.Element) -> tuple[int, int, int, int]:
     assert len(vertices) == 4
     north_east = north_west = south_east = south_west = -1
-    for i, vertex in enumerate(vertices):
+    for vertex in vertices:
         assert vertex.tag == "V" or vertex.tag == "VERTEX"
-        assert int(cast(str, vertex.get("ID"))) == i
+        i = int(cast(str, vertex.get("ID")))
         coord = tuple(map(float, cast(str, vertex.text).split()))
         if coord == (0.0, 0.0, 1.0):
             south_west = i
@@ -966,9 +943,9 @@ def check_xml_edges(
     expected_west = tuple(sorted((north_west, south_west)))
     expected_north = tuple(sorted((north_east, north_west)))
     expected_south = tuple(sorted((south_east, south_west)))
-    for i, edge in enumerate(edges):
+    for edge in edges:
         assert edge.tag == "E" or edge.tag == "EDGE"
-        assert int(cast(str, edge.get("ID"))) == i
+        i = int(cast(str, edge.get("ID")))
         termini = cast(
             tuple[int, int], tuple(sorted(map(int, cast(str, edge.text).split())))
         )
@@ -999,9 +976,9 @@ def check_xml_composites(
     west_comp = -1
     north_comp = -1
     south_comp = -1
-    for i, comp in enumerate(composites):
+    for comp in composites:
         assert comp.tag == "C"
-        assert int(cast(str, comp.get("ID"))) == i
+        i = int(cast(str, comp.get("ID")))
         content = cast(str, comp.text).strip()
         if content == "Q[0]":
             domain_comp = i
@@ -1025,6 +1002,7 @@ def check_xml_composites(
 
 # Integration test for very simple 1-element mesh
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
+    nektar_writer.reset_id_counts()
     xml_file = tmp_path / "simple_mesh.xml"
     nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
 
