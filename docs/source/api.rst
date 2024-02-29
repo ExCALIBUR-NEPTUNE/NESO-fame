@@ -9,6 +9,7 @@ API Reference
    api/mesh
    api/fields
    api/hypnotoad
+   api/wall
    api/generators
    api/nektar_writer
 

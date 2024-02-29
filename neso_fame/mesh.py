@@ -436,7 +436,7 @@ class FieldTrace(Protocol):
         ----------
         start
             The position of the field-line in the x1-x2 plane at x3 = 0.
-        locations
+        x3
             x3 coordinates at which to calculate the position of the field line
         start_weight
             How much weight to apply to the start position versus the field line
@@ -450,32 +450,6 @@ class FieldTrace(Protocol):
         """
         ...
 
-
-# FieldTrace = Callable[[SliceCoord, npt.ArrayLike], tuple[SliceCoords, npt.NDArray]]
-# """A function describing a field line.
-
-# Group
-# -----
-# field line
-
-# Parameters
-# ----------
-# start : SliceCoord
-#     The position of the field-line in the x1-x2 plane at x3 = 0.
-# locations : :obj:`numpy.typing.ArrayLike`
-#     x3 coordinates at which to calculate the position of the field line
-
-# Returns
-# -------
-# tuple[:class:`~neso_fame.mesh.SliceCoord`, :obj:`numpy.typing.NDArray`]
-#     The first element is the x1 and x2 coordinates of the field line at
-#     the provided x3 positions. The second is an array with the distance
-#     traveersed along the field line to those points.
-
-
-# .. rubric:: Alias
-
-# """
 
 NormalisedCurve = Callable[[npt.ArrayLike], Coords]
 """A function describing a segment of a curve.

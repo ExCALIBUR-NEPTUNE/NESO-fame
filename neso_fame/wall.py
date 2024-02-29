@@ -461,9 +461,9 @@ def find_external_points(
     outermost: frozenset[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
-    in_tokamak_test: Callable[
+    in_tokamak_test: Optional[Callable[
         [SliceCoord, Sequence[WallSegment]], bool
-    ] = point_in_tokamak,
+    ]] = None,
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     """Find the points in a mesh outside the wall of a tokamak.
 
@@ -479,23 +479,24 @@ def find_external_points(
         The line segments making up the wall of the tokamak
     in_tokamak_test
         Routine to determine if a node falls inside the
-        tokamak. Custom routines can be passed to, e.g., check
+        tokamak. Default is to check only at the node
+        itself. Custom routines can be passed to, e.g., check
         at multiple points along a field line.
 
     Returns
     -------
-    A tuple of sets of points. The first element is all points falling
-    outside the tokamak. The second is the outermost layer of points
-    still inside the tokamak.
+    :
+        A tuple of sets of points. The first element is all points falling
+        outside the tokamak. The second is the outermost skin of points
+        still inside the tokamak.
 
     Group
     -----
     wall
 
     """
-    # outpoints, skinpoints, candidates, new_candidates
     return _find_external_points(
-        outermost, frozenset(), frozenset(), connections, wall, in_tokamak_test
+        outermost, frozenset(), frozenset(), connections, wall, point_in_tokamak if in_tokamak_test is None else in_tokamak_test
     )
 
 
@@ -551,6 +552,15 @@ def get_all_rectangular_mesh_connections(points: SliceCoords) -> Connections:
     then not all the outermost nodes will be identified in
     :func:`~neso_fame.wall.find_external_points`.
 
+    Parameters
+    ----------
+    points
+        The locations of the points, stored in 2-dimensional arrays.
+
+    Group
+    -----
+    wall
+
     """
 
     def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
@@ -572,7 +582,16 @@ def get_immediate_rectangular_mesh_connections(points: SliceCoords) -> Connectio
     as connected. Those that are diagonally across from each other are
     not. It should not be used in association with
     :func:`~neso_fame.wall.find_external_points`, as it will result in
-    nodes outside the vessel being missed..
+    nodes outside the vessel being missed.
+
+    Parameters
+    ----------
+    points
+        The locations of the points, stored in 2-dimensional arrays.
+
+    Group
+    -----
+    wall
 
     """
     shape = np.broadcast(points.x1, points.x2).shape
@@ -596,6 +615,11 @@ def periodic_pairwise(iterable: Iterable[T]) -> Iterable[tuple[T, T]]:
     This is the same as :func:`itertools.pairwise`, except the last
     item in the returned iterator will be the pair of the last and
     first items in the original iterator.
+
+
+    Group
+    -----
+    wall
 
     """
     iterator = iter(iterable)

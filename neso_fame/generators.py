@@ -917,7 +917,7 @@ def hypnotoad_mesh(
     wall_resolution: Optional[float] = None,
     wall_angle_threshold: float = np.pi / 12,
     alignment_steps: int = 0,
-    validator: Callable[[Prism], bool] = lambda x: True,
+    validator: Optional[Callable[[Prism], bool]] = None,
     system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> PrismMesh:
     """Generate a 3D mesh from hypnotoad-generage mesh.
@@ -951,7 +951,7 @@ def hypnotoad_mesh(
         ratio, it will be merged with an adjacent one. Note that this
         algorithm only checks elements radiating away from an X-point and
         may miss a few in order to maintain a conformal mesh.
-    mesh_core
+    mesh_to_core
         Whether to add extra prism elements to fill in the core of
         the tokamak
     restrict_to_vessel
@@ -985,9 +985,9 @@ def hypnotoad_mesh(
         changing more gradually.
     validator
         Function that checks whether the geometry of an element is
-        valid. Default will always return True. This argument change
-        should change depending on the format you want to write your mesh
-        to, the order of the basis for the element shapes, etc.
+        valid. Default values means all elements will be assumed valid. This
+        argument should change depending on the format you want to write
+        your mesh to, the order of the basis for the element shapes, etc.
     system
         The coordinate system to use. This normally should not be
         changed. However, if you want to export the poloidal cross-section
@@ -995,7 +995,7 @@ def hypnotoad_mesh(
 
     Returns
     -------
-    :obj:`~neso_fame.mesh.HexMesh`
+    :obj:`~neso_fame.mesh.PrismMesh`
         A 3D field-aligned, non-conformal grid
 
     Group
@@ -1125,12 +1125,16 @@ def hypnotoad_mesh(
             ),
             initial,
         )
-        wall_elements, outer_bounds = _validate_wall_elements(
-            initial_outer_bounds,
-            initial_wall_elements,
-            factory.get_element_for_quad,
-            validator,
-        )
+        if validator is not None:
+            wall_elements, outer_bounds = _validate_wall_elements(
+                initial_outer_bounds,
+                initial_wall_elements,
+                factory.get_element_for_quad,
+                validator,
+            )
+        else:
+            wall_elements = initial_wall_elements
+            outer_bounds = initial_outer_bounds
     else:
         wall_elements = []
         outer_bounds = frozenset(factory.outermost_quads())
