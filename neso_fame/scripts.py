@@ -351,6 +351,13 @@ def simple_3d(
     help="Whether to fill in the core region of the tokamak with prisms.",
 )
 @click.option(
+    "--mesh-to-wall/--no-mesh-to-wall",
+    is_flag=True,
+    default=True,
+    help="Whether to fill the region between the edge of the hypnotoad "
+         "mesh and the tokamak wall.",
+)
+@click.option(
     "--wall-resolution",
     type=click.FloatRange(0.0, min_open=True),
     default=None,
@@ -412,6 +419,7 @@ def hypnotoad(
     layers: int,
     max_ratio: float,
     core: bool,
+    mesh_to_wall: bool,
     wall_resolution: Optional[float],
     wall_angle_threshold: float,
     min_wall_distance: float,
@@ -451,8 +459,8 @@ def hypnotoad(
         n // layers,
         max_ratio,
         core,
-        True,
-        True,
+        mesh_to_wall,
+        mesh_to_wall,
         min_wall_distance,
         wall_resolution,
         wall_angle_threshold,
