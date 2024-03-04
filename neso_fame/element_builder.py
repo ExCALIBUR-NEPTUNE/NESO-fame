@@ -342,7 +342,7 @@ class ElementBuilder:
             self._tracer,
             self._dx3,
             north_start_weight=self._vertex_start_weights.get(coord, 0.0),
-            south_start_weight=1.0,
+            south_start_weight=0,
         )
 
     def make_element(
