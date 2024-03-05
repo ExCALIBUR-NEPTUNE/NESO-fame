@@ -355,7 +355,7 @@ def simple_3d(
     is_flag=True,
     default=True,
     help="Whether to fill the region between the edge of the hypnotoad "
-         "mesh and the tokamak wall.",
+    "mesh and the tokamak wall.",
 )
 @click.option(
     "--wall-resolution",

@@ -461,9 +461,9 @@ def find_external_points(
     outermost: frozenset[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
-    in_tokamak_test: Optional[Callable[
-        [SliceCoord, Sequence[WallSegment]], bool
-    ]] = None,
+    in_tokamak_test: Optional[
+        Callable[[SliceCoord, Sequence[WallSegment]], bool]
+    ] = None,
 ) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
     """Find the points in a mesh outside the wall of a tokamak.
 
@@ -496,7 +496,12 @@ def find_external_points(
 
     """
     return _find_external_points(
-        outermost, frozenset(), frozenset(), connections, wall, point_in_tokamak if in_tokamak_test is None else in_tokamak_test
+        outermost,
+        frozenset(),
+        frozenset(),
+        connections,
+        wall,
+        point_in_tokamak if in_tokamak_test is None else in_tokamak_test,
     )
 
 
