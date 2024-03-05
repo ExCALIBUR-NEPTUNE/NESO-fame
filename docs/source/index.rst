@@ -7,8 +7,17 @@ Welcome to NESO-fame's documentation!
 =====================================
 
 The Field-Aligned Mesh Extrusion (fame) tool generates meshes for
-Tokamaks with elements aligned with magnetic field lines. Currently
-this work is highly experimental.
+Tokamaks with elements aligned with magnetic field lines. Read the
+:doc:`tutorial <installation>` to learn how to install and use it.
+
+.. image:: _static/poloidal-fame.png
+           :width: 350
+           :alt: A poloidal mesh produced by NESO-fame with hypnotoad.
+
+.. image:: _static/tokamak_cutaway.png
+           :width: 350
+           :alt: A tokamak mesh with some elements hidden to show
+                 the field-alignment.
 
 .. toctree::
    :maxdepth: 2
@@ -16,7 +25,9 @@ this work is highly experimental.
    :hidden:
 
    installation
-   usage
+   simple
+   tokamak
+   visualisation
 
 .. toctree::
    :maxdepth: 2

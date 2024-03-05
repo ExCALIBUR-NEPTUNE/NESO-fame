@@ -9,15 +9,25 @@ this work is highly experimental. [Full
 documentation](https://excalibur-neptune.github.io/NESO-fame/) is
 hosted on GitHub Pages.
 
-**Note:** This code uses Nektar++ Python bindings which have not been
-merged into the master branch. They are accessible from
-https://gitlab.nektar.info/cmacmackin/nektar on branch
-`cmacmackin/generate-nonconformal-meshes`.
 
 ## Running
 You can generate simple 2D and 3D meshes with the `fame-simple`
 command. Run `fame-simple --help`, `fame-simple 2d --help`, and
-`fame-simple 3d --help` for more information. If you would like to
+`fame-simple 3d --help` for more information.
+
+In order to produce a mesh for a tokamak you will need data on its
+equilibrium magnetic field in the G-EQDSK format. Start by opening
+that file with the
+[hypnotoad](https://github.com/boutproject/hypnotoad) GUI and playing
+with various settings until you have a poloidal mesh you are happy
+with. *Make sure that you do **not** tick the "Non-Orthogonal"
+option.* Save your settings to a YAML file called something like
+`mesh_settings.yml`. Then use `fame-hypnotoad` to generate the 3D
+mesh. Use the `--help` option for information on the configurations
+available.
+
+
+If you would like to
 visualise a Nektar++ mesh in file `mesh.xml`, run
 
 ```
@@ -25,7 +35,7 @@ FieldConvert test_geometry.xml test_geometry.vtu:vtu:highorder
 ```
 
 Note that this requires Nektar++ to have been compiled with VTK
-support. If it has not, approximate meshes can still be produced using
+support. If it has not been, approximate meshes can be produced using
 
 ```
 FieldConvert test_geometry.xml test_geometry.vtu

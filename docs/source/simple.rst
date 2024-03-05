@@ -1,7 +1,7 @@
-Usage
-=====
+Simple Meshes
+=============
 
-You can generate simple meshes from the command-line using the
+You can generate simple structured meshes from the command-line using the
 ``fame-simple`` command. This generates either a 2D or a 3D mesh,
 aligned with a straight, uniform magnetic field. By default, the field
 is parallel to the x1 direction, but you can configure it to be offset
@@ -26,15 +26,28 @@ You can try generating a simple 10 by 10 2D mesh on the domain
 :math:`x_1 \in [0, 1], x_2 \in [0, 1]`, aligned to a field shifted by
 1 degree from the x1-direction, by running::
   
-  fame-simple 2d --nx1 10 --nx2 10 --angle 1 simple_mesh.xml
+  fame-simple 2d --nx1 4 --nx2 4 --angle -2 simple_mesh.xml
 
 This will save the mesh to ``simple_mesh.xml`` in the Nektar++
-format. By default, the number of layers in the x1-direction is the
+format. When :doc:`visualising <visualisation>` that mesh we get the
+following.
+
+.. image:: _static/aligned_2d.png
+           :width: 600
+           :alt: A non-conformal field-aligned 2D mesh.
+
+By default, the number of layers in the x1-direction is the
 same as the number of elements. This can be adjusted by using the
-``--layers`` option. For example, if you want your elements to be
-conformal you can set the number of layers to 1::
+``--layers`` option. For example, if you want only two nonconformal
+layers you can specify this using the ``--layers`` option::
   
-  fame-simple 2d --nx1 10 --nx2 10 --angle 1 --layers 1 simple_mesh.xml
+  fame-simple 2d --nx1 4 --nx2 4 --angle -2 --layers 1 simple_mesh.xml
+
+That mesh will look like the image below.
+
+.. image:: _static/subdivided_2d.png
+           :width: 600
+           :alt: A conformal field-aligned 2D mesh.
 
 Run ``fame-simple 2d --help`` to find out about additional options for
 configuring your mesh.
@@ -51,25 +64,14 @@ produce a mesh with the following properties
 you should run::
 
   fame-simple 3d --nx1 10 --nx2 20 --nx3 8 --x1-extent 0 100 \
-              --x2-extent 0 200--x3-extent 0 80 --angle1 3 \
+              --x2-extent 0 200 --x3-extent 0 80 --angle1 3 \
               --layers 5 3d_mesh.xml
+
+This would produce the following mesh.
+
+.. image:: _static/mesh_3d.png
+           :width: 800
+           :alt: A non-conformal field-aligned 3D mesh.
 
 Again, you can get more information about the options available by
 running ``fame-simple 3d --help``.
-              
-Visualising your Meshes
------------------------
-You can then convert the
-Nektar++ mesh file to the VTK format to make it suitable for
-visualisation::
-
-  FieldConvert test_geometry.xml test_geometry.vtu:vtu:highorder
-
-Note that this requires Nektar++ to have been compiled with VTK
-support. If it has not, approximate meshes can still be produced using::
-
-  FieldConvert test_geometry.xml test_geometry.vtu
-
-In that case, additional elements will be added to approximate the
-higher-order shape of the element. This results in larger files and
-uglier visualisations, though.
