@@ -656,12 +656,15 @@ MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
 
 BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
 BUILDER_UNFINISHED = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
-with patch(
-    "neso_fame.element_builder.flux_surface_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
-), patch(
-    "neso_fame.element_builder.perpendicular_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
+with (
+    patch(
+        "neso_fame.element_builder.flux_surface_edge",
+        lambda _, north, south: StraightLineAcrossField(north, south),
+    ),
+    patch(
+        "neso_fame.element_builder.perpendicular_edge",
+        lambda _, north, south: StraightLineAcrossField(north, south),
+    ),
 ):
     for corners in zip(
         *map(operator.methodcaller("iter_points"), _element_corners(R, Z))

@@ -1,4 +1,5 @@
 """Functions for working with GEQDSK data processed using hypnotoad."""
+
 from __future__ import annotations
 
 import itertools
@@ -543,8 +544,7 @@ def _get_integration_distance(
     end: SliceCoord,
     check_end_close: bool,
     return_result: Literal[False] = False,
-) -> float:
-    ...
+) -> float: ...
 
 
 @overload
@@ -555,8 +555,7 @@ def _get_integration_distance(
     end: SliceCoord,
     check_end_close: bool,
     return_result: Literal[True],
-) -> Any:
-    ...
+) -> Any: ...
 
 
 def _get_integration_distance(

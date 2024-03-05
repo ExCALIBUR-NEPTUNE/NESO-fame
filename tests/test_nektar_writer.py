@@ -700,9 +700,9 @@ def check_curved_faces(
         )
         assert n_curves > 0
         assert len(curved_faces) == n_curves
-        polygons: Iterator[
-            SD._NekMapItem[SD.QuadGeom] | SD._NekMapItem[SD.TriGeom]
-        ] = itertools.chain(actual_triangles, actual_quads)
+        polygons: Iterator[SD._NekMapItem[SD.QuadGeom] | SD._NekMapItem[SD.TriGeom]] = (
+            itertools.chain(actual_triangles, actual_quads)
+        )
         for item in polygons:
             face = item.data()
             curve = face.GetCurve()

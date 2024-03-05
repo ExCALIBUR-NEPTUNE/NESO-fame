@@ -511,8 +511,7 @@ class _ElementLike(Protocol):
     Exists for internal type-checking purposes.
     """
 
-    def subdivide(self: T, num_divisions: int) -> Iterator[T]:
-        ...
+    def subdivide(self: T, num_divisions: int) -> Iterator[T]: ...
 
 
 @dataclass(frozen=True)
@@ -581,13 +580,11 @@ class FieldAlignedCurve(LazilyOffsetable):
 
 
 @overload
-def control_points(element: NormalisedCurve | Quad, order: int) -> Coords:
-    ...
+def control_points(element: NormalisedCurve | Quad, order: int) -> Coords: ...
 
 
 @overload
-def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords:
-    ...
+def control_points(element: AcrossFieldCurve, order: int) -> SliceCoords: ...
 
 
 @cache
@@ -1124,13 +1121,11 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
 
     @overload
     @staticmethod
-    def _iterate_elements(elements: Iterable[E], subdivisions: int) -> Iterator[E]:
-        ...
+    def _iterate_elements(elements: Iterable[E], subdivisions: int) -> Iterator[E]: ...
 
     @overload
     @staticmethod
-    def _iterate_elements(elements: Iterable[B], subdivisions: int) -> Iterator[B]:
-        ...
+    def _iterate_elements(elements: Iterable[B], subdivisions: int) -> Iterator[B]: ...
 
     @staticmethod
     def _iterate_elements(
