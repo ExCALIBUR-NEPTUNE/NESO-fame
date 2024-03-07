@@ -2,6 +2,8 @@ import itertools
 from collections.abc import Iterator
 from functools import reduce
 from typing import Optional
+from unittest.mock import MagicMock
+from neso_fame.element_builder import ElementBuilder
 
 import numpy as np
 import pytest
@@ -10,8 +12,11 @@ from neso_fame import generators
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     Coord,
+    Coords,
     CoordinateSystem,
     FieldAlignedCurve,
+    FieldTracer,
+    NormalisedCurve,
     Prism,
     Quad,
     Segment,
@@ -19,6 +24,8 @@ from neso_fame.mesh import (
     SliceCoords,
     control_points,
 )
+from neso_fame.nektar_writer import nektar_3d_element
+from tests.conftest import simple_trace
 
 from .test_hypnotoad import CONNECTED_DOUBLE_NULL, to_mesh
 
@@ -797,6 +804,69 @@ def test_subdivided_grid_3d() -> None:
         assert actual_south == expected_south
         assert actual_east == expected_east
         assert actual_west == expected_west
+
+
+def test_iterate_and_merge_elements() -> None:
+    R = np.array(
+        [
+            [0., 0.05, 2., 3.95, 4.],
+            [0., 0.05, 2., 3.95, 4.],
+            [0., 1., 2., 3., 4.],
+        ]
+    )
+    Z = np.array(
+        [
+            [2., 2., 2., 2., 2.],
+            [1., 1., 1., 1., 1.],
+            [0., 0., 0., 0., 0.],
+        ]
+    )
+    hypno_region = MagicMock()
+    hypno_region.Rxy.corners = R
+    hypno_region.Zxy.corners = Z
+    hypno_region.equilibriumRegion.name = "core"
+    hypno_region.connections = {"inner": None}
+    elements = frozenset(generators._iter_element_corners(hypno_region, 10, CoordinateSystem.CYLINDRICAL))
+    
+    def coord(R: float, Z: float) -> SliceCoord:
+        return SliceCoord(R, Z, CoordinateSystem.CYLINDRICAL)
+
+    assert elements == {
+        (coord(0., 0.), coord(1., 0.), coord(0., 1.), None),
+        (coord(0., 1.), coord(2., 1.), coord(1., 0.), coord(2., 0.)),
+        (coord(2., 1.), coord(4., 1.), coord(2., 0.), coord(3., 0.)),
+        (coord(3., 0.), coord(4., 0.), coord(4., 1.), None),
+        (coord(0., 2.), coord(2., 2.), coord(0., 1.), coord(2., 1.)),
+        (coord(2., 2.), coord(4., 2.), coord(2., 1.), coord(4., 1.)),
+    }
+
+
+def test_validate_wall_elements() -> None:
+    c00 = SliceCoord(0., 0., CoordinateSystem.CARTESIAN)
+    c03 = SliceCoord(0., 3., CoordinateSystem.CARTESIAN)
+    c11 = SliceCoord(1., 1., CoordinateSystem.CARTESIAN)
+    c20 = SliceCoord(2., 0., CoordinateSystem.CARTESIAN)
+    c21 = SliceCoord(2., 1., CoordinateSystem.CARTESIAN)
+    wall_vertices = frozenset({(c00, c20), (c20, c21)})
+    builder = ElementBuilder(MagicMock(), FieldTracer(simple_trace, 2), 0.1, {}, CoordinateSystem.CARTESIAN)
+    curved_quad = builder.make_wall_quad_for_prism(lambda s: SliceCoords(2 * np.asarray(s), np.interp(2* np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]), CoordinateSystem.CARTESIAN))
+    p1, b1 = builder.make_outer_prism(c00, c20, c11, wall_vertices)
+    p2, b2 = builder.make_outer_prism(c20, c21, c11, wall_vertices)
+    p3, b3 = builder.make_outer_prism(c00, c11, c03, wall_vertices)
+    prisms = [p1, p2, p3]
+    bounds = b1 | b2 | b3
+    assert curved_quad in bounds
+    new_prisms, new_bounds = generators._validate_wall_elements(bounds, prisms, builder.get_element_for_quad, lambda x: next(iter(nektar_3d_element(x, 8, 3, -1)[0])).IsValid())
+    p1_flat = p1.make_flat_faces()
+    assert p1 not in new_prisms
+    assert p1_flat in new_prisms
+    assert p2 in new_prisms
+    assert p3 in new_prisms
+    assert curved_quad not in new_bounds
+    assert curved_quad.make_flat_quad() in new_bounds
+    assert len(bounds) == len(new_bounds)
+    assert len(bounds & new_bounds) == 1
+    assert len(frozenset(p1_flat.sides) & new_bounds) == 1
 
 
 def test_extruding_hypnotoad_mesh() -> None:

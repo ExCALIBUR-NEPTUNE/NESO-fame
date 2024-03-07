@@ -456,19 +456,6 @@ def _get_element_corners(
     return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
 
 
-def _region_element_corners(
-    region: HypnoMeshRegion, system: CoordinateSystem
-) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
-    R = _get_element_corners(region.Rxy.corners)
-    Z = _get_element_corners(region.Zxy.corners)
-    return (
-        SliceCoords(R[0], Z[0], system),
-        SliceCoords(R[1], Z[1], system),
-        SliceCoords(R[2], Z[2], system),
-        SliceCoords(R[3], Z[3], system),
-    )
-
-
 def _element_corners(
     R_corners: npt.NDArray, Z_corners: npt.NDArray, system: CoordinateSystem
 ) -> Iterator[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]]:
@@ -893,10 +880,11 @@ def _validate_wall_elements(
             new_elements.remove(prism)
             new_elements.add(Prism(tuple(face_map.values())))
             # Replace the boundary faces for this prism with the flattened ones
-            new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
             new_faces -= {old for old in face_map if old in boundary_faces}
+            new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
             # Update surrounding prisms to use the flattened faces
             for p in adjacent_elements:
+                # FIXME: This doesn't seem to be called properly.
                 if p in new_elements:
                     new_elements.remove(p)
                     new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
