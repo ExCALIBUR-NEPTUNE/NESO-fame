@@ -406,7 +406,11 @@ def equilibrium_trace(
         b = 1 - start_weight
         bsq = b * b
 
-        if start_weight == 1.0:
+        o_point_dist_sq = (start.x1 - equilibrium.o_point.R) ** 2 + (
+            start.x2 - equilibrium.o_point.Z
+        ) ** 2
+
+        if start_weight == 1.0 or o_point_dist_sq < 1e-8:
             dist_factor = (
                 start.x1 if start.system == CoordinateSystem.CYLINDRICAL else 1.0
             )
