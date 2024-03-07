@@ -34,6 +34,7 @@ from .conftest import (
     mutually_broadcastable_arrays,
     non_nans,
     non_zero,
+    prism_mesh_layer_no_divisions,
     quad_mesh_layer_no_divisions,
     whole_numbers,
 )
@@ -47,6 +48,32 @@ def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
     assert next(coord_iter) == x2
     with pytest.raises(StopIteration):
         next(coord_iter)
+
+
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems)
+def test_slice_coord_to_3d(
+    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+) -> None:
+    coord = mesh.SliceCoord(x1, x2, c).to_3d_coord(x3)
+    assert coord.x1 == x1
+    assert coord.x2 == x2
+    assert coord.x3 == x3
+    assert coord.system == c
+
+
+@given(non_nans(), non_nans(), coordinate_systems)
+def test_slice_coord_equal_self(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
+    coord = mesh.SliceCoord(x1, x2, c)
+    assert coord == coord
+
+
+@given(non_nans(), non_nans(), coordinate_systems)
+def test_slice_coord_equal_other_type(
+    x1: float, x2: float, c: mesh.CoordinateSystem
+) -> None:
+    coord = mesh.SliceCoord(x1, x2, c)
+    assert coord != x1
+    assert coord != x2
 
 
 @pytest.mark.parametrize(
@@ -125,6 +152,13 @@ def test_slice_coords_iter(
         next(coords_iter)
 
 
+def test_slice_coords_iter_points_empty() -> None:
+    coords = mesh.SliceCoords(
+        np.array([]), np.array([]), mesh.CoordinateSystem.CARTESIAN
+    )
+    assert len(list(coords.iter_points())) == 0
+
+
 @given(mutually_broadcastable_arrays(2), coordinate_systems)
 def test_slice_coords_len(
     x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem
@@ -181,6 +215,28 @@ def test_slice_coords_bad_getitem(
         _ = coords[index]  # type: ignore
 
 
+@given(from_type(mesh.SliceCoords).filter(lambda c: len(c) > 1))
+def test_slice_coords_get_set(coords: mesh.SliceCoords) -> None:
+    coordset = coords.get_set(slice(None))
+    assert len(coordset) <= len(coords)
+    for coord in coords.iter_points():
+        assert coord in coordset
+
+
+def test_slice_coords_get_set_partial() -> None:
+    coords = mesh.SliceCoords(
+        np.linspace(0.0, 1.0, 10),
+        np.linspace(5.0, 11.0, 10),
+        mesh.CoordinateSystem.CARTESIAN,
+    )
+    coordset = coords.get_set(slice(0, 5))
+    assert len(coordset) == 5
+    for i in range(5):
+        assert coords[i] in coordset
+    for i in range(5, 10):
+        assert coords[i] not in coordset
+
+
 @pytest.mark.parametrize(
     "coord1,coord2,places",
     [
@@ -235,6 +291,17 @@ def test_slice_coords_round(
     assert not coords_equal(coord1.round_to(places + 1), coord2.round_to(places + 1))
 
 
+@given(mutually_broadcastable_arrays(2), non_nans(), coordinate_systems)
+def test_slice_coords_to_3d(
+    x: tuple[npt.NDArray, npt.NDArray], x3: float, c: mesh.CoordinateSystem
+) -> None:
+    coords = mesh.SliceCoords(x[0], x[1], c).to_3d_coords(x3)
+    assert np.all(coords.x1 == x[0])
+    assert np.all(coords.x2 == x[1])
+    assert coords.x3 == x3
+    assert coords.system == c
+
+
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> None:
     coord = mesh.Coord(x1, x2, x3, c)
@@ -244,6 +311,66 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
     assert next(coord_iter) == x3
     with pytest.raises(StopIteration):
         next(coord_iter)
+
+
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems)
+def test_coord_equal_self(
+    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+) -> None:
+    coord = mesh.Coord(x1, x2, x3, c)
+    assert coord == coord
+
+
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems)
+def test_coord_equal_other_type(
+    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+) -> None:
+    coord = mesh.Coord(x1, x2, x3, c)
+    assert coord != x1
+    assert coord != x2
+    assert coord != x3
+
+
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems)
+def test_coord_to_slice_coord(
+    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+) -> None:
+    coord = mesh.Coord(x1, x2, x3, c)
+    slice_coord = coord.to_slice_coord()
+    assert slice_coord.x1 == coord.x1
+    assert slice_coord.x2 == coord.x2
+    assert slice_coord.system == coord.system
+
+
+@pytest.mark.parametrize(
+    "coord1,coord2",
+    [
+        (
+            mesh.Coord(1.0, 2.0, np.pi / 2, mesh.CoordinateSystem.CYLINDRICAL),
+            mesh.Coord(0.0, 1.0, 2.0, mesh.CoordinateSystem.CARTESIAN),
+        ),
+        (
+            mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CARTESIAN2D),
+            mesh.Coord(-3.0, 1.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+        ),
+        (
+            mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CARTESIAN_ROTATED),
+            mesh.Coord(-3.0, 1.0, 2.0, mesh.CoordinateSystem.CARTESIAN),
+        ),
+    ],
+)
+def test_coord_to_cartesian(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
+    assert coord1.to_cartesian() == coord2
+
+
+@given(non_nans(), non_nans(), non_nans(), integers(1, 50), coordinate_systems)
+def test_to_cartesian_idempotent(
+    x1: float, x2: float, x3: float, n: int, c: mesh.CoordinateSystem
+) -> None:
+    new_coords = cartesian_coords = mesh.Coord(x1, x2, x3, c).to_cartesian()
+    for _ in range(n):
+        new_coords = new_coords.to_cartesian()
+        assert new_coords == cartesian_coords
 
 
 @pytest.mark.parametrize(
@@ -276,6 +403,53 @@ def test_coord_round(coord1: mesh.Coord, coord2: mesh.Coord, places: int) -> Non
 def test_coord_hash(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
     if hash(coord1) != hash(coord2):
         assert coord1 != coord2
+
+
+@pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
+@given(non_nans(), non_nans(), non_nans(), coordinate_systems, non_nans())
+def test_coord_offset_x1_x2_unchanged(
+    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem, x: float
+) -> None:
+    coord = mesh.Coord(x1, x2, x3, c)
+    new_coord = coord.offset(x)
+    assert new_coord.x1 is coord.x1
+    assert new_coord.x2 is coord.x2
+    assert new_coord.x3 is not coord.x3
+    assert new_coord.system is coord.system
+
+
+@pytest.mark.parametrize(
+    "x1,x2,x3,offset,expected",
+    [
+        (
+            0.0,
+            1.0,
+            10.0,
+            5.0,
+            15.0,
+        ),
+        (
+            5.0,
+            1.0,
+            2.0,
+            1.0,
+            3.0,
+        ),
+    ],
+)
+def test_coord_offset(
+    x1: float,
+    x2: float,
+    x3: float,
+    offset: float,
+    expected: float,
+) -> None:
+    coord = mesh.Coord(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
+    new_coord = coord.offset(offset)
+    assert coord.x1 == new_coord.x1
+    assert coord.x2 == new_coord.x2
+    assert coord.system == new_coord.system
+    np.testing.assert_allclose(new_coord.x3, expected)
 
 
 @pytest.mark.parametrize(
@@ -312,6 +486,13 @@ def test_coords_iter_points(
         expected,
     ):
         assert c1 == c2
+
+
+def test_coords_iter_points_empty() -> None:
+    coords = mesh.Coords(
+        np.array([]), np.array([]), np.array([]), mesh.CoordinateSystem.CARTESIAN
+    )
+    assert len(list(coords.iter_points())) == 0
 
 
 @given(from_type(mesh.Coords))
@@ -400,6 +581,29 @@ def test_coords_bad_getitem(
     coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
     with pytest.raises(expected):
         _ = coords[index]  # type: ignore
+
+
+@given(from_type(mesh.Coords).filter(lambda c: len(c) > 1))
+def test_coords_get_set(coords: mesh.Coords) -> None:
+    coordset = coords.get_set(slice(None))
+    assert len(coordset) <= len(coords)
+    for coord in coords.iter_points():
+        assert coord in coordset
+
+
+def test_coords_get_set_partial() -> None:
+    coords = mesh.Coords(
+        np.linspace(0.0, 1.0, 10),
+        np.linspace(-50.0, -68.0, 10),
+        np.linspace(5.0, 11.0, 10),
+        mesh.CoordinateSystem.CARTESIAN,
+    )
+    coordset = coords.get_set(slice(0, 5))
+    assert len(coordset) == 5
+    for i in range(5):
+        assert coords[i] in coordset
+    for i in range(5, 10):
+        assert coords[i] not in coordset
 
 
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
@@ -548,6 +752,14 @@ def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> 
     assert not coords_equal(coord1.round_to(places + 1), coord2.round_to(places + 1))
 
 
+@given(from_type(mesh.Coords))
+def test_coords_to_slice_coords(coords: mesh.Coords) -> None:
+    slice_coords = coords.to_slice_coords()
+    assert np.all(slice_coords.x1 == coords.x1)
+    assert np.all(slice_coords.x2 == coords.x2)
+    assert slice_coords.system == coords.system
+
+
 @given(from_type(mesh.FieldAlignedCurve), floats(0.0, 1.0))
 def test_curve_start_weight_1(sample_curve: mesh.FieldAlignedCurve, arg: float) -> None:
     # Create a new curve with the start_weight set to 1
@@ -656,6 +868,15 @@ def test_curve_control_points_values() -> None:
     np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
 
 
+def test_bad_straight_line() -> None:
+    line = mesh.StraightLine(
+        mesh.Coord(0.0, 0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+        mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CYLINDRICAL),
+    )
+    with pytest.raises(ValueError):
+        _ = line([0.0, 0.5, 1.0])
+
+
 @given(from_type(mesh.StraightLine), floats(0.0, 1.0))
 def test_straight_line_between_termini(line: mesh.StraightLine, s: float) -> None:
     position = line(s).to_coord()
@@ -690,6 +911,11 @@ def test_striaght_line_subdivision(curve: mesh.StraightLine, divisions: int) -> 
         prev = curve(1.0)
     for component, expected in zip(prev, curve(1.0)):
         np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+
+
+@given(from_type(mesh.Quad))
+def test_quad_iter(q: mesh.Quad) -> None:
+    assert list(q) == [q.north, q.south]
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
@@ -889,6 +1115,25 @@ def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
         np.testing.assert_allclose(p[[1, 3]], q[[1, 3]], rtol=1e-8, atol=1e-10)
 
 
+@given(from_type(mesh.Quad))
+def test_quad_make_flat(q: mesh.Quad) -> None:
+    flat = q.make_flat_quad()
+    corners = q.corners()
+    flat_corners = flat.corners()
+    np.testing.assert_allclose(corners.x1, flat_corners.x1)
+    np.testing.assert_allclose(corners.x2, flat_corners.x2)
+    np.testing.assert_allclose(corners.x3, flat_corners.x3)
+    assert corners.system == flat_corners.system
+
+
+@given(from_type(mesh.Quad), integers(1, 20))
+def test_quad_make_flat_idempotent(q: mesh.Quad, n: int) -> None:
+    new_quad = flat_quad = q.make_flat_quad()
+    for _ in range(n):
+        new_quad = new_quad.make_flat_quad()
+        assert new_quad == flat_quad
+
+
 @given(from_type(mesh.Prism))
 def test_prism_near_edge(h: mesh.Prism) -> None:
     expected = frozenset(
@@ -898,6 +1143,11 @@ def test_prism_near_edge(h: mesh.Prism) -> None:
     )
     actual = frozenset(h.near.corners().iter_points())
     assert expected == actual
+
+
+@given(from_type(mesh.EndShape))
+def test_end_shape(shape: mesh.EndShape) -> None:
+    assert shape.edges == tuple(shape)
 
 
 @given(flat_sided_hex)
@@ -981,6 +1231,25 @@ def test_prism_subdivision(h: mesh.Prism, divisions: int) -> None:
         prev = corners
     for p, t in zip(prev, prism_corners):
         np.testing.assert_allclose(p[n:], t[n:], rtol=1e-8, atol=1e-8)
+
+
+@given(from_type(mesh.Prism))
+def test_prism_make_flat(p: mesh.Prism) -> None:
+    flat = p.make_flat_faces()
+    corners = p.corners()
+    flat_corners = flat.corners()
+    np.testing.assert_allclose(corners.x1, flat_corners.x1)
+    np.testing.assert_allclose(corners.x2, flat_corners.x2)
+    np.testing.assert_allclose(corners.x3, flat_corners.x3)
+    assert corners.system == flat_corners.system
+
+
+@given(from_type(mesh.Prism), integers(1, 20))
+def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
+    new_prism = flat_prism = p.make_flat_faces()
+    for _ in range(n):
+        new_prism = new_prism.make_flat_faces()
+        assert new_prism == flat_prism
 
 
 @given(mesh_arguments)
@@ -1186,9 +1455,14 @@ def test_mesh_layer_quads_for_quads(
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
-def test_mesh_layer_quads_for_prisms() -> None:
-    # FIXME: Need to implement this
-    pass
+@given(prism_mesh_layer_no_divisions)
+def test_mesh_layer_quads_for_prisms(
+    layer: mesh.MeshLayer[mesh.Prism, mesh.Quad, mesh.EndShape],
+) -> None:
+    all_quads = list(itertools.chain.from_iterable(p for p in layer))
+    returned_quads = list(layer.quads())
+    assert len(all_quads) == len(returned_quads)
+    assert frozenset(all_quads) == frozenset(returned_quads)
 
 
 @given(from_type(mesh.GenericMesh))
@@ -1204,7 +1478,7 @@ def test_mesh_iter_layers(m: mesh.GenericMesh) -> None:
 
 @given(from_type(mesh.GenericMesh))
 def test_mesh_len(m: mesh.GenericMesh) -> None:
-    mesh_iter = itertools.chain.from_iterable(layer for layer in m.layers())
+    mesh_iter = iter(m)
     for _ in range(len(m)):
         next(mesh_iter)
     with pytest.raises(StopIteration):

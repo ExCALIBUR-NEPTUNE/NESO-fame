@@ -314,7 +314,7 @@ def test_connecting_quad(
     assert quad.field == trace
     assert quad.dx3 == dx3
     assert quad.north_start_weight == 0.0
-    assert quad.south_start_weight == 1.0
+    assert quad.south_start_weight == 0.0
 
 
 @settings(deadline=None)
@@ -337,6 +337,32 @@ def test_make_hex(
         termini
     )
     for quad in hexa:
+        assert quad.field == trace
+        assert quad.dx3 == dx3
+        assert quad.north_start_weight == 0.0
+        assert quad.south_start_weight == 0.0
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(quad_points),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_prism(
+    mesh: HypnoMesh,
+    termini: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3, {})
+    prism = builder.make_element(*termini[:3], None)
+    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
+        termini[:3]
+    )
+    for quad in prism:
         assert quad.field == trace
         assert quad.dx3 == dx3
         assert quad.north_start_weight == 0.0
@@ -537,6 +563,27 @@ def test_make_wall_quad(
 @settings(deadline=None)
 @given(
     shared_meshes,
+    shared_meshes.flatmap(point_pairs),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_make_wall_quad_caching(
+    mesh: HypnoMesh,
+    points: tuple[SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3, {})
+    shape = StraightLineAcrossField(*points)
+    q1 = builder.make_wall_quad_for_prism(shape)
+    q2 = builder.make_wall_quad_for_prism(shape)
+    assert q1 is q2
+
+
+@settings(deadline=None)
+@given(
+    shared_meshes,
     shared_meshes.flatmap(quad_points),
     integers(2, 20),
     floats(1e-3, 1e3),
@@ -616,6 +663,32 @@ def test_make_outer_prism_one_bound(
     )
 
 
+@settings(deadline=None)
+@given(
+    shared_meshes,
+    shared_meshes.flatmap(quad_points),
+    integers(2, 20),
+    floats(1e-3, 1e3),
+)
+def test_get_element_for_quad(
+    mesh: HypnoMesh,
+    termini: tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord],
+    interp_resolution: int,
+    dx3: float,
+) -> None:
+    trace = FieldTracer(simple_trace, interp_resolution)
+    builder = ElementBuilder(mesh, trace, dx3, {})
+    prism1 = builder.make_element(*termini[:3], None)
+    prism2, _ = builder.make_outer_prism(*termini[1:], frozenset())
+    for q in prism1:
+        if q not in prism2.sides:
+            assert len(builder.get_element_for_quad(q)) == 0
+        else:
+            assert builder.get_element_for_quad(q) == [prism2]
+    for q in prism2:
+        assert builder.get_element_for_quad(q) == [prism2]
+
+
 def _element_corners(
     R: npt.NDArray, Z: npt.NDArray
 ) -> tuple[SliceCoords, SliceCoords, SliceCoords, SliceCoords]:
@@ -630,16 +703,27 @@ def _element_corners(
 
 
 R, Z = np.meshgrid(np.linspace(0.5, 1.5, 11), np.linspace(-1, 1, 11))
-WEST = SliceCoords(R[:, 0], Z[:, 0], CoordinateSystem.CYLINDRICAL)
-EAST = SliceCoords(R[:, -1], Z[:, -1], CoordinateSystem.CYLINDRICAL)
-SOUTH = SliceCoords(R[0, :], Z[0, :], CoordinateSystem.CYLINDRICAL)
-NORTH = SliceCoords(R[-1, :], Z[-1, :], CoordinateSystem.CYLINDRICAL)
+WEST_OUTER = SliceCoords(R[:, 0], Z[:, 0], CoordinateSystem.CYLINDRICAL)
+EAST_OUTER = SliceCoords(R[:, -1], Z[:, -1], CoordinateSystem.CYLINDRICAL)
+SOUTH_OUTER = SliceCoords(R[0, :], Z[0, :], CoordinateSystem.CYLINDRICAL)
+NORTH_OUTER = SliceCoords(R[-1, :], Z[-1, :], CoordinateSystem.CYLINDRICAL)
+WEST_INNER = SliceCoords(R[4:7, 4], Z[4:7, 4], CoordinateSystem.CYLINDRICAL)
+EAST_INNER = SliceCoords(R[4:7:, 6], Z[4:7, 6], CoordinateSystem.CYLINDRICAL)
+SOUTH_INNER = SliceCoords(R[4, 4:7], Z[4, 4:7], CoordinateSystem.CYLINDRICAL)
+NORTH_INNER = SliceCoords(R[6, 4:7], Z[6, 4:7], CoordinateSystem.CYLINDRICAL)
 OUTERMOST = (
-    frozenset(EAST.iter_points())
-    | frozenset(WEST.iter_points())
-    | frozenset(NORTH.iter_points())
-    | frozenset(SOUTH.iter_points())
+    frozenset(EAST_OUTER.iter_points())
+    | frozenset(WEST_OUTER.iter_points())
+    | frozenset(NORTH_OUTER.iter_points())
+    | frozenset(SOUTH_OUTER.iter_points())
 )
+INNERMOST = (
+    frozenset(EAST_INNER.iter_points())
+    | frozenset(WEST_INNER.iter_points())
+    | frozenset(NORTH_INNER.iter_points())
+    | frozenset(SOUTH_INNER.iter_points())
+)
+
 
 UNFINISHED_NORTH_EAST = SliceCoords(R[7:, -1], Z[7:, -1], CoordinateSystem.CYLINDRICAL)
 UNFINISHED_SOUTH_EAST = SliceCoords(R[:4, -1], Z[:4, -1], CoordinateSystem.CYLINDRICAL)
@@ -666,8 +750,32 @@ with (
         lambda _, north, south: StraightLineAcrossField(north, south),
     ),
 ):
-    for corners in zip(
-        *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
+    # Create a square mesh with a hole in the middle
+    for corners in itertools.chain(
+        zip(
+            *map(
+                operator.methodcaller("iter_points"),
+                _element_corners(R[:5, :], Z[:5, :]),
+            )
+        ),
+        zip(
+            *map(
+                operator.methodcaller("iter_points"),
+                _element_corners(R[6:, :], Z[6:, :]),
+            )
+        ),
+        zip(
+            *map(
+                operator.methodcaller("iter_points"),
+                _element_corners(R[4:7, :5], Z[4:7, :5]),
+            )
+        ),
+        zip(
+            *map(
+                operator.methodcaller("iter_points"),
+                _element_corners(R[4:7, 6:], Z[4:7, 6:]),
+            )
+        ),
     ):
         _ = BUILDER.make_element(*corners)
     # Don't build the middle elements
@@ -761,11 +869,11 @@ def test_outermost_quads_between_termini(start: SliceCoord, end: SliceCoord) -> 
 
 def test_unfinished_outermost_vertices_between() -> None:
     start = UNFINISHED_SOUTH_WEST[2]
-    end = SOUTH[3]
+    end = SOUTH_OUTER[3]
     expected = list(
         SliceCoords(
-            np.concatenate((UNFINISHED_SOUTH_WEST.x1[2::-1], SOUTH.x1[1:4])),
-            np.concatenate((UNFINISHED_SOUTH_WEST.x2[2::-1], SOUTH.x2[1:4])),
+            np.concatenate((UNFINISHED_SOUTH_WEST.x1[2::-1], SOUTH_OUTER.x1[1:4])),
+            np.concatenate((UNFINISHED_SOUTH_WEST.x2[2::-1], SOUTH_OUTER.x2[1:4])),
             CoordinateSystem.CYLINDRICAL,
         ).iter_points()
     )
@@ -775,7 +883,7 @@ def test_unfinished_outermost_vertices_between() -> None:
 
 @given(
     sampled_from(list(NOT_IN_UNFINISHED.iter_points())),
-    sampled_from(list(NORTH.iter_points()) + list(SOUTH.iter_points())),
+    sampled_from(list(NORTH_OUTER.iter_points()) + list(SOUTH_OUTER.iter_points())),
 )
 def test_unifinished_vertices_between_no_start(
     start: SliceCoord, end: SliceCoord
@@ -785,7 +893,7 @@ def test_unifinished_vertices_between_no_start(
 
 
 @given(
-    sampled_from(list(NORTH.iter_points()) + list(SOUTH.iter_points())),
+    sampled_from(list(NORTH_OUTER.iter_points()) + list(SOUTH_OUTER.iter_points())),
     sampled_from(list(NOT_IN_UNFINISHED.iter_points())),
 )
 def test_unifinished_vertices_between_no_end(
@@ -795,7 +903,10 @@ def test_unifinished_vertices_between_no_end(
         _ = BUILDER_UNFINISHED.outermost_vertices_between(start, end)
 
 
-@given(sampled_from(list(NORTH.iter_points())), sampled_from(list(SOUTH.iter_points())))
+@given(
+    sampled_from(list(NORTH_OUTER.iter_points())),
+    sampled_from(list(SOUTH_OUTER.iter_points())),
+)
 def test_unfinished_vertices_between_different_fragments(
     start: SliceCoord, end: SliceCoord
 ) -> None:
@@ -813,12 +924,12 @@ def test_unfinished_vertices_between_different_fragments(
 )
 def test_complex_outermost_vertices() -> None:
     # Leave out a few elements to test a more complex shape of the outermost edges
-    unused_outer_point = WEST[8]
+    unused_outer_point = WEST_OUTER[8]
     complex_outermost = (
-        frozenset(EAST.iter_points())
-        | frozenset(p for p in WEST.iter_points() if p != unused_outer_point)
-        | frozenset(NORTH.iter_points())
-        | frozenset(SOUTH.iter_points())
+        frozenset(EAST_OUTER.iter_points())
+        | frozenset(p for p in WEST_OUTER.iter_points() if p != unused_outer_point)
+        | frozenset(NORTH_OUTER.iter_points())
+        | frozenset(SOUTH_OUTER.iter_points())
         | frozenset(
             SliceCoords(
                 R[7:10, 1], Z[7:10, 1], CoordinateSystem.CYLINDRICAL
@@ -835,3 +946,29 @@ def test_complex_outermost_vertices() -> None:
     ordered_outermost = list(builder.outermost_vertices())
     assert len(ordered_outermost) == len(complex_outermost)
     assert frozenset(ordered_outermost) == complex_outermost
+
+
+def test_innermost_vertices_empty() -> None:
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    assert len(list(builder.innermost_vertices())) == 0
+
+
+def test_innermost_vertices() -> None:
+    ordered_innermost = list(BUILDER.innermost_vertices())
+    assert len(ordered_innermost) == len(INNERMOST)
+    assert frozenset(ordered_innermost) == INNERMOST
+
+
+def test_innermost_quads_empty() -> None:
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    assert len(list(builder.innermost_quads())) == 0
+
+
+def test_innermost_quads() -> None:
+    ordered_innermost = list(BUILDER.innermost_vertices())
+    quads = list(BUILDER.innermost_quads())
+    innermost = frozenset(
+        itertools.chain.from_iterable(q.shape([0.0, 1.0]).iter_points() for q in quads)
+    )
+    assert frozenset(ordered_innermost) == innermost
+    assert len(ordered_innermost) == len(quads)

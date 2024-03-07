@@ -79,7 +79,7 @@ class _VertexRing:
 
     @property
     def complete(self) -> bool:
-        return len(self.fragments) == 1 and self.fragments[0].complete
+        return all(f.complete for f in self.fragments)
 
     def find_fragment_and_position(
         self, coord: SliceCoord

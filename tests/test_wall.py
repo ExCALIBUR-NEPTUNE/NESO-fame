@@ -23,6 +23,7 @@ from neso_fame.wall import (
     adjust_wall_resolution,
     find_external_points,
     get_all_rectangular_mesh_connections,
+    get_immediate_rectangular_mesh_connections,
     periodic_pairwise,
     point_in_tokamak,
     wall_points_to_segments,
@@ -287,7 +288,7 @@ mesh_points = builds(np.meshgrid, grid_1d, grid_1d).map(
 
 
 @given(mesh_points)
-def test_mesh_connections_corners(points: SliceCoords) -> None:
+def test_all_mesh_connections_corners(points: SliceCoords) -> None:
     connections = get_all_rectangular_mesh_connections(points)
     assert len(connections[points[0, 0]]) == 3
     assert len(connections[points[0, -1]]) == 3
@@ -296,7 +297,7 @@ def test_mesh_connections_corners(points: SliceCoords) -> None:
 
 
 @given(mesh_points)
-def test_mesh_connections_edges(points: SliceCoords) -> None:
+def test_all_mesh_connections_edges(points: SliceCoords) -> None:
     connections = get_all_rectangular_mesh_connections(points)
     shape = points.x1.shape
     assert all(len(connections[points[0, j]]) == 5 for j in range(1, shape[1] - 1))
@@ -306,11 +307,41 @@ def test_mesh_connections_edges(points: SliceCoords) -> None:
 
 
 @given(mesh_points)
-def test_mesh_connections_interior(points: SliceCoords) -> None:
+def test_all_mesh_connections_interior(points: SliceCoords) -> None:
     connections = get_all_rectangular_mesh_connections(points)
     shape = points.x1.shape
     assert all(
         len(connections[points[i, j]]) == 8
+        for i in range(1, shape[0] - 1)
+        for j in range(1, shape[1] - 1)
+    )
+
+
+@given(mesh_points)
+def test_immediate_mesh_connections_corners(points: SliceCoords) -> None:
+    connections = get_immediate_rectangular_mesh_connections(points)
+    assert len(connections[points[0, 0]]) == 2
+    assert len(connections[points[0, -1]]) == 2
+    assert len(connections[points[-1, 0]]) == 2
+    assert len(connections[points[-1, -1]]) == 2
+
+
+@given(mesh_points)
+def test_immediate_mesh_connections_edges(points: SliceCoords) -> None:
+    connections = get_immediate_rectangular_mesh_connections(points)
+    shape = points.x1.shape
+    assert all(len(connections[points[0, j]]) == 3 for j in range(1, shape[1] - 1))
+    assert all(len(connections[points[-1, j]]) == 3 for j in range(1, shape[1] - 1))
+    assert all(len(connections[points[i, 0]]) == 3 for i in range(1, shape[0] - 1))
+    assert all(len(connections[points[i, -1]]) == 3 for i in range(1, shape[0] - 1))
+
+
+@given(mesh_points)
+def test_immediate_mesh_connections_interior(points: SliceCoords) -> None:
+    connections = get_immediate_rectangular_mesh_connections(points)
+    shape = points.x1.shape
+    assert all(
+        len(connections[points[i, j]]) == 4
         for i in range(1, shape[0] - 1)
         for j in range(1, shape[1] - 1)
     )

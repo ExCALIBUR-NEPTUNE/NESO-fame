@@ -192,9 +192,8 @@ class SliceCoords:
 
     def get_set(self, index: IndexSlice) -> frozenset[SliceCoord]:
         """Get a set of individual point objects from the collection."""
-        return frozenset(
-            SliceCoords(self.x1[index], self.x2[index], self.system).iter_points()
-        )
+        x1, x2 = np.broadcast_arrays(self.x1, self.x2)
+        return frozenset(SliceCoords(x1[index], x2[index], self.system).iter_points())
 
     def round_to(self, figures: int = 8) -> SliceCoords:
         """Round coordinate values to the desired number of significant figures."""
@@ -376,10 +375,9 @@ class Coords:
 
     def get_set(self, index: IndexSlice) -> frozenset[Coord]:
         """Get a set of individual point objects from the collection."""
+        x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return frozenset(
-            Coords(
-                self.x1[index], self.x2[index], self.x3[index], self.system
-            ).iter_points()
+            Coords(x1[index], x2[index], x3[index], self.system).iter_points()
         )
 
     def to_coord(self) -> Coord:

@@ -46,7 +46,7 @@ Pair = tuple[float, float]
 
 
 def non_nans() -> SearchStrategy[float]:
-    return floats(allow_nan=False)
+    return floats(allow_nan=False, allow_infinity=False)
 
 
 def arbitrary_arrays() -> SearchStrategy[npt.NDArray]:
