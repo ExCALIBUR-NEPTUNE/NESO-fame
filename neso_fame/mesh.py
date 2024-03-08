@@ -935,12 +935,12 @@ class Prism(LazilyOffsetable):
 
     @cached_property
     def near(self) -> EndShape:
-        """The face of the Hex in the x3 plane with the smallest x3 value."""
+        """The face of the prism in the x3 plane with the smallest x3 value."""
         return EndShape(tuple(s.near for s in self.sides))
 
     @cached_property
     def far(self) -> EndShape:
-        """The face of the Hex in the x3 plane with the largest x3 value."""
+        """The face of the prism in the x3 plane with the largest x3 value."""
         return EndShape(tuple(s.far for s in self.sides))
 
     def corners(self) -> Coords:
@@ -997,7 +997,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
 
     reference_elements: Sequence[E]
     """A colelction of the :class:`~neso_fame.mesh.Quad` or
-    :class:`~neso_fame.mesh.Hex` elements making up the layer (without
+    :class:`~neso_fame.mesh.Prism` elements making up the layer (without
     any subdivision)."""
     bounds: Sequence[frozenset[B]]
     """An ordered collection of sets of :class:`~neso_fame.mesh.Curve`
@@ -1059,7 +1059,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
 
         If the mesh is made up of quads then this is the same as
         iterating over the elements. Otherwise, it iterates over the
-        quads defining the boundaries of the constituent `Hex`
+        quads defining the boundaries of the constituent `Prism`
         elements.
 
         """
@@ -1076,7 +1076,7 @@ class MeshLayer(Generic[E, B, C], LazilyOffsetable):
         This excludes boundaries normal to the x3-direction. There may
         be any number of boundary regions. If the mesh is made up of
         `Quad` elements then the boundaries are sets of `Curve`
-        objects. If the mesh is made up of `Hex` elements, then the
+        objects. If the mesh is made up of `Prism` elements, then the
         boundaries are sets of `Quad` objects.
 
         """
@@ -1155,10 +1155,10 @@ class GenericMesh(Generic[E, B, C]):
     only certain combinations of these make sense in practice:
     :class:`~neso_fame.mesh.Quad` elements and
     :class:`~neso_fame.mesh.Curve` boundaries; or
-    :class:`~neso_fame.mesh.Hex` elements and
+    :class:`~neso_fame.mesh.Prism` elements and
     :class:`~neso_fame.mesh.Quad` boundaries. GenericMesh should not
     be used for type annotations; use :obj:`~neso_fame.mesh.QuadMesh`,
-    :obj:`~neso_fame.mesh.HexMesh`, or :obj:`~neso_fame.mesh.Mesh`
+    :obj:`~neso_fame.mesh.PrismMesh`, or :obj:`~neso_fame.mesh.Mesh`
     instead, as these are constrained to the valid combinations.
 
     Group
