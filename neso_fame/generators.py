@@ -866,9 +866,11 @@ def _validate_wall_elements(
             # Otherwise, convert the sides of the prism to be flat (in the poloidal plane)
             face_map = {f: f.make_flat_quad() for f in prism}
             # FIXME: This isn't detecting elements on the main plasma mesh...
-            adjacent_elements = itertools.chain.from_iterable(
-                (element for element in quad_to_elements(q) if element != prism)
-                for q in face_map
+            adjacent_elements = frozenset(
+                itertools.chain.from_iterable(
+                    (element for element in quad_to_elements(q) if element != prism)
+                    for q in face_map
+                )
             )
             # Don't fix elements that would require you to modify a
             # hex, as that would probably result in the hex becoming
@@ -884,7 +886,6 @@ def _validate_wall_elements(
             new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
             # Update surrounding prisms to use the flattened faces
             for p in adjacent_elements:
-                # FIXME: This doesn't seem to be called properly.
                 if p in new_elements:
                     new_elements.remove(p)
                     new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
