@@ -70,7 +70,7 @@ pytest==7.4.3
     #   pytest-cov
 pytest-cov==4.1.0
     # via -r requirements-dev.txt.in
-requests==2.31.0
+requests==2.32.2
     # via
     #   sphinx
     #   sphinx-immaterial
