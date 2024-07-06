@@ -14,7 +14,7 @@ attrs==23.1.0
     # via hypothesis
 babel==2.13.1
     # via sphinx
-certifi==2023.7.22
+certifi==2024.7.4
     # via requests
 charset-normalizer==3.3.2
     # via requests
