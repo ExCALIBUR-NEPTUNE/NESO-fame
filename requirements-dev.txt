@@ -122,5 +122,5 @@ typing-extensions==4.8.0
     #   pydantic
     #   pydantic-core
     #   sphinx-immaterial
-urllib3==2.1.0
+urllib3==2.2.2
     # via requests
