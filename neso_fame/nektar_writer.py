@@ -215,7 +215,13 @@ _solid_count = -1
 # FIXME: Should use a class or an argument or something, rather than
 # setting global state
 def reset_id_counts() -> None:
-    """Reset geometry IDs to start at 0."""
+    """Reset geometry IDs to start at 0.
+
+    Group
+    -----
+    public nektar
+
+    """
     global _point_count
     global _curve_count
     global _edge_count
