@@ -109,6 +109,13 @@ def _mesh_provenance() -> str:
     show_default=True,
 )
 @click.option(
+    "--align-bounds",
+    is_flag=True,
+    default=False,
+    help="Make the y-boundaries align with the magntic field.",
+    show_default=True
+)
+@click.option(
     "--compress",
     is_flag=True,
     default=False,
@@ -123,6 +130,7 @@ def simple_2d(
     layers: int,
     angle: float,
     periodic: bool,
+    align_bounds: bool,
     compress: bool,
     meshfile: str,
 ) -> None:
@@ -149,6 +157,7 @@ def simple_2d(
         layers,
         2,
         subdivisions=nx1 // layers,
+        conform_to_bounds=not align_bounds,
     )
     write_nektar(m, 1, meshfile, 2, layers > 1 or periodic, periodic, compress)
     with open(meshfile, "a") as f:
