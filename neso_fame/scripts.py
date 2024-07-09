@@ -113,7 +113,7 @@ def _mesh_provenance() -> str:
     is_flag=True,
     default=False,
     help="Make the y-boundaries align with the magntic field.",
-    show_default=True
+    show_default=True,
 )
 @click.option(
     "--compress",

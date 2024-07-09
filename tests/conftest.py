@@ -750,6 +750,30 @@ def _hex_mesh_arguments(
     sorted_starts = sorted(
         sorted_starts[0:2], key=lambda x: tuple(reversed(x))
     ) + sorted(sorted_starts[2:4], key=lambda x: tuple(reversed(x)), reverse=True)
+    # Check that the quadrilateral from by the limits is convex (i.e.,
+    # that the Jacobian is nowhere 0)
+    aa = (sorted_starts[3][0] - sorted_starts[2][0]) * (
+        sorted_starts[1][1] - sorted_starts[0][1]
+    ) - (sorted_starts[3][1] - sorted_starts[2][1]) * (
+        sorted_starts[1][0] - sorted_starts[0][0]
+    )
+    bb = (sorted_starts[2][0] - sorted_starts[1][0]) * (
+        sorted_starts[3][1] - sorted_starts[0][1]
+    ) - (sorted_starts[2][1] - sorted_starts[1][1]) * (
+        sorted_starts[3][0] - sorted_starts[0][0]
+    )
+    cc = (sorted_starts[2][0] - sorted_starts[0][0]) * (
+        sorted_starts[3][1] - sorted_starts[1][1]
+    ) - (sorted_starts[2][1] - sorted_starts[0][1]) * (
+        sorted_starts[3][0] - sorted_starts[1][0]
+    )
+    J00 = np.sign(cc - aa - bb)
+    J10 = np.sign(cc + aa - bb)
+    J01 = np.sign(cc - aa + bb)
+    J11 = np.sign(cc + aa + bb)
+    if J00 != J10 or J00 != J01 or J00 != J11:
+        return None
+
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
     if c == mesh.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((lim[0] for lim in limits), 2)
