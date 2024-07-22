@@ -6,10 +6,12 @@ import numpy.typing as npt
 import pytest
 from hypothesis import given, settings
 from hypothesis.strategies import (
+    booleans,
     builds,
     floats,
     from_type,
     integers,
+    one_of,
     sampled_from,
     shared,
     tuples,
@@ -30,6 +32,7 @@ from .conftest import (
     cylindrical_field_trace,
     flat_sided_hex,
     linear_field_trace,
+    maybe_divide_hex,
     mesh_arguments,
     mutually_broadcastable_arrays,
     non_nans,
@@ -1250,6 +1253,43 @@ def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
     for _ in range(n):
         new_prism = new_prism.make_flat_faces()
         assert new_prism == flat_prism
+
+@settings(report_multiple_bugs=False)
+@given(
+    builds(
+        maybe_divide_hex,
+        one_of([flat_sided_hex]),#, curve_sided_hex]),
+        booleans(),
+    ).map(lambda x: x[0]),
+    integers(2, 10),
+)
+def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
+    system = p.corners().system
+    x = np.linspace(0.0, 1.0, n)
+    edgemap = {frozenset({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
+    directions = [
+        mesh.SliceCoords(x, np.asarray(0.0), system),
+        mesh.SliceCoords(np.asarray(1.0), x, system),
+        mesh.SliceCoords(np.asarray(0.0), x, system),
+    ]
+    if len(p.sides) == 4:
+        directions.append(mesh.SliceCoords(x, np.asarray(1.0), system))
+    termini: list[frozenset[mesh.SliceCoord]] = []
+    # Check that when a coord is 0 or 1 then it corresponds to one of
+    # the edges of the prism
+    for coords in directions:
+        actual = p.poloidal_map(coords)
+        ends = frozenset({actual[0], actual[-1]})
+        termini.append(ends)
+        expected = edgemap[ends]
+        if actual[0] == expected[0]:
+            sl = slice(None)
+        else:
+            sl = slice(None, None, -1)
+        np.testing.assert_allclose(actual.x1[sl], expected.x1, atol=1e-12)
+        np.testing.assert_allclose(actual.x2[sl], expected.x2, atol=1e-12)
+    # Check that each side of the prism has been covered
+    assert set(termini) == set(edgemap)
 
 
 @given(mesh_arguments)

@@ -905,6 +905,21 @@ class EndShape(LazilyOffsetable):
         )
 
 
+def _ensure_function_start_direction(
+    func: AcrossFieldCurve, start: SliceCoord
+) -> AcrossFieldCurve:
+    tmp1, tmp2 = func([0.0, 1.0]).iter_points()
+    if tmp1 == start:
+        return func
+    if tmp2 != start:
+        raise RuntimeError("Neither terminus of `func` is at `start`")
+    return _reverse(func)
+
+
+def _reverse(func: AcrossFieldCurve) -> AcrossFieldCurve:
+    return lambda x: func(1 - np.asarray(x))
+
+
 @dataclass(frozen=True)
 class Prism(LazilyOffsetable):
     """Representation of a triangular or rectangular (or other) prism.
@@ -918,7 +933,7 @@ class Prism(LazilyOffsetable):
        When creating a 6-face prism (hexahedron), the first two sides
        must be opposite each other (meaning that the final two sides will
        also be opposite each other). I should probably change this so that
-       they should be in order, instead
+       they should be in order, instead.
 
     Group
     -----
@@ -969,6 +984,247 @@ class Prism(LazilyOffsetable):
         else:
             for sides in zip(*(s.subdivide(num_divisions) for s in self.sides)):
                 yield Prism(sides)
+
+    @staticmethod
+    def _nonlinear_adjustment(
+        func: AcrossFieldCurve,
+        start: SliceCoord,
+        end: SliceCoord,
+        xref1: npt.NDArray,
+        xref2: npt.NDArray,
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """Subtract a linear function from a nonlinear one.
+
+        Values at the start and end will be zero 0.
+        """
+        x1, x2 = func(xref1)
+        return (
+            (x1 - start.x1 - (end.x1 - start.x1) * xref1) * xref2,
+            (x2 - start.x2 - (end.x2 - start.x2) * xref1) * xref2,
+        )
+
+    def _poloidal_map_tri(self, x_ref: SliceCoords) -> SliceCoords:
+        # Order sides so first one is linear, plus wrap functions so east and west start at south
+        try:
+            south = next(
+                iter(
+                    side
+                    for side in self.sides
+                    if isinstance(side.shape, StraightLineAcrossField)
+                )
+            )
+        except StopIteration:
+            raise NotImplementedError(
+                "Can not currently compute poloidal map for triangular prism where all sides are curved."
+            )
+        sw, se = south.shape([0.0, 1.0]).iter_points()
+        others = list(self.sides)
+        others.remove(south)
+        tmp1, tmp2 = others[0].shape([0.0, 1.0]).iter_points()
+
+        if tmp1 == sw:
+            west = west_initial = others[0].shape
+            north = tmp2
+            east_initial = others[1].shape
+            east = _ensure_function_start_direction(others[1].shape, se)
+        elif tmp2 == sw:
+            west_initial = others[0].shape
+            west = _reverse(others[0].shape)
+            north = tmp1
+            east_initial = others[1].shape
+            east = _ensure_function_start_direction(others[1].shape, se)
+        elif tmp1 == se:
+            east = east_initial = others[0].shape
+            north = tmp2
+            west_initial = others[1].shape
+            west = _ensure_function_start_direction(others[1].shape, sw)
+        elif tmp2 == se:
+            east_initial = others[0].shape
+            east = _reverse(others[0].shape)
+            north = tmp1
+            west_initial = others[1].shape
+            west = _ensure_function_start_direction(others[1].shape, sw)
+        else:
+            raise RuntimeError("Sides of triangular prism not conforming.")
+
+        # Compute result for linear element
+        real_x1 = (
+            sw.x1 * (1 - x_ref.x1) * (1 - x_ref.x2)
+            + se.x1 * x_ref.x1 * (1 - x_ref.x2)
+            + north.x1 * x_ref.x2
+        )
+        real_x2 = (
+            sw.x2 * (1 - x_ref.x1) * (1 - x_ref.x2)
+            + se.x2 * x_ref.x1 * (1 - x_ref.x2)
+            + north.x2 * x_ref.x2
+        )
+
+        # Adjust the result if east or west are no straight lines
+        if not isinstance(east_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                east, se, north, x_ref.x2, 1 - x_ref.x1
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        if not isinstance(west_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                west, sw, north, x_ref.x2, x_ref.x1
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        return SliceCoords(real_x1, real_x2, x_ref.system)
+
+    @staticmethod
+    def _poloidal_quad_order_edges(nx: SliceCoord, x0: SliceCoord, x1: SliceCoord, south0: SliceCoord, south1: SliceCoord, xcurve_initial: AcrossFieldCurve, scurve_initial: AcrossFieldCurve) -> tuple[SliceCoord, SliceCoord, AcrossFieldCurve, AcrossFieldCurve]:
+        if nx == x0:
+            sx = x1
+            xcurve = _reverse(xcurve_initial)
+        else:
+            sx = x0
+            xcurve = xcurve_initial
+        if south0 == sx:
+            sy = south1
+            scurve = scurve_initial
+        else:
+            sy = south0
+            scurve = _reverse(scurve_initial)
+        return sx, sy, xcurve, scurve
+
+
+    def _poloidal_map_quad(self, x_ref: SliceCoords) -> SliceCoords:
+        # Work out orientation of all sides
+        north_initial, south_initial, east_initial, west_initial = iter(
+            s.shape for s in self.sides
+        )
+        north0, north1 = north_initial([0.0, 1.0]).iter_points()
+        east0, east1 = east_initial([0.0, 1.0]).iter_points()
+        south0, south1 = south_initial([0.0, 1.0]).iter_points()
+        west0, west1 = west_initial([0.0, 1.0]).iter_points()
+        if north0 == east0:
+            ne = north0
+            nw = north1
+            north = _reverse(north_initial)
+            east = _reverse(east_initial)
+            if nw == west0:
+                sw = west1
+                west = _reverse(west_initial)
+            else:
+                sw = west0
+                west = west_initial
+            if south0 == sw:
+                se = south1
+                south = south_initial
+            else:
+                se = south0
+                south = _reverse(south_initial)
+        elif north0 == east1:
+            ne = north0
+            nw = north1
+            north = _reverse(north_initial)
+            east = east_initial
+            if nw == west0:
+                sw = west1
+                west = _reverse(west_initial)
+            else:
+                sw = west0
+                west = west_initial
+            if south0 == sw:
+                se = south1
+                south = south_initial
+            else:
+                se = south0
+                south = _reverse(south_initial)
+        elif north0 == west0:
+            ne = north1
+            nw = north0
+            north = north_initial
+            west = _reverse(west_initial)
+            if ne == east0:
+                se = east1
+                east = _reverse(east_initial)
+            else:
+                se = east0
+                east = east_initial
+            if south0 == se:
+                sw = south1
+                south = _reverse(south_initial)
+            else:
+                sw = south0
+                south = south_initial
+        else:
+            assert north0 == west1
+            ne = north1
+            nw = north0
+            north = north_initial
+            west = west_initial
+            if ne == east0:
+                se = east1
+                east = _reverse(east_initial)
+            else:
+                se = east0
+                east = east_initial
+            if south0 == se:
+                sw = south1
+                south = _reverse(south_initial)
+            else:
+                sw = south0
+                south = south_initial
+        # Compute result for linear element
+        real_x1 = (
+            sw.x1 * (1 - x_ref.x1) * (1 - x_ref.x2)
+            + se.x1 * x_ref.x1 * (1 - x_ref.x2)
+            + nw.x1 * (1 - x_ref.x1) * x_ref.x2
+            + ne.x1 * x_ref.x1 * x_ref.x2
+        )
+        real_x2 = (
+            sw.x2 * (1 - x_ref.x1) * (1 - x_ref.x2)
+            + se.x2 * x_ref.x1 * (1 - x_ref.x2)
+            + nw.x2 * (1 - x_ref.x1) * x_ref.x2
+            + ne.x2 * x_ref.x1 * x_ref.x2
+        )
+        print(real_x1, real_x2)
+        # Adjust the result for any edges that are not straight lines
+        if not isinstance(north_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                north, nw, ne, x_ref.x1, x_ref.x2
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        if not isinstance(south_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                south, sw, se, x_ref.x1, 1 - x_ref.x2
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        if not isinstance(east_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                east, se, ne, x_ref.x2, 1 - x_ref.x1
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        if not isinstance(west_initial, StraightLineAcrossField):
+            x1_adj, x2_adj = self._nonlinear_adjustment(
+                west, sw, nw, x_ref.x2, x_ref.x1
+            )
+            real_x1 += x1_adj
+            real_x2 += x2_adj
+        return SliceCoords(real_x1, real_x2, x_ref.system)
+
+    def poloidal_map(self, x_ref: SliceCoords) -> SliceCoords:
+        r"""Calculate positions on the poloidal cross-section of this prism.
+
+        Converts between reference coordinates :math:`\vec{x}_{\rm in}
+        \in [0, 1]\times[0, 1]` to coordinates in real space.
+
+        """
+        if len(self.sides) > 4:
+            raise NotImplementedError(
+                "Mapping only implemented for triangular and rectangular prisms"
+            )
+        elif len(self.sides) == 3:
+            return self._poloidal_map_tri(x_ref)
+        else:
+            return self._poloidal_map_quad(x_ref)
 
     def make_flat_faces(self) -> Prism:
         """Create a new prism where sides don't curve in the poloidal plane."""

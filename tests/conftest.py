@@ -869,6 +869,40 @@ def _hex_mesh_arguments(
     return result
 
 
+def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
+    v1 = {
+        (q1.shape(0.0).to_coord(), q1.north_start_weight),
+        (q1.shape(1.0).to_coord(), q1.south_start_weight),
+    }
+    v2 = {
+        (q2.shape(0.0).to_coord(), q2.north_start_weight),
+        (q2.shape(1.0).to_coord(), q2.south_start_weight),
+    }
+    point1 = next(iter(v1 - v2))
+    point2 = next(iter(v2 - v1))
+    return mesh.Quad(
+        mesh.StraightLineAcrossField(point1[0], point2[0]),
+        q1.field,
+        q1.dx3,
+        q1.subdivision,
+        q1.num_divisions,
+        point1[1],
+        point2[1],
+    )
+
+
+def maybe_divide_hex(hexa: mesh.Prism, divide: bool) -> tuple[mesh.Prism, ...]:
+    if divide:
+        sides = hexa.sides
+        assert len(sides) == 4
+        new_quad = get_connecting_quad(sides[3], sides[0])
+        return (
+            mesh.Prism((sides[0], new_quad, sides[3])),
+            mesh.Prism((sides[2], new_quad, sides[1])),
+        )
+    return (hexa,)
+
+
 @composite
 def _hex_and_tri_prism_arguments(
     draw: Any, args: Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]
@@ -876,38 +910,6 @@ def _hex_and_tri_prism_arguments(
     """Split some of the elements in a hex-mesh into triangular prisms."""
     if args is None:
         return None
-
-    def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
-        v1 = {
-            (q1.shape(0.0).to_coord(), q1.north_start_weight),
-            (q1.shape(1.0).to_coord(), q1.south_start_weight),
-        }
-        v2 = {
-            (q2.shape(0.0).to_coord(), q2.north_start_weight),
-            (q2.shape(1.0).to_coord(), q2.south_start_weight),
-        }
-        point1 = next(iter(v1 - v2))
-        point2 = next(iter(v2 - v1))
-        return mesh.Quad(
-            mesh.StraightLineAcrossField(point1[0], point2[0]),
-            q1.field,
-            q1.dx3,
-            q1.subdivision,
-            q1.num_divisions,
-            point1[1],
-            point2[1],
-        )
-
-    def maybe_divide_hex(hexa: mesh.Prism, divide: bool) -> tuple[mesh.Prism, ...]:
-        if divide:
-            sides = hexa.sides
-            assert len(sides) == 4
-            new_quad = get_connecting_quad(sides[3], sides[0])
-            return (
-                mesh.Prism((sides[0], new_quad, sides[3])),
-                mesh.Prism((sides[2], new_quad, sides[1])),
-            )
-        return (hexa,)
 
     elements, bounds = args
     n = len(elements)
@@ -1256,8 +1258,11 @@ register_type_strategy(
 )
 
 flat_sided_hex = one_of(linear_hex, nonlinear_hex)
-curve_sided_hex = builds(higher_dim_hex, linear_hex, floats(-np.pi, np.pi)).filter(
-    lambda x: x is not None
+curve_sided_hex = cast(
+    SearchStrategy[mesh.Prism],
+    builds(higher_dim_hex, linear_hex, floats(-np.pi, np.pi)).filter(
+        lambda x: x is not None
+    ),
 )
 flat_sided_prism = one_of(linear_prism, nonlinear_prism)
 register_type_strategy(mesh.Prism, one_of(flat_sided_hex, flat_sided_prism))
