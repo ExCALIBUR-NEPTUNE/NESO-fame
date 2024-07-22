@@ -1075,7 +1075,15 @@ class Prism(LazilyOffsetable):
         return SliceCoords(real_x1, real_x2, x_ref.system)
 
     @staticmethod
-    def _poloidal_quad_order_edges(nx: SliceCoord, x0: SliceCoord, x1: SliceCoord, south0: SliceCoord, south1: SliceCoord, xcurve_initial: AcrossFieldCurve, scurve_initial: AcrossFieldCurve) -> tuple[SliceCoord, SliceCoord, AcrossFieldCurve, AcrossFieldCurve]:
+    def _poloidal_quad_order_edges(
+        nx: SliceCoord,
+        x0: SliceCoord,
+        x1: SliceCoord,
+        south0: SliceCoord,
+        south1: SliceCoord,
+        xcurve_initial: AcrossFieldCurve,
+        scurve_initial: AcrossFieldCurve,
+    ) -> tuple[SliceCoord, SliceCoord, AcrossFieldCurve, AcrossFieldCurve]:
         if nx == x0:
             sx = x1
             xcurve = _reverse(xcurve_initial)
@@ -1089,7 +1097,6 @@ class Prism(LazilyOffsetable):
             sy = south0
             scurve = _reverse(scurve_initial)
         return sx, sy, xcurve, scurve
-
 
     def _poloidal_map_quad(self, x_ref: SliceCoords) -> SliceCoords:
         # Work out orientation of all sides
@@ -1105,70 +1112,34 @@ class Prism(LazilyOffsetable):
             nw = north1
             north = _reverse(north_initial)
             east = _reverse(east_initial)
-            if nw == west0:
-                sw = west1
-                west = _reverse(west_initial)
-            else:
-                sw = west0
-                west = west_initial
-            if south0 == sw:
-                se = south1
-                south = south_initial
-            else:
-                se = south0
-                south = _reverse(south_initial)
+            sw, se, west, south = self._poloidal_quad_order_edges(
+                nw, west0, west1, south0, south1, west_initial, south_initial
+            )
         elif north0 == east1:
             ne = north0
             nw = north1
             north = _reverse(north_initial)
             east = east_initial
-            if nw == west0:
-                sw = west1
-                west = _reverse(west_initial)
-            else:
-                sw = west0
-                west = west_initial
-            if south0 == sw:
-                se = south1
-                south = south_initial
-            else:
-                se = south0
-                south = _reverse(south_initial)
+            sw, se, west, south = self._poloidal_quad_order_edges(
+                nw, west0, west1, south0, south1, west_initial, south_initial
+            )
         elif north0 == west0:
             ne = north1
             nw = north0
             north = north_initial
             west = _reverse(west_initial)
-            if ne == east0:
-                se = east1
-                east = _reverse(east_initial)
-            else:
-                se = east0
-                east = east_initial
-            if south0 == se:
-                sw = south1
-                south = _reverse(south_initial)
-            else:
-                sw = south0
-                south = south_initial
+            se, sw, east, south = self._poloidal_quad_order_edges(
+                ne, east0, east1, south0, south1, east_initial, south_initial
+            )
         else:
             assert north0 == west1
             ne = north1
             nw = north0
             north = north_initial
             west = west_initial
-            if ne == east0:
-                se = east1
-                east = _reverse(east_initial)
-            else:
-                se = east0
-                east = east_initial
-            if south0 == se:
-                sw = south1
-                south = _reverse(south_initial)
-            else:
-                sw = south0
-                south = south_initial
+            se, sw, east, south = self._poloidal_quad_order_edges(
+                ne, east0, east1, south0, south1, east_initial, south_initial
+            )
         # Compute result for linear element
         real_x1 = (
             sw.x1 * (1 - x_ref.x1) * (1 - x_ref.x2)
@@ -1182,7 +1153,6 @@ class Prism(LazilyOffsetable):
             + nw.x2 * (1 - x_ref.x1) * x_ref.x2
             + ne.x2 * x_ref.x1 * x_ref.x2
         )
-        print(real_x1, real_x2)
         # Adjust the result for any edges that are not straight lines
         if not isinstance(north_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
