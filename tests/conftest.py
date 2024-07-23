@@ -647,6 +647,21 @@ def make_arc(
 
     return curve
 
+def offset_straight_line(line: mesh.StraightLineAcrossField, magnitude: float) -> mesh.AcrossFieldCurve:
+    if magnitude == 0:
+        return line
+    dx1 = line.north.x1 - line.south.x1
+    dx2 = line.north.x2 - line.south.x2
+    norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
+    perp = [dx2 / norm, -dx1/norm]
+
+    def result(s: npt.ArrayLike) -> mesh.SliceCoords:
+        s = np.asarray(s)
+        linear = line(s)
+        t = magnitude * s * (1-s)
+        return mesh.SliceCoords(linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system)
+
+    return result
 
 def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     # This assumes that dx3/ds is an even function about the starting
@@ -671,14 +686,12 @@ def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     )
 
 
-def higher_dim_hex(h: mesh.Prism, angle: float) -> Optional[mesh.Prism]:
-    # This assumes that dx3/ds is an even function about the starting
-    # x3 point from which the bounding field lines were projected
+def higher_dim_hex(h: mesh.Prism, magnitudes: list[float]) -> Optional[mesh.Prism]:
     try:
         new_quads = tuple(
             Offset(
                 mesh.Quad(
-                    make_arc(q.shape(0.0), q.shape(1.0), angle),
+                    offset_straight_line(q.shape, m),
                     q.field,
                     q.dx3,
                     q.subdivision,
@@ -686,9 +699,10 @@ def higher_dim_hex(h: mesh.Prism, angle: float) -> Optional[mesh.Prism]:
                 ),
                 x3,
             )
-            for q, x3 in zip(
+            for q, x3, m in zip(
                 map(methodcaller("get_underlying_object"), h),
                 map(attrgetter("x3_offset"), h),
+                itertools.chain(magnitudes, itertools.repeat(0))
             )
         )
     except ValueError:
@@ -1260,7 +1274,7 @@ register_type_strategy(
 flat_sided_hex = one_of(linear_hex, nonlinear_hex)
 curve_sided_hex = cast(
     SearchStrategy[mesh.Prism],
-    builds(higher_dim_hex, linear_hex, floats(-np.pi, np.pi)).filter(
+    builds(higher_dim_hex, linear_hex, lists(floats(-0.05, 0.05), max_size=4)).filter(
         lambda x: x is not None
     ),
 )

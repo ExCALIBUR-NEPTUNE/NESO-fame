@@ -1075,7 +1075,7 @@ class Prism(LazilyOffsetable):
         return SliceCoords(real_x1, real_x2, x_ref.system)
 
     @staticmethod
-    def _poloidal_quad_order_edges(
+    def _poloidal_quad_order_remaining_edges(
         nx: SliceCoord,
         x0: SliceCoord,
         x1: SliceCoord,
@@ -1083,6 +1083,7 @@ class Prism(LazilyOffsetable):
         south1: SliceCoord,
         xcurve_initial: AcrossFieldCurve,
         scurve_initial: AcrossFieldCurve,
+        x_at_start: bool,
     ) -> tuple[SliceCoord, SliceCoord, AcrossFieldCurve, AcrossFieldCurve]:
         if nx == x0:
             sx = x1
@@ -1092,10 +1093,16 @@ class Prism(LazilyOffsetable):
             xcurve = xcurve_initial
         if south0 == sx:
             sy = south1
-            scurve = scurve_initial
+            if x_at_start:
+                scurve = scurve_initial
+            else:
+                scurve = _reverse(scurve_initial)
         else:
             sy = south0
-            scurve = _reverse(scurve_initial)
+            if x_at_start:
+                scurve = _reverse(scurve_initial)
+            else:
+                scurve = scurve_initial
         return sx, sy, xcurve, scurve
 
     def _poloidal_map_quad(self, x_ref: SliceCoords) -> SliceCoords:
@@ -1112,24 +1119,24 @@ class Prism(LazilyOffsetable):
             nw = north1
             north = _reverse(north_initial)
             east = _reverse(east_initial)
-            sw, se, west, south = self._poloidal_quad_order_edges(
-                nw, west0, west1, south0, south1, west_initial, south_initial
+            sw, se, west, south = self._poloidal_quad_order_remaining_edges(
+                nw, west0, west1, south0, south1, west_initial, south_initial, True
             )
         elif north0 == east1:
             ne = north0
             nw = north1
             north = _reverse(north_initial)
             east = east_initial
-            sw, se, west, south = self._poloidal_quad_order_edges(
-                nw, west0, west1, south0, south1, west_initial, south_initial
+            sw, se, west, south = self._poloidal_quad_order_remaining_edges(
+                nw, west0, west1, south0, south1, west_initial, south_initial, True
             )
         elif north0 == west0:
             ne = north1
             nw = north0
             north = north_initial
             west = _reverse(west_initial)
-            se, sw, east, south = self._poloidal_quad_order_edges(
-                ne, east0, east1, south0, south1, east_initial, south_initial
+            se, sw, east, south = self._poloidal_quad_order_remaining_edges(
+                ne, east0, east1, south0, south1, east_initial, south_initial, False
             )
         else:
             assert north0 == west1
@@ -1137,8 +1144,8 @@ class Prism(LazilyOffsetable):
             nw = north0
             north = north_initial
             west = west_initial
-            se, sw, east, south = self._poloidal_quad_order_edges(
-                ne, east0, east1, south0, south1, east_initial, south_initial
+            se, sw, east, south = self._poloidal_quad_order_remaining_edges(
+                ne, east0, east1, south0, south1, east_initial, south_initial, False
             )
         # Compute result for linear element
         real_x1 = (

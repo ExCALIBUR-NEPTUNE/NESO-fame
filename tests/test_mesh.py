@@ -28,6 +28,7 @@ from .conftest import (
     _hex_mesh_arguments,
     _quad_mesh_elements,
     coordinate_systems,
+    curve_sided_hex,
     cylindrical_field_line,
     cylindrical_field_trace,
     flat_sided_hex,
@@ -1254,11 +1255,12 @@ def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
         new_prism = new_prism.make_flat_faces()
         assert new_prism == flat_prism
 
+
 @settings(report_multiple_bugs=False)
 @given(
     builds(
         maybe_divide_hex,
-        one_of([flat_sided_hex]),#, curve_sided_hex]),
+        one_of([flat_sided_hex, curve_sided_hex]),
         booleans(),
     ).map(lambda x: x[0]),
     integers(2, 10),
