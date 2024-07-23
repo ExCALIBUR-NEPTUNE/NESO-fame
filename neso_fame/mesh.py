@@ -1062,13 +1062,13 @@ class Prism(LazilyOffsetable):
         # Adjust the result if east or west are no straight lines
         if not isinstance(east_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, north, x_ref.x2, 1 - x_ref.x1
+                east, se, north, x_ref.x2, x_ref.x1
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, north, x_ref.x2, x_ref.x1
+                west, sw, north, x_ref.x2, 1 - x_ref.x1
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
@@ -1175,13 +1175,13 @@ class Prism(LazilyOffsetable):
             real_x2 += x2_adj
         if not isinstance(east_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, ne, x_ref.x2, 1 - x_ref.x1
+                east, se, ne, x_ref.x2, x_ref.x1
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, nw, x_ref.x2, x_ref.x1
+                west, sw, nw, x_ref.x2, 1 - x_ref.x1
             )
             real_x1 += x1_adj
             real_x2 += x2_adj

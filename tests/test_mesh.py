@@ -1,5 +1,5 @@
 import itertools
-from typing import Iterable, Type, cast
+from typing import Any, Iterable, Type, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -8,10 +8,13 @@ from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
     builds,
+    composite,
     floats,
     from_type,
     integers,
+    lists,
     one_of,
+    permutations,
     sampled_from,
     shared,
     tuples,
@@ -1256,13 +1259,29 @@ def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
         assert new_prism == flat_prism
 
 
+@composite
+def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
+    if len(p.sides) == 3:
+        sides: list[mesh.Quad] = draw(permutations(p.sides))
+    else:
+        assert len(p.sides) == 4
+        sides = list(itertools.chain.from_iterable(draw(permutations([draw(permutations(p.sides[:2])), draw(permutations(p.sides[2:]))]))))
+    reverse = draw(lists(booleans(), min_size=len(p.sides), max_size=len(p.sides)))
+
+    def reverse_shape(q: mesh.Quad) -> mesh.Quad:
+        if isinstance(q.shape, mesh.StraightLineAcrossField):
+            return mesh.Quad(mesh.StraightLineAcrossField(q.shape.south, q.shape.north), q.field, q.dx3, q.subdivision, q.num_divisions, q.south_start_weight, q.north_start_weight)
+        return mesh.Quad(lambda x: q.shape(1 - np.asarray(x)),  q.field, q.dx3, q.subdivision, q.num_divisions, q.south_start_weight, q.north_start_weight)
+
+    return mesh.Prism(tuple(reverse_shape(q) if rev else q for q, rev in zip(sides, reverse)))
+
 @settings(report_multiple_bugs=False)
 @given(
     builds(
         maybe_divide_hex,
         one_of([flat_sided_hex, curve_sided_hex]),
         booleans(),
-    ).map(lambda x: x[0]),
+    ).map(lambda x: x[0]).flatmap(_randomise_edges),
     integers(2, 10),
 )
 def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
