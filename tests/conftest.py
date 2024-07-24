@@ -647,21 +647,27 @@ def make_arc(
 
     return curve
 
-def offset_straight_line(line: mesh.StraightLineAcrossField, magnitude: float) -> mesh.AcrossFieldCurve:
+
+def offset_straight_line(
+    line: mesh.StraightLineAcrossField, magnitude: float
+) -> mesh.AcrossFieldCurve:
     if magnitude == 0:
         return line
     dx1 = line.north.x1 - line.south.x1
     dx2 = line.north.x2 - line.south.x2
     norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
-    perp = [dx2 / norm, -dx1/norm]
+    perp = [dx2 / norm, -dx1 / norm]
 
     def result(s: npt.ArrayLike) -> mesh.SliceCoords:
         s = np.asarray(s)
         linear = line(s)
-        t = 4 * magnitude * s * (1-s)
-        return mesh.SliceCoords(linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system)
+        t = 4 * magnitude * s * (1 - s)
+        return mesh.SliceCoords(
+            linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system
+        )
 
     return result
+
 
 def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     # This assumes that dx3/ds is an even function about the starting
@@ -702,7 +708,7 @@ def higher_dim_hex(h: mesh.Prism, magnitudes: list[float]) -> Optional[mesh.Pris
             for q, x3, m in zip(
                 map(methodcaller("get_underlying_object"), h),
                 map(attrgetter("x3_offset"), h),
-                itertools.chain(magnitudes, itertools.repeat(0))
+                itertools.chain(magnitudes, itertools.repeat(0)),
             )
         )
     except ValueError:
