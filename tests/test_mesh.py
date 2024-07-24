@@ -1372,7 +1372,7 @@ def wedge_hex_profile(
             xt, xr = s
         return polar_coords(r0 + (r1 - r0) * xr, theta0 + dtheta * xt, s.system)
 
-    radials = [
+    radials: list[mesh.AcrossFieldCurve] = [
         mesh.StraightLineAcrossField(
             *polar_coords(
                 np.array([r0, r1]), np.array(theta0 + dtheta), system
@@ -1382,7 +1382,7 @@ def wedge_hex_profile(
             *polar_coords(np.array([r0, r1]), np.array(theta0), system).iter_points()
         ),
     ]
-    arcs = [
+    arcs: list[mesh.AcrossFieldCurve] = [
         lambda s: polar_coords(r1, theta0 + dtheta * np.asarray(s), system),
         lambda s: polar_coords(r0, theta0 + dtheta * np.asarray(s), system),
     ]
@@ -1418,10 +1418,10 @@ def test_prism_poloidal_map_internal(
     system: mesh.CoordinateSystem,
 ) -> None:
     p, expected_func = prism_expected
-    x_in = mesh.SliceCoords(
-        *np.meshgrid(np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, m), sparse=True),
-        system,
+    x1, x2 = np.meshgrid(
+        np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, m), sparse=True
     )
+    x_in = mesh.SliceCoords(x1, x2, system)
     actual = p.poloidal_map(x_in)
     expected = expected_func(x_in)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
