@@ -658,7 +658,7 @@ def offset_straight_line(line: mesh.StraightLineAcrossField, magnitude: float) -
     def result(s: npt.ArrayLike) -> mesh.SliceCoords:
         s = np.asarray(s)
         linear = line(s)
-        t = magnitude * s * (1-s)
+        t = 4 * magnitude * s * (1-s)
         return mesh.SliceCoords(linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system)
 
     return result

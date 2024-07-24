@@ -1188,7 +1188,7 @@ class Prism(LazilyOffsetable):
         return SliceCoords(real_x1, real_x2, x_ref.system)
 
     def poloidal_map(self, x_ref: SliceCoords) -> SliceCoords:
-        r"""Calculate positions on the poloidal cross-section of this prism.
+        r"""Calculate positions on the poloidal (x3) cross-section of this prism.
 
         Converts between reference coordinates :math:`\vec{x}_{\rm in}
         \in [0, 1]\times[0, 1]` to coordinates in real space.
