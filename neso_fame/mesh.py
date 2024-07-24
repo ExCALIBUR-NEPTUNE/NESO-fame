@@ -1003,7 +1003,7 @@ class Prism(LazilyOffsetable):
             (x2 - start.x2 - (end.x2 - start.x2) * xref1) * xref2,
         )
 
-    def _poloidal_map_tri(self, x_ref: SliceCoords) -> SliceCoords:
+    def _poloidal_map_tri(self, s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
         # Order sides so first one is linear, plus wrap functions so east and west start at south
         try:
             south = next(
@@ -1048,31 +1048,33 @@ class Prism(LazilyOffsetable):
             raise RuntimeError("Sides of triangular prism not conforming.")
 
         # Compute result for linear element
+        s = np.asarray(s)
+        t = np.asarray(t)
         real_x1 = (
-            sw.x1 * (1 - x_ref.x1) * (1 - x_ref.x2)
-            + se.x1 * x_ref.x1 * (1 - x_ref.x2)
-            + north.x1 * x_ref.x2
+            sw.x1 * (1 - s) * (1 - t)
+            + se.x1 * s * (1 - t)
+            + north.x1 * t
         )
         real_x2 = (
-            sw.x2 * (1 - x_ref.x1) * (1 - x_ref.x2)
-            + se.x2 * x_ref.x1 * (1 - x_ref.x2)
-            + north.x2 * x_ref.x2
+            sw.x2 * (1 - s) * (1 - t)
+            + se.x2 * s * (1 - t)
+            + north.x2 * t
         )
 
         # Adjust the result if east or west are no straight lines
         if not isinstance(east_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, north, x_ref.x2, x_ref.x1
+                east, se, north, t, s
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, north, x_ref.x2, 1 - x_ref.x1
+                west, sw, north, t, 1 - s
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
-        return SliceCoords(real_x1, real_x2, x_ref.system)
+        return SliceCoords(real_x1, real_x2, sw.system)
 
     @staticmethod
     def _poloidal_quad_order_remaining_edges(
@@ -1105,7 +1107,7 @@ class Prism(LazilyOffsetable):
                 scurve = scurve_initial
         return sx, sy, xcurve, scurve
 
-    def _poloidal_map_quad(self, x_ref: SliceCoords) -> SliceCoords:
+    def _poloidal_map_quad(self, s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
         # Work out orientation of all sides
         north_initial, south_initial, east_initial, west_initial = iter(
             s.shape for s in self.sides
@@ -1147,51 +1149,54 @@ class Prism(LazilyOffsetable):
             se, sw, east, south = self._poloidal_quad_order_remaining_edges(
                 ne, east0, east1, south0, south1, east_initial, south_initial, False
             )
+
         # Compute result for linear element
+        s = np.asarray(s)
+        t = np.asarray(t)
         real_x1 = (
-            sw.x1 * (1 - x_ref.x1) * (1 - x_ref.x2)
-            + se.x1 * x_ref.x1 * (1 - x_ref.x2)
-            + nw.x1 * (1 - x_ref.x1) * x_ref.x2
-            + ne.x1 * x_ref.x1 * x_ref.x2
+            sw.x1 * (1 - s) * (1 - t)
+            + se.x1 * s * (1 - t)
+            + nw.x1 * (1 - s) * t
+            + ne.x1 * s * t
         )
         real_x2 = (
-            sw.x2 * (1 - x_ref.x1) * (1 - x_ref.x2)
-            + se.x2 * x_ref.x1 * (1 - x_ref.x2)
-            + nw.x2 * (1 - x_ref.x1) * x_ref.x2
-            + ne.x2 * x_ref.x1 * x_ref.x2
+            sw.x2 * (1 - s) * (1 - t)
+            + se.x2 * s * (1 - t)
+            + nw.x2 * (1 - s) * t
+            + ne.x2 * s * t
         )
         # Adjust the result for any edges that are not straight lines
         if not isinstance(north_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                north, nw, ne, x_ref.x1, x_ref.x2
+                north, nw, ne, s, t
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(south_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                south, sw, se, x_ref.x1, 1 - x_ref.x2
+                south, sw, se, s, 1 - t
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(east_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, ne, x_ref.x2, x_ref.x1
+                east, se, ne, t, s
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
             x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, nw, x_ref.x2, 1 - x_ref.x1
+                west, sw, nw, t, 1 - s
             )
             real_x1 += x1_adj
             real_x2 += x2_adj
-        return SliceCoords(real_x1, real_x2, x_ref.system)
+        return SliceCoords(real_x1, real_x2, sw.system)
 
-    def poloidal_map(self, x_ref: SliceCoords) -> SliceCoords:
+    def poloidal_map(self, s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
         r"""Calculate positions on the poloidal (x3) cross-section of this prism.
 
-        Converts between reference coordinates :math:`\vec{x}_{\rm in}
-        \in [0, 1]\times[0, 1]` to coordinates in real space.
+        Converts between reference coordinates :math:`s, t
+        \in [0, 1]` to coordinates in real space.
 
         """
         if len(self.sides) > 4:
@@ -1199,9 +1204,9 @@ class Prism(LazilyOffsetable):
                 "Mapping only implemented for triangular and rectangular prisms"
             )
         elif len(self.sides) == 3:
-            return self._poloidal_map_tri(x_ref)
+            return self._poloidal_map_tri(s, t)
         else:
-            return self._poloidal_map_quad(x_ref)
+            return self._poloidal_map_quad(s, t)
 
     def make_flat_faces(self) -> Prism:
         """Create a new prism where sides don't curve in the poloidal plane."""

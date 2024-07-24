@@ -1321,21 +1321,20 @@ def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
     integers(2, 10),
 )
 def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
-    system = p.corners().system
     x = np.linspace(0.0, 1.0, n)
     edgemap = {frozenset({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
     directions = [
-        mesh.SliceCoords(x, np.asarray(0.0), system),
-        mesh.SliceCoords(np.asarray(1.0), x, system),
-        mesh.SliceCoords(np.asarray(0.0), x, system),
+        (x, np.asarray(0.)),
+        (np.asarray(1.0), x),
+        (np.asarray(0.0), x),
     ]
     if len(p.sides) == 4:
-        directions.append(mesh.SliceCoords(x, np.asarray(1.0), system))
+        directions.append((x, np.asarray(1.0)))
     termini: list[frozenset[mesh.SliceCoord]] = []
     # Check that when a coord is 0 or 1 then it corresponds to one of
     # the edges of the prism
     for coords in directions:
-        actual = p.poloidal_map(coords)
+        actual = p.poloidal_map(*coords)
         ends = frozenset({actual[0], actual[-1]})
         termini.append(ends)
         expected = edgemap[ends]
@@ -1356,35 +1355,36 @@ def wedge_hex_profile(
     dtheta: float,
     system: mesh.CoordinateSystem,
     x1_r: bool,
-) -> tuple[mesh.Prism, Callable[[mesh.SliceCoords], mesh.SliceCoords]]:
-    print(r0, r1, theta0, theta0 + dtheta, system, x1_r)
+) -> tuple[mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]]:
 
     def polar_coords(
-        r: npt.ArrayLike, theta: npt.ArrayLike, system: mesh.CoordinateSystem
+        r: npt.ArrayLike, theta: npt.ArrayLike,
     ) -> mesh.SliceCoords:
         r = np.asarray(r)
         return mesh.SliceCoords(r * np.cos(theta), r * np.sin(theta), system)
 
-    def expected_mapping(s: mesh.SliceCoords) -> mesh.SliceCoords:
+    def expected_mapping(s: npt.ArrayLike, t: npt.ArrayLike) -> mesh.SliceCoords:
         if x1_r:
-            xr, xt = s
+            xr = np.asarray(s)
+            xt = np.asarray(t)
         else:
-            xt, xr = s
-        return polar_coords(r0 + (r1 - r0) * xr, theta0 + dtheta * xt, s.system)
+            xr = np.asarray(t)
+            xt = np.asarray(s)
+        return polar_coords(r0 + (r1 - r0) * xr, theta0 + dtheta * xt)
 
     radials: list[mesh.AcrossFieldCurve] = [
         mesh.StraightLineAcrossField(
             *polar_coords(
-                np.array([r0, r1]), np.array(theta0 + dtheta), system
+                np.array([r0, r1]), np.array(theta0 + dtheta),
             ).iter_points()
         ),
         mesh.StraightLineAcrossField(
-            *polar_coords(np.array([r0, r1]), np.array(theta0), system).iter_points()
+            *polar_coords(np.array([r0, r1]), np.array(theta0)).iter_points()
         ),
     ]
     arcs: list[mesh.AcrossFieldCurve] = [
-        lambda s: polar_coords(r1, theta0 + dtheta * np.asarray(s), system),
-        lambda s: polar_coords(r0, theta0 + dtheta * np.asarray(s), system),
+        lambda s: polar_coords(r1, theta0 + dtheta * np.asarray(s)),
+        lambda s: polar_coords(r0, theta0 + dtheta * np.asarray(s)),
     ]
     if x1_r:
         shapes = radials + arcs
@@ -1404,26 +1404,23 @@ def wedge_hex_profile(
         floats(-0.25, 10.0).map(lambda x: x + 0.5),
         floats(0.0, 2 * np.pi),
         floats(-1.5 * np.pi, 0.5 * np.pi).map(lambda x: x + 0.5 * np.pi),
-        shared_coordinate_systems,
+        coordinate_systems,
         booleans(),
     ),
     integers(3, 10),
     integers(3, 10),
-    shared_coordinate_systems,
 )
 def test_prism_poloidal_map_internal(
-    prism_expected: tuple[mesh.Prism, Callable[[mesh.SliceCoords], mesh.SliceCoords]],
+    prism_expected: tuple[mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]],
     n: int,
     m: int,
-    system: mesh.CoordinateSystem,
 ) -> None:
     p, expected_func = prism_expected
     x1, x2 = np.meshgrid(
         np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, m), sparse=True
     )
-    x_in = mesh.SliceCoords(x1, x2, system)
-    actual = p.poloidal_map(x_in)
-    expected = expected_func(x_in)
+    actual = p.poloidal_map(x1, x2)
+    expected = expected_func(x1, x2)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
 
@@ -1485,16 +1482,13 @@ def make_symmetric_curved_prism(
         floats(-0.1, 0.1).filter(bool),
     ).flatmap(lambda x: tuples(_randomise_edges(x[0]), just(x[1]))),
     integers(3, 12),
-    shared_coordinate_systems,
 )
 def test_prism_poloidal_map_symmetric(
     prism_expected: tuple[mesh.Prism, mesh.AcrossFieldCurve],
     n: int,
-    system: mesh.CoordinateSystem,
 ) -> None:
     p, exp_func = prism_expected
-    coords = mesh.SliceCoords(np.asarray(0.5), np.linspace(0, 1, n), system)
-    actual = p.poloidal_map(coords)
+    actual = p.poloidal_map(np.asarray(0.5), np.linspace(0, 1, n))
     x1_0, x2_0 = exp_func(0)
     x1_1, x2_1 = exp_func(1)
     # Check the points of the result fall on a straight line
