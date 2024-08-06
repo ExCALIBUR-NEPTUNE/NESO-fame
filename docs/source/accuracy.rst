@@ -168,27 +168,3 @@ Nektar++ will only provide the desired order of accuracy if
    \vec{x}}{\partial\xi_1^2\partial\xi_2^2\partial\xi_3^2} = 0.
 
 
-Test Problem
-------------
-
-A simple 2D test problem that can be used to test the accuracy of
-different meshes is one with magnetic field
-
-.. math::
-   \hat{b} = \begin{bmatrix}
-       \cos\left(\theta(x_2)\right) \\
-       \sin\left(\theta(x_2)\right)
-   \end{bmatrix}
-
-with
-
-.. math::
-   \theta(x_2) = \theta_0\sin\left(\frac{2n\pi}{x_{2,1} - x_{2,0}}
-   x_2\right).
-
-Here, :math:`\theta_0` indicates the magnitude of variation in the
-field direction, :math:`n` represents the frequency of variation, and
-:math:`x_{2,0}, x_{2, 1}` represent the lower and upper bounds in the
-:math:`x_2` direction, respectively. It is recommended to keep
-:math:`\theta_0\lesssim \pi/4`, to avoid introducing too much
-curvature to the field-aligned coordinates.
