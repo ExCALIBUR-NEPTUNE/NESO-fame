@@ -35,3 +35,10 @@ Tokamaks with elements aligned with magnetic field lines. Read the
    :hidden:
 
    api
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Accuracy in Nektar++
+   :hidden:
+
+   accuracy
