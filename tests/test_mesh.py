@@ -1324,7 +1324,7 @@ def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
     x = np.linspace(0.0, 1.0, n)
     edgemap = {frozenset({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
     directions = [
-        (x, np.asarray(0.)),
+        (x, np.asarray(0.0)),
         (np.asarray(1.0), x),
         (np.asarray(0.0), x),
     ]
@@ -1356,9 +1356,9 @@ def wedge_hex_profile(
     system: mesh.CoordinateSystem,
     x1_r: bool,
 ) -> tuple[mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]]:
-
     def polar_coords(
-        r: npt.ArrayLike, theta: npt.ArrayLike,
+        r: npt.ArrayLike,
+        theta: npt.ArrayLike,
     ) -> mesh.SliceCoords:
         r = np.asarray(r)
         return mesh.SliceCoords(r * np.cos(theta), r * np.sin(theta), system)
@@ -1375,7 +1375,8 @@ def wedge_hex_profile(
     radials: list[mesh.AcrossFieldCurve] = [
         mesh.StraightLineAcrossField(
             *polar_coords(
-                np.array([r0, r1]), np.array(theta0 + dtheta),
+                np.array([r0, r1]),
+                np.array(theta0 + dtheta),
             ).iter_points()
         ),
         mesh.StraightLineAcrossField(
@@ -1411,7 +1412,9 @@ def wedge_hex_profile(
     integers(3, 10),
 )
 def test_prism_poloidal_map_internal(
-    prism_expected: tuple[mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]],
+    prism_expected: tuple[
+        mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]
+    ],
     n: int,
     m: int,
 ) -> None:
