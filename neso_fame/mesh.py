@@ -1050,28 +1050,16 @@ class Prism(LazilyOffsetable):
         # Compute result for linear element
         s = np.asarray(s)
         t = np.asarray(t)
-        real_x1 = (
-            sw.x1 * (1 - s) * (1 - t)
-            + se.x1 * s * (1 - t)
-            + north.x1 * t
-        )
-        real_x2 = (
-            sw.x2 * (1 - s) * (1 - t)
-            + se.x2 * s * (1 - t)
-            + north.x2 * t
-        )
+        real_x1 = sw.x1 * (1 - s) * (1 - t) + se.x1 * s * (1 - t) + north.x1 * t
+        real_x2 = sw.x2 * (1 - s) * (1 - t) + se.x2 * s * (1 - t) + north.x2 * t
 
-        # Adjust the result if east or west are no straight lines
+        # Adjust the result if east or west are not straight lines
         if not isinstance(east_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, north, t, s
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(east, se, north, t, s)
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, north, t, 1 - s
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(west, sw, north, t, 1 - s)
             real_x1 += x1_adj
             real_x2 += x2_adj
         return SliceCoords(real_x1, real_x2, sw.system)
@@ -1109,6 +1097,7 @@ class Prism(LazilyOffsetable):
 
     def _poloidal_map_quad(self, s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
         # Work out orientation of all sides
+        # Is the order I'm choosing going to result in a negative Jacobian? Maybe I should treat north as 0 and south as 1? (and similar for east/west)
         north_initial, south_initial, east_initial, west_initial = iter(
             s.shape for s in self.sides
         )
@@ -1167,27 +1156,19 @@ class Prism(LazilyOffsetable):
         )
         # Adjust the result for any edges that are not straight lines
         if not isinstance(north_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                north, nw, ne, s, t
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(north, nw, ne, s, t)
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(south_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                south, sw, se, s, 1 - t
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(south, sw, se, s, 1 - t)
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(east_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                east, se, ne, t, s
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(east, se, ne, t, s)
             real_x1 += x1_adj
             real_x2 += x2_adj
         if not isinstance(west_initial, StraightLineAcrossField):
-            x1_adj, x2_adj = self._nonlinear_adjustment(
-                west, sw, nw, t, 1 - s
-            )
+            x1_adj, x2_adj = self._nonlinear_adjustment(west, sw, nw, t, 1 - s)
             real_x1 += x1_adj
             real_x2 += x2_adj
         return SliceCoords(real_x1, real_x2, sw.system)
