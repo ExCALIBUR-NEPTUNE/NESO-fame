@@ -8,15 +8,19 @@ import click
 import numpy as np
 import yaml
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from meshio._helpers import reader_map  # type: ignore
 
 from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
 from neso_fame.mesh import CoordinateSystem, SliceCoords
+from neso_fame.meshio_writer import write_poloidal_mesh as write_meshio_poloidal
 from neso_fame.nektar_writer import (
     nektar_3d_element,
     write_nektar,
-    write_poloidal_mesh,
+)
+from neso_fame.nektar_writer import (
+    write_poloidal_mesh as write_nektar_poloidal,
 )
 
 
@@ -403,10 +407,14 @@ def simple_3d(
     show_default=True,
 )
 @click.option(
-    "--compress",
-    is_flag=True,
-    default=False,
-    help="Use the compressed XML format for the mesh",
+    "-f",
+    "--out-format",
+    type=click.Choice(["nektar", "znektar"] + list(reader_map)),
+    default="nektar",
+    show_default=True,
+    help="The output format for the mesh. `nektar` is the Nektar++ "
+    "XML format, `znektar` is the compressed Nektar++ format, and all "
+    "other obptions are the same as for the meshio library.",
 )
 @click.option(
     "--config",
@@ -434,7 +442,7 @@ def hypnotoad(
     min_wall_distance: float,
     alignment_steps: int,
     order: int,
-    compress: bool,
+    out_format: str,
     full: bool,
     geqdsk: str,
     config: TextIOBase,
@@ -444,9 +452,9 @@ def hypnotoad(
 
     This is done by first generating a 2D mesh using hypnotoad and
     then following each node in that mesh along the magnetic field
-    lines. The mesh will be written to MESHFILE in the Nektar++
-    uncompressed XML format. Note that only orthogonal meshes are
-    allowed.
+    lines. The mesh will be written to MESHFILE with the format
+    selected from the extension. Use `.xml` for the Nektar++
+    format.
 
     """
     layers = _validate_layers(layers, n)
@@ -477,13 +485,22 @@ def hypnotoad(
         lambda x: next(iter(nektar_3d_element(x, order, 3, -1)[0])).IsValid(),
     )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
-    print("Converting mesh to Nektar++ format and writing to disk...")
+    print("Converting mesh to output format and writing to disk...")
+    # FIXME: Explicitly set output format, rather than infer from filename.
     if full:
         # FIXME: This seems to be really really slow when I mesh all the way
         # to the wall. It needs profiling, as I suspect it is
         # repeating quite a lot of work or something.
-        write_nektar(mesh, order, meshfile, 3, True, periodic, compress)
+        if out_format not in ["nektar", "znektar"]:
+            raise NotImplementedError(
+                "Currently only Nektar++ format supported for 3D meshes."
+            )
+        write_nektar(mesh, order, meshfile, 3, True, periodic, out_format.startswith("z"))
     else:
-        write_poloidal_mesh(mesh, order, meshfile, compress)
-    with open(meshfile, "a") as f:
-        f.write(_mesh_provenance())
+        if out_format in ["nektar", "znektar"]:
+            write_nektar_poloidal(mesh, order, meshfile, out_format.startswith("z"))
+        else:
+            write_meshio_poloidal(mesh, order, meshfile, out_format)
+    # with open(meshfile, "a") as f:
+    #     # FIXME: How to make these comments work across all formats?
+    #     f.write(_mesh_provenance())

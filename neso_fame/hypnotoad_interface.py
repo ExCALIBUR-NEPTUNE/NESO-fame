@@ -14,6 +14,7 @@ import numpy.typing as npt
 from hypnotoad import Mesh, MeshRegion  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ignore
 from scipy.integrate import solve_ivp
+from scipy.optimize import root_scalar
 
 from .mesh import (
     AcrossFieldCurve,
@@ -235,9 +236,18 @@ def _handle_integration(
     vectorize_integrand_calls: bool,
     fixed_positions: dict[int, npt.NDArray],
     result_slice: Optional[int | slice],
+    event_generator: Optional[Callable[[float], Callable[[float, npt.NDArray], float]]],
     output: npt.NDArray,
 ) -> None:
     if positions is not None:
+        events: None | list[Callable[[float, npt.NDArray], float]]
+        if event_generator:
+            events = list(map(event_generator, positions))
+            events[-1].terminal = True
+            if isinstance(limit, float):
+                limit *= 10
+        else:
+            events = None
         result = solve_ivp(
             func,
             (0.0, limit),
@@ -248,12 +258,17 @@ def _handle_integration(
             atol=atol,
             dense_output=True,
             vectorized=vectorize_integrand_calls,
+            events=events
         )
         if not result.success:
             raise RuntimeError("Failed to integrate along field line")
+        if event_generator:
+            y = np.array(list(val[0] for val in result.y_events)).T
+        else:
+            y = result.y
         for i, v in fixed_positions.items():
-            result.y[:, i] = v
-        output[:, result_slice] = result.y
+            y[:, i] = v
+        output[:, result_slice] = y
 
 
 def integrate_vectorized(
@@ -263,6 +278,7 @@ def integrate_vectorized(
     rtol: float = 1e-12,
     atol: float = 1e-14,
     vectorize_integrand_calls: bool = True,
+    event_generator: Optional[Callable[[float], Callable[[float, npt.NDArray], float]]] = None
 ) -> Callable[[Integrand], IntegratedFunction]:
     r"""Return a vectorised numerically-integrated function.
 
@@ -293,6 +309,10 @@ def integrate_vectorized(
         Absolute tolerance to use for hte integration.
     vectorize_integrand_calls
         Whether calls to the integrand can be done in a vectorised manner.
+    event_generator
+        If present, will use this function to create events that
+        indicate when the integration has reached one of the t_eval
+        points.
 
     Returns
     -------
@@ -339,6 +359,7 @@ def integrate_vectorized(
                 vectorize_integrand_calls,
                 neg_fixed_positions,
                 neg_slice,
+                event_generator,
                 result_tmp,
             )
             _handle_integration(
@@ -351,6 +372,7 @@ def integrate_vectorized(
                 vectorize_integrand_calls,
                 pos_fixed_positions,
                 pos_slice,
+                event_generator,
                 result_tmp,
             )
             if zero is not None:
@@ -503,6 +525,14 @@ class _XPointLocation(Enum):
     SOUTH = 2
 
 
+def _reverse(s: npt.ArrayLike) -> npt.NDArray:
+    return 1 - np.asarray(s)
+
+
+def _forward(s: npt.ArrayLike) -> npt.NDArray:
+    return np.asarray(s)
+
+
 def _handle_x_points(
     eq: TokamakEquilibrium, north: SliceCoord, south: SliceCoord
 ) -> tuple[
@@ -527,15 +557,11 @@ def _handle_x_points(
     if x_point == _XPointLocation.NORTH:
         start = south
         end = north
-
-        def parameter(s: npt.ArrayLike) -> npt.NDArray:
-            return 1 - np.asarray(s)
+        parameter = _reverse
     else:
         start = north
         end = south
-
-        def parameter(s: npt.ArrayLike) -> npt.NDArray:
-            return np.asarray(s)
+        parameter = _forward
 
     return x_point, start, end, parameter
 
@@ -600,6 +626,7 @@ def _get_integration_distance(
     return total_distance
 
 
+# FIXME: Want to map based on psi rather than distance;  I think I've done that now.
 def perpendicular_edge(
     eq: TokamakEquilibrium,
     north: SliceCoord,
@@ -642,27 +669,34 @@ def perpendicular_edge(
     x_point, start, end, parameter = _handle_x_points(eq, north, south)
     psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
     psi_end = float(eq.psi_func(end.x1, end.x2, grid=False))
-    sign = np.sign(psi_end - psi_start)
+    diff = psi_end - psi_start
 
-    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+    def psi_event(psi: float) -> Callable[[float, npt.NDArray], float]:
+        def at_psi(s: float, x: npt.NDArray) -> float:
+            #print(sign, parameter, start, end, psi_end)
+            local_psi = float(eq.psi_func(x[0], x[1], grid=False))
+            #print(x, local_psi, psi, psi_start, start)
+            return local_psi - psi - psi_start
+        return at_psi
+
+    @integrate_vectorized(tuple(start), diff, {diff: tuple(end)}, event_generator=psi_event)
+    def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+        x = np.asarray(x)
         dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
         dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
-        norm = np.sqrt(dpsidR * dpsidR + dpsidZ * dpsidZ)
-        return sign * dpsidR / norm, sign * dpsidZ / norm
+        norm = dpsidR * dpsidR + dpsidZ * dpsidZ
+        return dpsidR / norm, dpsidZ / norm
 
-    def terminus(t: float, x: npt.NDArray) -> float:
-        return float(eq.psi(x[0], x[1])) - psi_end
+    # Check within tolerance of end-point
+    if x_point == _XPointLocation.NONE and not force:
+        Rend, Zend = solution(1.)
+        if (not np.isclose(Rend, end.x1, 1e-5, 1e-5)
+            or not np.isclose(Zend, end.x2, 1e-5, 1e-5)            ):
+            raise RuntimeError("Integration did not converge on expected location")
 
-    total_distance = _get_integration_distance(
-        f, terminus, start, end, x_point == _XPointLocation.NONE and not force
-    )
-
-    @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
-    def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
-        return f(np.asarray(s) * total_distance, np.asarray(x))
-
-    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
-        s = parameter(s)
+    if x_point == _XPointLocation.NONE and not force:
+        adjusted_solve = solution
+    else:
         # Hypnotoad's perpendicular surfaces near the x-point aren't
         # entirely accurate, due to numerically difficulty if you get
         # too close. As a result, if north or south are located at the
@@ -670,16 +704,32 @@ def perpendicular_edge(
         # sufficiently close to them. To get around this, the solution
         # is approximated as a linear combination of the integration
         # and a straight line between north and south. The weight of
-        # the linaer component increases as the x-point is approached.
-        R_sol, Z_sol = solution(s)
-        if x_point == _XPointLocation.NONE and not force:
-            R = R_sol
-            Z = Z_sol
-        else:
+        # the linaer component increases as the x-point is approache
+        def adjusted_solve_shape(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+            s = np.asarray(s)
+            R_sol, Z_sol = solution(s)
             R_lin = start.x1 * (1 - s) + end.x1 * s
             Z_lin = start.x2 * (1 - s) + end.x2 * s
             R = R_sol * (1 - s) + s * R_lin
             Z = Z_sol * (1 - s) + s * Z_lin
+            return R, Z
+
+        def func(s: npt.NDArray, target: npt.NDArray) -> npt.NDArray:
+            R_sol, Z_sol = adjusted_solve_shape(s)
+            return eq.psi_func(R_sol, Z_sol, grid=False) - target
+            
+        # Find location on the adjusted line at the desired value of psi
+        @np.vectorize
+        def adjusted_solve(s: float) -> tuple[float, ...]:
+            target = psi_start + s * diff
+            sol = root_scalar(func, (target,), bracket=[0., 1.])
+            assert sol.converged
+            return tuple(map(float, adjusted_solve_shape(sol.root)))
+            
+    
+    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+        s = parameter(s)
+        R, Z = adjusted_solve(s)
         return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), north.system)
 
     return solution_coords
@@ -715,6 +765,11 @@ def _determine_integration_direction(
             return 1 - np.asarray(s)
 
     return start, end, parameter
+
+
+# I wonder if it would be more efficient to invert the interpolation so that can get x1(psi, phi)? Probably, but what would the accuracy be like in that case?
+
+# FIXME: Consider caching more of this stuff
 
 
 def flux_surface_edge(
@@ -754,11 +809,17 @@ def flux_surface_edge(
     if north.system != south.system:
         raise ValueError("`north` and `south` have different coordinate systems")
 
+    if north == south:
+        def trivial(s: npt.ArrayLike) -> SliceCoords:
+            s = np.asarray(s)
+            return SliceCoords(np.full(s.shape, north.x1), np.full(s.shape, north.x2), north.system)
+        return trivial
+
     # FIXME: This won't be able to handle the inexact seperatrix you
     # will get when doing a realistic connected double null
     psi_north = cast(float, eq.psi(north.x1, north.x2))
     psi_south = cast(float, eq.psi(south.x1, south.x2))
-    if not np.isclose(psi_north, psi_south, 1e-6, 1e-6):
+    if not np.isclose(psi_north, psi_south, 1e-3, 1e-3):
         raise ValueError(
             f"Start and end points {north} and {south} have different psi values "
             f"{psi_north} and {psi_south}"
@@ -798,7 +859,7 @@ def flux_surface_edge(
         )
         return float(sign * np.sqrt((x[0] - end.x1) ** 2 + (x[1] - end.x2) ** 2))
 
-    total_distance = _get_integration_distance(f, terminus, start, end, True)
+    total_distance = _get_integration_distance(f, terminus, start, end, False)
 
     @integrate_vectorized(tuple(start), total_distance, {total_distance: tuple(end)})
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
@@ -874,18 +935,42 @@ def connect_to_o_point(
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         return f(np.asarray(s) * total_distance, np.asarray(x))
 
-    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+    approx_end_R, approx_end_Z = solution(approx_end_s)
+
+    # There won't be a sign-change as we approach the actual O-point,
+    # so instead integrate to near it, then make a linear connection
+    # from there to the O-point.
+    def adjusted_solve_shape(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         s = np.asarray(s)
         mask = s < approx_end_s
         R_sol, Z_sol = solution(np.where(mask, s, 0.0))
-        R_lin = approx_end_point[0] + (s - approx_end_s) / (1 - approx_end_s) * (
-            eq.o_point.R - approx_end_point[0]
+        R_lin = approx_end_R + (s - approx_end_s) / (1 - approx_end_s) * (
+            eq.o_point.R - approx_end_R
         )
-        Z_lin = approx_end_point[1] + (s - approx_end_s) / (1 - approx_end_s) * (
-            eq.o_point.Z - approx_end_point[1]
+        Z_lin = approx_end_Z + (s - approx_end_s) / (1 - approx_end_s) * (
+            eq.o_point.Z - approx_end_Z
         )
         R = np.where(mask, R_sol, R_lin)
         Z = np.where(mask, Z_sol, Z_lin)
+        return R, Z
+    
+    def func(s: npt.NDArray, target: npt.NDArray) -> npt.NDArray:
+        R_sol, Z_sol = adjusted_solve_shape(s)
+        # Have to add slight offset to ensure root-finder brackets the solution.
+        return eq.psi_func(R_sol, Z_sol, grid=False) - target + sign * 1e-14
+
+    # Find location on the adjusted line at the desired value of psi
+    @np.vectorize
+    def adjusted_solve(s: float) -> tuple[float, ...]:
+        target = psi_start + s * diff
+        sol = root_scalar(func, (target,), bracket=[-1e-5, 1.])
+        assert sol.converged
+        return tuple(map(float, adjusted_solve_shape(sol.root)))
+            
+    
+    def solution_coords(s: npt.ArrayLike) -> SliceCoords:
+        s = np.asarray(s)
+        R, Z = adjusted_solve(s)
         return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), start.system)
 
     return solution_coords

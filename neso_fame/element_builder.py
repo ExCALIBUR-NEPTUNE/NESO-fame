@@ -11,6 +11,9 @@ from typing import Callable, Optional
 from warnings import warn
 
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
+import numpy as np
+import numpy.typing as npt
 
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
@@ -24,6 +27,7 @@ from neso_fame.mesh import (
     Prism,
     Quad,
     SliceCoord,
+    SliceCoords,
     StraightLineAcrossField,
 )
 
@@ -224,6 +228,42 @@ class _VertexRing:
             )
         return iter(quads[start_index:end_index])
 
+    
+def _poloidal_map_between(eq: TokamakEquilibrium, north: AcrossFieldCurve, south: AcrossFieldCurve) -> Callable[[npt.ArrayLike, npt.ArrayLike], SliceCoords]:
+    """Return a poloidal map between two curves.
+
+    These curves must share start and end flux surfaces.
+    
+    """
+    # FIXME: This can't handle merging of elements near X-point. Need
+    # the non-orthogonal edge still to be proportional to
+    # psi. Shouldn't be hard to solve for that if doing a straight
+    # line, not sure if it would work with a curved one.
+    def poloidal_map(s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
+        s_mask = s.mask if isinstance(s, np.ma.MaskedArray) else False
+        t_mask = t.mask if isinstance(t, np.ma.MaskedArray) else False
+        s, t = np.broadcast_arrays(s, t, subok=True)
+        new_mask = np.logical_or(s_mask, t_mask)
+        if isinstance(s, np.ma.MaskedArray):
+            s.mask = new_mask
+        if isinstance(t, np.ma.MaskedArray):
+            t.mask = new_mask
+        svals, s_invert = np.unique(s, return_inverse=True)
+        tvals, t_invert = np.unique(t, return_inverse=True)
+        souths = south(tvals)
+        norths = north(tvals)
+        shape = (len(tvals), len(svals))
+        R_tmp = np.empty(shape)
+        Z_tmp = np.empty(shape)
+        for i, (sth, nth) in enumerate(zip(souths.iter_points(), norths.iter_points())):
+            # FIXME: This might be more efficient if only
+            # calculate for the s values needed for each t value
+            coords = flux_surface_edge(eq, nth, sth)(svals)
+            R_tmp[i, :] = coords.x1
+            Z_tmp[i, :] = coords.x2
+        return SliceCoords(np.ma.array(R_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask), np.ma.array(Z_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask), coords.system)
+
+    return poloidal_map
 
 class ElementBuilder:
     """Provides methods for building mesh elements for a Hypnotoad mesh.
@@ -348,28 +388,32 @@ class ElementBuilder:
     def make_element(
         self, sw: SliceCoord, se: SliceCoord, nw: SliceCoord, ne: Optional[SliceCoord]
     ) -> Prism:
-        """Createa an element from the four points on the poloidal plane.
+        """Create an element from the four points on the poloidal plane.
 
         If four coordinates are provided this will be a
         hexahedron. Otherwise this will be a prism.
 
         """
         if isinstance(ne, SliceCoord):
-            return Prism(
-                (
+            sides =            (
                     self._tracked_flux_surface_quad(nw, ne),
                     self._tracked_flux_surface_quad(sw, se),
                     self._tracked_perpendicular_quad(se, ne),
                     self._tracked_perpendicular_quad(sw, nw),
                 )
+            return Prism(
+                sides,
+                _poloidal_map_between(self._equilibrium, sides[3].shape, sides[2].shape)
             )
-        return Prism(
-            (
+        sides =             (
                 self._tracked_flux_surface_quad(sw, se),
                 self._tracked_perpendicular_quad(sw, nw),
                 # FIXME: Should I force this to be linear instead?
                 self._tracked_perpendicular_quad(se, nw),
             )
+        return Prism(
+            sides,
+            _poloidal_map_between(self._equilibrium, sides[1].shape, sides[2].shape)
         )
 
     def make_prism_to_centre(self, north: SliceCoord, south: SliceCoord) -> Prism:
@@ -377,12 +421,15 @@ class ElementBuilder:
         # Only half the permutations of edge ordering seem to work
         # with Nektar++, but this is not documented. I can't figure
         # out the rule, but this seems to work.
-        return Prism(
-            (
+        sides = (
                 self._tracked_flux_surface_quad(north, south),
                 self.make_quad_to_o_point(south),
                 self.make_quad_to_o_point(north),
-            )
+        )
+                
+        return Prism(
+            sides,
+            _poloidal_map_between(self._equilibrium, sides[2].shape, sides[1].shape),
         )
 
     def make_quad_for_prism(
@@ -409,7 +456,7 @@ class ElementBuilder:
         # FIXME: mixing aligned and unaligned edges in an element can
         # result in it being ill-formed. No fool-proof way to prevent
         # this, I don't think, but can reduce the probability by
-        # transitioning from alignedto unaligned more
+        # transitioning from aligned to unaligned more
         # gradually. Probably even just one layer of edges would be
         # enough. Avoiding elements that are two small would help as well.
         #

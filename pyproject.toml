@@ -22,7 +22,7 @@ dependencies = [
     "hypnotoad",
     "NekPy",
     "click",
-    "meshpy",
+    "meshio",
 ]
 dynamic = ["version"]
 

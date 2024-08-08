@@ -943,6 +943,11 @@ class Prism(LazilyOffsetable):
 
     sides: tuple[Quad, ...]
     """Shapes defining the edges of the hexahedron"""
+    custom_poloidal_mapping: None | Callable[[npt.ArrayLike, npt.ArrayLike], SliceCoords] = None
+    """Custom mapping between reference coordinates and real
+    coordinates on the poloidal plane. This is useful for triangular
+    prisms where all three faces are curved or if you want more
+    control over the placement of interior quadrature points."""
 
     def __iter__(self) -> Iterator[Quad]:
         """Iterate over the four quads defining the faces of the hexahedron."""
@@ -1048,8 +1053,8 @@ class Prism(LazilyOffsetable):
             raise RuntimeError("Sides of triangular prism not conforming.")
 
         # Compute result for linear element
-        s = np.asarray(s)
-        t = np.asarray(t)
+        s = np.ma.asanyarray(s)
+        t = np.ma.asanyarray(t)
         real_x1 = sw.x1 * (1 - s) * (1 - t) + se.x1 * s * (1 - t) + north.x1 * t
         real_x2 = sw.x2 * (1 - s) * (1 - t) + se.x2 * s * (1 - t) + north.x2 * t
 
@@ -1138,10 +1143,9 @@ class Prism(LazilyOffsetable):
             se, sw, east, south = self._poloidal_quad_order_remaining_edges(
                 ne, east0, east1, south0, south1, east_initial, south_initial, False
             )
-
         # Compute result for linear element
-        s = np.asarray(s)
-        t = np.asarray(t)
+        s = np.ma.asanyarray(s)
+        t = np.ma.asanyarray(t)
         real_x1 = (
             sw.x1 * (1 - s) * (1 - t)
             + se.x1 * s * (1 - t)
@@ -1180,6 +1184,9 @@ class Prism(LazilyOffsetable):
         \in [0, 1]` to coordinates in real space.
 
         """
+        # Should I have a special case for the corners, to save computation?
+        if self.custom_poloidal_mapping:
+            return self.custom_poloidal_mapping(s, t)
         if len(self.sides) > 4:
             raise NotImplementedError(
                 "Mapping only implemented for triangular and rectangular prisms"
