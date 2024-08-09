@@ -20,8 +20,8 @@ from .mesh import (
     MeshLayer,
     NormalisedCurve,
     Prism,
+    PrismMesh,
     Quad,
-    Segment,
     control_points,
 )
 
@@ -740,7 +740,7 @@ def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
     )
 
 
-def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
+def nektar_poloidal_elements(mesh: PrismMesh, order: int) -> NektarElements:
     """Create Nektar++ objects for the intersection of the mesh with the poloidal plane.
 
     This can be useful for visualising the underlying mesh from which
@@ -752,8 +752,8 @@ def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
     """
     print("Converting FAME mesh to NekPy objects")
     layer = mesh.reference_layer
-    if issubclass(layer.element_type, Quad):
-        raise ValueError("Can not create poloidal mesh for 2D mesh")
+    # if issubclass(layer.element_type, Quad):
+    #     raise ValueError("Can not create poloidal mesh for 2D mesh")
     elems = iter(layer)
     elements: frozenset[SD.Geometry2D]
     elements, edges, points = reduce(
@@ -762,9 +762,8 @@ def nektar_poloidal_elements(mesh: Mesh, order: int) -> NektarElements:
     )
 
     def make_face(
-        item: Segment | Quad,
+        item: Quad,
     ) -> SD.SegGeom:
-        assert isinstance(item, Quad)
         return nektar_edge(poloidal_curve(item), order, 3, 0)[0]
 
     def type_name(element: SD.Geometry) -> str:
@@ -1039,7 +1038,7 @@ def write_nektar(
 
 
 def write_poloidal_mesh(
-    mesh: Mesh,
+    mesh: PrismMesh,
     order: int,
     filename: str,
     compressed: bool = True,
