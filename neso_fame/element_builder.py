@@ -238,10 +238,6 @@ def _poloidal_map_between(
 
     """
 
-    # FIXME: This can't handle merging of elements near X-point. Need
-    # the non-orthogonal edge still to be proportional to
-    # psi. Shouldn't be hard to solve for that if doing a straight
-    # line, not sure if it would work with a curved one.
     def poloidal_map(s: npt.ArrayLike, t: npt.ArrayLike) -> SliceCoords:
         s_mask = s.mask if isinstance(s, np.ma.MaskedArray) else False
         t_mask = t.mask if isinstance(t, np.ma.MaskedArray) else False
@@ -251,10 +247,18 @@ def _poloidal_map_between(
             s.mask = new_mask
         if isinstance(t, np.ma.MaskedArray):
             t.mask = new_mask
+
         svals, s_invert = np.unique(s, return_inverse=True)
         tvals, t_invert = np.unique(t, return_inverse=True)
         souths = south(tvals)
         norths = north(tvals)
+        # FIXME: For some reason south and north go in the wrong
+        # direction when merging narrow elements. Not sure why, but
+        # this is a temporary workaround.
+        if not np.isclose(eq.psi_func(*souths[0]), eq.psi_func(*norths[0]), 1e-6, 1e-6):
+            norths = SliceCoords(
+                np.array(norths.x1[::-1]), np.array(norths.x2[::-1]), norths.system
+            )
         shape = (len(tvals), len(svals))
         R_tmp = np.empty(shape)
         Z_tmp = np.empty(shape)
