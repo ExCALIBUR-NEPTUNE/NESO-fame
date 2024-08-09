@@ -495,7 +495,9 @@ def hypnotoad(
             raise NotImplementedError(
                 "Currently only Nektar++ format supported for 3D meshes."
             )
-        write_nektar(mesh, order, meshfile, 3, True, periodic, out_format.startswith("z"))
+        write_nektar(
+            mesh, order, meshfile, 3, True, periodic, out_format.startswith("z")
+        )
     else:
         if out_format in ["nektar", "znektar"]:
             write_nektar_poloidal(mesh, order, meshfile, out_format.startswith("z"))

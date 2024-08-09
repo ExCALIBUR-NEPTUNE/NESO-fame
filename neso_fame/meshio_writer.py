@@ -1,6 +1,5 @@
 """Routines to output meshes using the meshio library."""
 
-import warnings
 from collections.abc import Iterator, Sequence
 from functools import cache
 from typing import DefaultDict, TypedDict
@@ -20,7 +19,6 @@ from .mesh import (
     Quad,
     SliceCoord,
     SliceCoords,
-    StraightLineAcrossField,
     control_points,
 )
 
@@ -103,11 +101,29 @@ _ELEMENT_TYPES: list[_ElementType] = [
     },
 ]
 
+_ELEMENT_DIMS = {
+    k: v
+    for d in (
+        {
+            d["line"]: 1,
+            d["triangle"]: 2,
+            d["quad"]: 2,
+            d["prism"]: 3,
+            d["hexahedron"]: 3,
+        }
+        for d in _ELEMENT_TYPES
+    )
+    for k, v in d.items()
+}
+
 
 @cache
 def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
     x1, x2 = np.meshgrid(
-        np.linspace(0.0, 1.0, order + 1), np.linspace(0.0, 1.0, order + 1), indexing="ij", sparse=True
+        np.linspace(0.0, 1.0, order + 1),
+        np.linspace(0.0, 1.0, order + 1),
+        indexing="ij",
+        sparse=True,
     )
     return x1, x2
 
@@ -115,8 +131,8 @@ def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
 @cache
 def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
     x1sq, x2 = _quad_control_points(order)
-    with warnings.catch_warnings():
-        x1 = x1sq / (1 - x2)
+    x1 = np.empty(np.broadcast(x1sq, x2).shape)
+    x1[:, :-1] = x1sq / (1 - x2[:, :-1])
     # Handle NaNs at top of triangle
     x1[0, -1] = 1
     x1[1:, -1] = 1.1
@@ -162,7 +178,7 @@ def _gmsh_quad_point_order(
         for i in range(n - 2, 0, -1):
             yield points[0, i]
         yield from _gmsh_quad_point_order(
-            type(points)(*(x[1:-1, 1:-1] for x in points), points.system)
+            type(points)(*(x[1:-1, 1:-1] for x in points), points.system)  # type: ignore
         )
 
 
@@ -191,7 +207,7 @@ def _gmsh_triangle_point_order(
             yield points[0, i]
         if n > 3:
             yield from _gmsh_triangle_point_order(
-                type(points)(*(x[1:-2, 1:-2] for x in points), points.system)
+                type(points)(*(x[1:-2, 1:-2] for x in points), points.system)  # type: ignore
             )
 
 
@@ -216,19 +232,32 @@ class MeshioData:
     _points: list[npt.ArrayLike]
     _cells: DefaultDict[str, list[npt.ArrayLike]]
     _cell_sets: DefaultDict[str, DefaultDict[str, list[int]]]
+    _dim_tags: list[tuple[int, int]]
+    _next_dim_tag = [1, 1, 1, 1]
 
     def __init__(self) -> None:
         self._points = []
         self._cells = DefaultDict(list)
         self._cell_sets = DefaultDict(lambda: DefaultDict(list))
+        self._dim_tags = []
 
     @cache
-    def point(self, coords: SliceCoord | Coord, layer_id: int) -> int:
+    def _element_dim_tag(self, element_type: str, layer_id: int) -> tuple[int, int]:
+        dim = _ELEMENT_DIMS[element_type]
+        tag = self._next_dim_tag[dim]
+        self._next_dim_tag[dim] += tag + 1
+        return dim, tag
+
+    @cache
+    def point(
+        self, coords: SliceCoord | Coord, element_type: str, layer_id: int
+    ) -> int:
         """Add a point to the mesh data and return the integer ID for it."""
         pos = (
             coords.to_3d_coord(0.0) if isinstance(coords, SliceCoord) else coords
         ).to_cartesian()
         self._points.append(tuple(pos))
+        self._dim_tags.append(self._element_dim_tag(element_type, layer_id))
         return len(self._points) - 1
 
     @cache
@@ -251,6 +280,7 @@ class MeshioData:
         quad.
 
         """
+        # FIXME: Will need to have a different cellblock for each layer
         if len(solid.sides) == 3:
             s, t = _triangle_control_points(order)
             shape = _ELEMENT_TYPES[order - 1]["triangle"]
@@ -263,7 +293,7 @@ class MeshioData:
             )
         coords = solid.poloidal_map(s, t)
         points = tuple(
-            self.point(p, layer_id)
+            self.point(p, shape, layer_id)
             for p in (
                 _gmsh_quad_point_order(coords)
                 if len(solid.sides) == 4
@@ -284,13 +314,14 @@ class MeshioData:
         order: int,
         layer_id: int,
         cellsets: frozenset[str] = frozenset(),
+        bounds_element_type: None | str = None,
     ) -> int:
         """Add a 1D element to the mesh data and returns the integer ID for it."""
+        shape = _ELEMENT_TYPES[order - 1]["line"]
         points = tuple(
-            self.point(p, layer_id)
+            self.point(p, shape, layer_id)
             for p in _gmsh_line_point_order(control_points(curve, order))
         )
-        shape = _ELEMENT_TYPES[order - 1]["line"]
         cell_list = self._cells[shape]
         cell_list.append(points)
         cell_id = len(cell_list) - 1
@@ -302,8 +333,30 @@ class MeshioData:
         """Create a meshio mesh object from the stored data."""
         type_order = list(self._cells)
         return meshio.Mesh(
-            self._points,
+            np.array(self._points),
             list(self._cells.items()),
+            # FIXME: Can I construct some of this stuff from
+            # cell_sets? Problem is needing separate nodes for each
+            # dimension.
+            point_data={"gmsh:dim_tags": self._dim_tags},
+            # FIXME: Will need to have a different cellblock for each
+            # layer, so repeat for different cell types
+            cell_data={
+                "gmsh:geometrical": [
+                    np.full(len(v), self._element_dim_tag(k, 0)[1])
+                    for k, v in self._cells.items()
+                ],
+                "gmsh:physical": [
+                    np.full(len(v), self._element_dim_tag(k, 0)[1])
+                    for k, v in self._cells.items()
+                ],
+            },
+            # FIXME: Do I need gmsh:bounding_entities? Don't think it
+            # would be very useful given there are random
+            # quads/triangles floating around. Certainly, the way I
+            # have stored the boundary data isn't particularly
+            # amenable to knowing whether something belongs to a quad
+            # or triangle.
             cell_sets={
                 k: _sort_cellset(cells, type_order)
                 for k, cells in self._cell_sets.items()

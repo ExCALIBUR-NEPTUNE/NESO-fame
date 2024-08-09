@@ -10,10 +10,10 @@ from functools import cache, cached_property, reduce
 from typing import Callable, Optional
 from warnings import warn
 
-from hypnotoad import Mesh as HypnoMesh  # type: ignore
-from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 import numpy as np
 import numpy.typing as npt
+from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
@@ -228,13 +228,16 @@ class _VertexRing:
             )
         return iter(quads[start_index:end_index])
 
-    
-def _poloidal_map_between(eq: TokamakEquilibrium, north: AcrossFieldCurve, south: AcrossFieldCurve) -> Callable[[npt.ArrayLike, npt.ArrayLike], SliceCoords]:
+
+def _poloidal_map_between(
+    eq: TokamakEquilibrium, north: AcrossFieldCurve, south: AcrossFieldCurve
+) -> Callable[[npt.ArrayLike, npt.ArrayLike], SliceCoords]:
     """Return a poloidal map between two curves.
 
     These curves must share start and end flux surfaces.
-    
+
     """
+
     # FIXME: This can't handle merging of elements near X-point. Need
     # the non-orthogonal edge still to be proportional to
     # psi. Shouldn't be hard to solve for that if doing a straight
@@ -261,9 +264,14 @@ def _poloidal_map_between(eq: TokamakEquilibrium, north: AcrossFieldCurve, south
             coords = flux_surface_edge(eq, nth, sth)(svals)
             R_tmp[i, :] = coords.x1
             Z_tmp[i, :] = coords.x2
-        return SliceCoords(np.ma.array(R_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask), np.ma.array(Z_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask), coords.system)
+        return SliceCoords(
+            np.ma.array(R_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask),
+            np.ma.array(Z_tmp[t_invert, s_invert].reshape(s.shape), mask=new_mask),
+            coords.system,
+        )
 
     return poloidal_map
+
 
 class ElementBuilder:
     """Provides methods for building mesh elements for a Hypnotoad mesh.
@@ -394,26 +402,29 @@ class ElementBuilder:
         hexahedron. Otherwise this will be a prism.
 
         """
+        sides: tuple[Quad, ...]
         if isinstance(ne, SliceCoord):
-            sides =            (
-                    self._tracked_flux_surface_quad(nw, ne),
-                    self._tracked_flux_surface_quad(sw, se),
-                    self._tracked_perpendicular_quad(se, ne),
-                    self._tracked_perpendicular_quad(sw, nw),
-                )
+            sides = (
+                self._tracked_flux_surface_quad(nw, ne),
+                self._tracked_flux_surface_quad(sw, se),
+                self._tracked_perpendicular_quad(se, ne),
+                self._tracked_perpendicular_quad(sw, nw),
+            )
             return Prism(
                 sides,
-                _poloidal_map_between(self._equilibrium, sides[3].shape, sides[2].shape)
+                _poloidal_map_between(
+                    self._equilibrium, sides[3].shape, sides[2].shape
+                ),
             )
-        sides =             (
-                self._tracked_flux_surface_quad(sw, se),
-                self._tracked_perpendicular_quad(sw, nw),
-                # FIXME: Should I force this to be linear instead?
-                self._tracked_perpendicular_quad(se, nw),
-            )
+        # FIXME: For some reason the direction of some of the perpendicular sides ends up being wrong.
+        sides = (
+            self._tracked_flux_surface_quad(sw, se),
+            self._tracked_perpendicular_quad(sw, nw),
+            self._tracked_perpendicular_quad(se, nw),
+        )
         return Prism(
             sides,
-            _poloidal_map_between(self._equilibrium, sides[1].shape, sides[2].shape)
+            _poloidal_map_between(self._equilibrium, sides[1].shape, sides[2].shape),
         )
 
     def make_prism_to_centre(self, north: SliceCoord, south: SliceCoord) -> Prism:
@@ -422,11 +433,11 @@ class ElementBuilder:
         # with Nektar++, but this is not documented. I can't figure
         # out the rule, but this seems to work.
         sides = (
-                self._tracked_flux_surface_quad(north, south),
-                self.make_quad_to_o_point(south),
-                self.make_quad_to_o_point(north),
+            self._tracked_flux_surface_quad(north, south),
+            self.make_quad_to_o_point(south),
+            self.make_quad_to_o_point(north),
         )
-                
+
         return Prism(
             sides,
             _poloidal_map_between(self._equilibrium, sides[2].shape, sides[1].shape),

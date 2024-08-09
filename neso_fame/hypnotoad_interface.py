@@ -243,7 +243,7 @@ def _handle_integration(
         events: None | list[Callable[[float, npt.NDArray], float]]
         if event_generator:
             events = list(map(event_generator, positions))
-            events[-1].terminal = True
+            events[-1].terminal = True  # type: ignore
             if isinstance(limit, float):
                 limit *= 10
         else:
@@ -258,7 +258,7 @@ def _handle_integration(
             atol=atol,
             dense_output=True,
             vectorized=vectorize_integrand_calls,
-            events=events
+            events=events,
         )
         if not result.success:
             raise RuntimeError("Failed to integrate along field line")
@@ -278,7 +278,9 @@ def integrate_vectorized(
     rtol: float = 1e-12,
     atol: float = 1e-14,
     vectorize_integrand_calls: bool = True,
-    event_generator: Optional[Callable[[float], Callable[[float, npt.NDArray], float]]] = None
+    event_generator: Optional[
+        Callable[[float], Callable[[float, npt.NDArray], float]]
+    ] = None,
 ) -> Callable[[Integrand], IntegratedFunction]:
     r"""Return a vectorised numerically-integrated function.
 
@@ -673,13 +675,14 @@ def perpendicular_edge(
 
     def psi_event(psi: float) -> Callable[[float, npt.NDArray], float]:
         def at_psi(s: float, x: npt.NDArray) -> float:
-            #print(sign, parameter, start, end, psi_end)
             local_psi = float(eq.psi_func(x[0], x[1], grid=False))
-            #print(x, local_psi, psi, psi_start, start)
             return local_psi - psi - psi_start
+
         return at_psi
 
-    @integrate_vectorized(tuple(start), diff, {diff: tuple(end)}, event_generator=psi_event)
+    @integrate_vectorized(
+        tuple(start), diff, {diff: tuple(end)}, event_generator=psi_event
+    )
     def solution(s: npt.ArrayLike, x: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
         x = np.asarray(x)
         dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
@@ -689,9 +692,10 @@ def perpendicular_edge(
 
     # Check within tolerance of end-point
     if x_point == _XPointLocation.NONE and not force:
-        Rend, Zend = solution(1.)
-        if (not np.isclose(Rend, end.x1, 1e-5, 1e-5)
-            or not np.isclose(Zend, end.x2, 1e-5, 1e-5)            ):
+        Rend, Zend = solution(1.0)
+        if not np.isclose(Rend, end.x1, 1e-5, 1e-5) or not np.isclose(
+            Zend, end.x2, 1e-5, 1e-5
+        ):
             raise RuntimeError("Integration did not converge on expected location")
 
     if x_point == _XPointLocation.NONE and not force:
@@ -714,19 +718,22 @@ def perpendicular_edge(
             Z = Z_sol * (1 - s) + s * Z_lin
             return R, Z
 
-        def func(s: npt.NDArray, target: npt.NDArray) -> npt.NDArray:
+        def func(s: float, target: float) -> float:
             R_sol, Z_sol = adjusted_solve_shape(s)
-            return eq.psi_func(R_sol, Z_sol, grid=False) - target
-            
+            return float(eq.psi_func(R_sol, Z_sol, grid=False)) - target
+
         # Find location on the adjusted line at the desired value of psi
         @np.vectorize
         def adjusted_solve(s: float) -> tuple[float, ...]:
+            if np.isclose(s, 1, 1e-12, 1e-12):
+                return tuple(end)
+            if np.isclose(s, 0, 1e-12, 1e-12):
+                return tuple(start)
             target = psi_start + s * diff
-            sol = root_scalar(func, (target,), bracket=[0., 1.])
+            sol = root_scalar(func, (target,), bracket=[0.0, 1.0])
             assert sol.converged
             return tuple(map(float, adjusted_solve_shape(sol.root)))
-            
-    
+
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)
         R, Z = adjusted_solve(s)
@@ -810,9 +817,13 @@ def flux_surface_edge(
         raise ValueError("`north` and `south` have different coordinate systems")
 
     if north == south:
+
         def trivial(s: npt.ArrayLike) -> SliceCoords:
             s = np.asarray(s)
-            return SliceCoords(np.full(s.shape, north.x1), np.full(s.shape, north.x2), north.system)
+            return SliceCoords(
+                np.full(s.shape, north.x1), np.full(s.shape, north.x2), north.system
+            )
+
         return trivial
 
     # FIXME: This won't be able to handle the inexact seperatrix you
@@ -953,21 +964,25 @@ def connect_to_o_point(
         R = np.where(mask, R_sol, R_lin)
         Z = np.where(mask, Z_sol, Z_lin)
         return R, Z
-    
-    def func(s: npt.NDArray, target: npt.NDArray) -> npt.NDArray:
+
+    def func(s: float, target: float) -> float:
         R_sol, Z_sol = adjusted_solve_shape(s)
-        # Have to add slight offset to ensure root-finder brackets the solution.
-        return eq.psi_func(R_sol, Z_sol, grid=False) - target + sign * 1e-14
+        return float(eq.psi_func(R_sol, Z_sol, grid=False)) - target
 
     # Find location on the adjusted line at the desired value of psi
     @np.vectorize
     def adjusted_solve(s: float) -> tuple[float, ...]:
+        # There won't be a sign-change at the o-point, so solve won't
+        # work there. Instead just return the answer directly.
+        if np.isclose(s, 1, 1e-12, 1e-12):
+            return eq.o_point.R, eq.o_point.Z
+        if np.isclose(s, 0, 1e-12, 1e-12):
+            return tuple(start)
         target = psi_start + s * diff
-        sol = root_scalar(func, (target,), bracket=[-1e-5, 1.])
+        sol = root_scalar(func, (target,), bracket=[-1e-5, 1.0])
         assert sol.converged
         return tuple(map(float, adjusted_solve_shape(sol.root)))
-            
-    
+
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = np.asarray(s)
         R, Z = adjusted_solve(s)
