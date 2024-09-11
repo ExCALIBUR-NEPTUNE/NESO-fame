@@ -263,7 +263,7 @@ def _handle_integration(
         if not result.success:
             raise RuntimeError("Failed to integrate along field line")
         if event_generator:
-            y = np.array(list(val[0] for val in result.y_events)).T
+            y = np.array([val[0] for val in result.y_events]).T
         else:
             y = result.y
         for i, v in fixed_positions.items():
@@ -691,6 +691,9 @@ def perpendicular_edge(
         return dpsidR / norm, dpsidZ / norm
 
     # Check within tolerance of end-point
+    # FIXME: Is there some way to save this integration at the points
+    # I'm most likely to need it? Seems silly to integrate the entire
+    # length of the curve and then have to do it again.
     if x_point == _XPointLocation.NONE and not force:
         Rend, Zend = solution(1.0)
         if not np.isclose(Rend, end.x1, 1e-5, 1e-5) or not np.isclose(
@@ -698,41 +701,9 @@ def perpendicular_edge(
         ):
             raise RuntimeError("Integration did not converge on expected location")
 
-    if x_point == _XPointLocation.NONE and not force:
         adjusted_solve = solution
     else:
-        # Hypnotoad's perpendicular surfaces near the x-point aren't
-        # entirely accurate, due to numerically difficulty if you get
-        # too close. As a result, if north or south are located at the
-        # x-point, we won't actually manage to integrate to be
-        # sufficiently close to them. To get around this, the solution
-        # is approximated as a linear combination of the integration
-        # and a straight line between north and south. The weight of
-        # the linaer component increases as the x-point is approache
-        def adjusted_solve_shape(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
-            s = np.asarray(s)
-            R_sol, Z_sol = solution(s)
-            R_lin = start.x1 * (1 - s) + end.x1 * s
-            Z_lin = start.x2 * (1 - s) + end.x2 * s
-            R = R_sol * (1 - s) + s * R_lin
-            Z = Z_sol * (1 - s) + s * Z_lin
-            return R, Z
-
-        def func(s: float, target: float) -> float:
-            R_sol, Z_sol = adjusted_solve_shape(s)
-            return float(eq.psi_func(R_sol, Z_sol, grid=False)) - target
-
-        # Find location on the adjusted line at the desired value of psi
-        @np.vectorize
-        def adjusted_solve(s: float) -> tuple[float, ...]:
-            if np.isclose(s, 1, 1e-12, 1e-12):
-                return tuple(end)
-            if np.isclose(s, 0, 1e-12, 1e-12):
-                return tuple(start)
-            target = psi_start + s * diff
-            sol = root_scalar(func, (target,), bracket=[0.0, 1.0])
-            assert sol.converged
-            return tuple(map(float, adjusted_solve_shape(sol.root)))
+        adjusted_solve = _adjust_solve(start, end, solution, eq, psi_start, diff)
 
     def solution_coords(s: npt.ArrayLike) -> SliceCoords:
         s = parameter(s)
@@ -740,6 +711,55 @@ def perpendicular_edge(
         return SliceCoords(R.reshape(s.shape), Z.reshape(s.shape), north.system)
 
     return solution_coords
+
+
+def _adjust_solve(
+    start: SliceCoord,
+    end: SliceCoord,
+    solution: IntegratedFunction,
+    eq: TokamakEquilibrium,
+    psi_start: float,
+    diff: float,
+) -> IntegratedFunction:
+    """Force the solution to converge to the desired end-point.
+
+    Hypnotoad's perpendicular surfaces near the x-point aren't
+    entirely accurate, due to numerically difficulty if you get
+    too close. As a result, if north or south are located at the
+    x-point, we won't actually manage to integrate to be
+    sufficiently close to them. To get around this, the solution
+    is approximated as a linear combination of the integration
+    and a straight line between north and south. The weight of
+    the straight linaer increases as the x-point is approached
+
+    """
+
+    def adjusted_solve_shape(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
+        s = np.asarray(s)
+        R_sol, Z_sol = solution(s)
+        R_lin = start.x1 * (1 - s) + end.x1 * s
+        Z_lin = start.x2 * (1 - s) + end.x2 * s
+        R = R_sol * (1 - s) + s * R_lin
+        Z = Z_sol * (1 - s) + s * Z_lin
+        return R, Z
+
+    def func(s: float, target: float) -> float:
+        R_sol, Z_sol = adjusted_solve_shape(s)
+        return float(eq.psi_func(R_sol, Z_sol, grid=False)) - target
+
+    # Find location on the adjusted line at the desired value of psi
+    @np.vectorize
+    def adjusted_solve(s: float) -> tuple[float, ...]:
+        if np.isclose(s, 1, 1e-12, 1e-12):
+            return tuple(end)
+        if np.isclose(s, 0, 1e-12, 1e-12):
+            return tuple(start)
+        target = psi_start + s * diff
+        sol = root_scalar(func, (target,), bracket=[0.0, 1.0])
+        assert sol.converged
+        return tuple(map(float, adjusted_solve_shape(sol.root)))
+
+    return adjusted_solve
 
 
 def _dpsi(eq: TokamakEquilibrium, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
