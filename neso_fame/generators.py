@@ -602,34 +602,31 @@ def _iter_element_corners(
 
     This will merge elements radiating from the X-point if they are too oblong.
     """
-    R = region.Rxy.corners
-    Z = region.Zxy.corners
+    # Need to ensure the first coordinate is indexed away from the x-point
+    R = region.Rxy.corners[::-1, :]
+    Z = region.Zxy.corners[::-1, :]
     if (
         region.equilibriumRegion.name.endswith("core")
         and region.connections["inner"] is None
     ):
         half = R.shape[1] // 2
         start, left = _iter_merge_elements(
-            R[::-1, : half + 1], Z[::-1, : half + 1], max_aspect_ratio, system
+            R[:, : half + 1], Z[:, : half + 1], max_aspect_ratio, system
         )
         negative_end, right = _iter_merge_elements(
-            np.flip(R[::-1, half:], 1),
-            np.flip(Z[::-1, half:], 1),
+            np.flip(R[:, half:], 1),
+            np.flip(Z[:, half:], 1),
             max_aspect_ratio,
             system,
         )
         end: int | None = None if negative_end == 0 else -negative_end
+        return itertools.chain(
+            left,
+            _element_corners(R[:, start:end], Z[:, start:end], system),
+            map(_flip_corners_horizontally, right),
+        )
     else:
-        empty: list[Corners] = []
-        left = iter(empty)
-        right = iter(empty)
-        start = 0
-        end = None
-    return itertools.chain(
-        map(_flip_corners_vertically, left),
-        _element_corners(R[:, start:end], Z[:, start:end], system),
-        map(_flip_corners_vertically, map(_flip_corners_horizontally, right)),
-    )
+        return _element_corners(R, Z, system)
 
 
 def _find_internal_neighbours(

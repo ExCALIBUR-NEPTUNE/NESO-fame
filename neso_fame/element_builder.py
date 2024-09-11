@@ -252,13 +252,6 @@ def _poloidal_map_between(
         tvals, t_invert = np.unique(t, return_inverse=True)
         souths = south(tvals)
         norths = north(tvals)
-        # FIXME: For some reason south and north go in the wrong
-        # direction when merging narrow elements. Not sure why, but
-        # this is a temporary workaround.
-        if not np.isclose(eq.psi_func(*souths[0]), eq.psi_func(*norths[0]), 1e-6, 1e-6):
-            norths = SliceCoords(
-                np.array(norths.x1[::-1]), np.array(norths.x2[::-1]), norths.system
-            )
         shape = (len(tvals), len(svals))
         R_tmp = np.empty(shape)
         Z_tmp = np.empty(shape)
@@ -420,7 +413,6 @@ class ElementBuilder:
                     self._equilibrium, sides[3].shape, sides[2].shape
                 ),
             )
-        # FIXME: For some reason the direction of some of the perpendicular sides ends up being wrong.
         sides = (
             self._tracked_flux_surface_quad(sw, se),
             self._tracked_perpendicular_quad(sw, nw),
