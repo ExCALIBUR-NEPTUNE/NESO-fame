@@ -53,7 +53,7 @@ def arbitrary_arrays() -> SearchStrategy[npt.NDArray]:
     return arrays(floating_dtypes(), array_shapes())
 
 
-WHOLE_NUM_MAX = 900
+WHOLE_NUM_MAX = 1000
 whole_numbers = integers(-WHOLE_NUM_MAX, WHOLE_NUM_MAX).map(float)
 nonnegative_numbers = integers(1, WHOLE_NUM_MAX).map(float)
 non_zero = whole_numbers.filter(bool)
@@ -97,6 +97,9 @@ def mutually_broadcastable_from(
 
 
 coordinate_systems = sampled_from(mesh.CoordinateSystem)
+coordinate_systems3d = coordinate_systems.filter(
+    lambda x: x != mesh.CoordinateSystem.CARTESIAN2D
+)
 
 
 def slice_coord_for_system(
@@ -1150,7 +1153,7 @@ linear_hex = cast(
         whole_numbers,
         non_zero,
         whole_numbers.flatmap(hex_starts),
-        coordinate_systems,
+        coordinate_systems3d,
         floats(-2.0, 2.0),
         integers(2, 5),
         _divisions,
@@ -1169,7 +1172,7 @@ linear_prism = cast(
         small_whole_numbers.flatmap(
             lambda x: hex_starts(x, absmax=SMALL_WHOLE_NUM_MAX)
         ).map(lambda x: x[:3]),
-        coordinate_systems,
+        coordinate_systems3d,
         floats(-2.0, 2.0),
         integers(2, 5),
         _divisions,
@@ -1328,7 +1331,7 @@ hex_mesh_arguments = cast(
         whole_numbers.flatmap(hex_starts),
         integers(1, 3),
         integers(1, 3),
-        coordinate_systems,
+        coordinate_systems3d,
         integers(2, 5),
         booleans(),
     ).filter(lambda x: x is not None),
@@ -1345,7 +1348,7 @@ tri_prism_mesh_arguments = cast(
         ),
         integers(1, 3),
         integers(1, 3),
-        coordinate_systems,
+        coordinate_systems3d,
         integers(2, 5),
         booleans(),
     )
