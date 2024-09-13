@@ -722,9 +722,9 @@ def test_perpendicular_edges(
     np.testing.assert_allclose(actual.x2, expected_Z, 1e-8, 1e-8)
 
     # Check positions along curve are proportional to psi
-    normed_psi = (actual_psis - termini_psi[0])/(termini_psi[1] - termini_psi[0])
-    for actual, expected in np.nditer([normed_psi, positions]):
-        np.testing.assert_allclose(actual, expected, 1.5e-7, 1.5e-7)
+    normed_psi = (actual_psis - termini_psi[0]) / (termini_psi[1] - termini_psi[0])
+    for act, exp in np.nditer([normed_psi, positions]):
+        np.testing.assert_allclose(act, exp, 1.5e-7, 1.5e-7)
 
 
 @settings(deadline=None, report_multiple_bugs=False)
@@ -769,9 +769,9 @@ def test_connect_to_o_point(
     np.testing.assert_allclose(actual.x1[mask], expected_R[mask], 1e-8, 1e-8)
     np.testing.assert_allclose(actual.x2[mask], expected_Z[mask], 1e-8, 1e-8)
     # Check positions along curve are proportional to psi
-    normed_psi = (actual_psis - start_psi)/(end_psi - start_psi)
-    for actual, expected in np.nditer([normed_psi, positions]):
-        np.testing.assert_allclose(actual, expected, 1.5e-7, 1.5e-7)
+    normed_psi = (actual_psis - start_psi) / (end_psi - start_psi)
+    for act, exp in np.nditer([normed_psi, positions]):
+        np.testing.assert_allclose(act, exp, 1.5e-7, 1.5e-7)
 
 
 @np.vectorize
