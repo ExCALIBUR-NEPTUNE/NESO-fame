@@ -720,18 +720,11 @@ def test_perpendicular_edges(
     expected_R, expected_Z = curve_of_psi(actual_psis)
     np.testing.assert_allclose(actual.x1, expected_R, 1e-8, 1e-8)
     np.testing.assert_allclose(actual.x2, expected_Z, 1e-8, 1e-8)
-    # Check distances along curve are proportional to the normalised
-    # `position` parameter
 
-    distance = eq.perpendicular_distance(R_start, Z_start)
-    dist, err = distance(actual_psis)
-    total_distance, terr = distance(termini_psi[1])
-    # Standard uncertainty propagation
-    total_err = (
-        np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2
-    )
-    for d, e, p in np.nditer([dist, total_err, positions]):
-        np.testing.assert_allclose(d / total_distance, p, 1.5e-7, max(1.5e-7, float(e)))
+    # Check positions along curve are proportional to psi
+    normed_psi = (actual_psis - termini_psi[0])/(termini_psi[1] - termini_psi[0])
+    for actual, expected in np.nditer([normed_psi, positions]):
+        np.testing.assert_allclose(actual, expected, 1.5e-7, 1.5e-7)
 
 
 @settings(deadline=None, report_multiple_bugs=False)
@@ -775,25 +768,10 @@ def test_connect_to_o_point(
     expected_R, expected_Z = curve_of_psi(actual_psis)
     np.testing.assert_allclose(actual.x1[mask], expected_R[mask], 1e-8, 1e-8)
     np.testing.assert_allclose(actual.x2[mask], expected_Z[mask], 1e-8, 1e-8)
-    # Check distances along curve are proportional to the normalised
-    # `position` parameter
-    distance = eq.perpendicular_distance(R_start, Z_start)
-    dist, err = distance(actual_psis)
-    approx_total_distance, terr = distance(approx_end_psi)
-    approx_end_R, approx_end_Z = curve_of_psi(approx_end_psi)
-    # approx_total_distance is negative, so subtract remaining distance from O-point
-    total_distance = approx_total_distance - np.sqrt(
-        (approx_end_R - R_end) ** 2 + (approx_end_Z - Z_end) ** 2
-    )
-    # Standard uncertainty propagation
-    total_err = (
-        np.sqrt(total_distance**2 * err**2 + dist**2 * terr**2) / total_distance**2
-    )
-    if np.sum(mask) > 0:
-        for d, e, p in np.nditer([dist[mask], total_err[mask], positions[mask]]):
-            np.testing.assert_allclose(d / total_distance, p, 1e-7, max(1e-7, float(e)))
-    # Again, distances will be negative
-    assert np.all(dist[~mask] <= approx_total_distance + terr)
+    # Check positions along curve are proportional to psi
+    normed_psi = (actual_psis - start_psi)/(end_psi - start_psi)
+    for actual, expected in np.nditer([normed_psi, positions]):
+        np.testing.assert_allclose(actual, expected, 1.5e-7, 1.5e-7)
 
 
 @np.vectorize

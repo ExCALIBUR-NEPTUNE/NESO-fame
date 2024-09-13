@@ -382,6 +382,11 @@ def nektar_quad(
     south, south_termini = nektar_edge(quad.south, order, spatial_dim, layer_id)
     edges = (
         north,
+        # FIXME: Althoug this SHOULD return the same edge object for
+        # subdivided layers, the control points end up being
+        # calculated twice (albeit in different ways)? Isn't even
+        # great as a sanity-check, as it will fail silently. (Need to
+        # check implementation)
         nektar_edge(quad.near, order, spatial_dim, layer_id)[0],
         south,
         nektar_edge(quad.far, order, spatial_dim, layer_id)[0],

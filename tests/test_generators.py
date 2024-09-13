@@ -833,11 +833,11 @@ def test_iterate_and_merge_elements() -> None:
 
     assert elements == {
         (coord(0.0, 0.0), coord(1.0, 0.0), coord(0.0, 1.0), None),
-        (coord(0.0, 1.0), coord(2.0, 1.0), coord(1.0, 0.0), coord(2.0, 0.0)),
-        (coord(2.0, 1.0), coord(4.0, 1.0), coord(2.0, 0.0), coord(3.0, 0.0)),
+        (coord(1.0, 0.0), coord(2.0, 0.0), coord(0.0, 1.0), coord(2.0, 1.0)),
+        (coord(2.0, 0.0), coord(3.0, 0.0), coord(2.0, 1.0), coord(4.0, 1.0)),
         (coord(3.0, 0.0), coord(4.0, 0.0), coord(4.0, 1.0), None),
-        (coord(0.0, 2.0), coord(2.0, 2.0), coord(0.0, 1.0), coord(2.0, 1.0)),
-        (coord(2.0, 2.0), coord(4.0, 2.0), coord(2.0, 1.0), coord(4.0, 1.0)),
+        (coord(0.0, 1.0), coord(2.0, 1.0), coord(0.0, 2.0), coord(2.0, 2.0)),
+        (coord(2.0, 1.0), coord(4.0, 1.0), coord(2.0, 2.0), coord(4.0, 2.0)),
     }
 
 

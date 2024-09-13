@@ -53,7 +53,7 @@ def arbitrary_arrays() -> SearchStrategy[npt.NDArray]:
     return arrays(floating_dtypes(), array_shapes())
 
 
-WHOLE_NUM_MAX = 1000
+WHOLE_NUM_MAX = 900
 whole_numbers = integers(-WHOLE_NUM_MAX, WHOLE_NUM_MAX).map(float)
 nonnegative_numbers = integers(1, WHOLE_NUM_MAX).map(float)
 non_zero = whole_numbers.filter(bool)

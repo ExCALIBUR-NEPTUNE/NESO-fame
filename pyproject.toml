@@ -23,6 +23,7 @@ dependencies = [
     "NekPy",
     "click",
     "meshio",
+    "meshpy",
 ]
 dynamic = ["version"]
 
