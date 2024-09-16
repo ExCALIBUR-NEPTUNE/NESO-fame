@@ -316,6 +316,7 @@ def test_poloidal_curve(q: Quad, s: float) -> None:
     np.testing.assert_allclose(x2, expected.x2, 1e-8, 1e-8)
     np.testing.assert_allclose(x3, 0.0, 1e-8, 1e-8)
 
+
 @given(from_type(Prism), integers(1, 12), integers())
 def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_poloidal_face(

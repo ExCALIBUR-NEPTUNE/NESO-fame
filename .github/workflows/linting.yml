@@ -31,6 +31,6 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install mypy hypothesis pytest numpy scipy click types-PyYAML
+        pip install mypy hypothesis pytest numpy scipy rtree click types-PyYAML
     - name: Check typing information using MyPy
       run: mypy
