@@ -28,6 +28,7 @@ from NekPy import SpatialDomains as SD
 from pytest import approx, mark
 
 from neso_fame import nektar_writer
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.mesh import (
     B,
     C,
@@ -96,7 +97,8 @@ def poloidal_corners(element: Quad | Prism) -> Iterator[Coord]:
     )
 
 
-ComparableDimensionalGeometry = tuple[str, frozenset[Coord]]
+# FIXME: frozenset[FrozenCoordSet] won't compare properly
+ComparableDimensionalGeometry = tuple[str, FrozenCoordSet[Coord]]
 ComparableGeometry = Coord | ComparableDimensionalGeometry
 ComparableComposite = frozenset[int]
 
@@ -110,25 +112,27 @@ def comparable_nektar_point(geom: SD.PointGeom) -> Coord:
     return Coord(coords[0], coords[1], coords[2], CoordinateSystem.CARTESIAN)
 
 
-def comparable_curve(curve: NormalisedCurve, order: int) -> ComparableGeometry:
-    return SD.Curve.__name__, frozenset(
+def comparable_curve(
+    curve: NormalisedCurve, order: int
+) -> ComparableDimensionalGeometry:
+    return SD.Curve.__name__, FrozenCoordSet(
         map(comparable_coord, control_points(curve, order).to_cartesian().iter_points())
     )
 
 
-def comparable_edge(curve: NormalisedCurve) -> ComparableGeometry:
-    return SD.SegGeom.__name__, frozenset(
+def comparable_edge(curve: NormalisedCurve) -> ComparableDimensionalGeometry:
+    return SD.SegGeom.__name__, FrozenCoordSet(
         map(comparable_coord, control_points(curve, 1).to_cartesian().iter_points())
     )
 
 
-def comparable_quad(quad: Quad) -> ComparableGeometry:
-    return SD.QuadGeom.__name__, frozenset(
+def comparable_quad(quad: Quad) -> ComparableDimensionalGeometry:
+    return SD.QuadGeom.__name__, FrozenCoordSet(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )
 
 
-def comparable_poloidal_element(element: Prism | Quad) -> ComparableGeometry:
+def comparable_poloidal_element(element: Prism | Quad) -> ComparableDimensionalGeometry:
     if isinstance(element, Prism):
         if len(element.sides) == 3:
             type_name = SD.TriGeom.__name__
@@ -138,10 +142,10 @@ def comparable_poloidal_element(element: Prism | Quad) -> ComparableGeometry:
             raise ValueError("Unrecognised number of sides in prism.")
     else:
         type_name = SD.SegGeom.__name__
-    return type_name, frozenset(map(comparable_coord, poloidal_corners(element)))
+    return type_name, FrozenCoordSet(map(comparable_coord, poloidal_corners(element)))
 
 
-def comparable_prism(prism: Prism) -> ComparableGeometry:
+def comparable_prism(prism: Prism) -> ComparableDimensionalGeometry:
     n = len(prism.sides)
     if n == 3:
         name = SD.PrismGeom.__name__
@@ -149,34 +153,42 @@ def comparable_prism(prism: Prism) -> ComparableGeometry:
         name = SD.HexGeom.__name__
     else:
         raise ValueError(f"Unrecognised prism with {n} quad faces.")
-    return name, frozenset(
+    return name, FrozenCoordSet(
         map(comparable_coord, prism.corners().to_cartesian().iter_points())
     )
 
 
-def comparable_geometry(geom: SD.Geometry | SD.Curve) -> ComparableGeometry:
+def comparable_geometry(
+    geom: SD.Geometry1D | SD.Geometry2D | SD.Geometry3D | SD.Curve,
+) -> ComparableDimensionalGeometry:
     """Convert geometry elements into sets of points. This allows for
     convenient comparison.
 
     """
-    if isinstance(geom, SD.PointGeom):
-        return comparable_nektar_point(geom)
     if isinstance(geom, SD.SegGeom):
-        return type(geom).__name__, frozenset(
+        return type(geom).__name__, FrozenCoordSet(
             comparable_nektar_point(geom.GetVertex(i)) for i in range(2)
         )
     elif isinstance(geom, SD.Geometry):
-        return type(geom).__name__, frozenset(
+        return type(geom).__name__, FrozenCoordSet(
             comparable_nektar_point(geom.GetEdge(i).GetVertex(j))
             for j in range(2)
             for i in range(geom.GetNumEdges())
         )
     else:
-        return type(geom).__name__, frozenset(map(comparable_nektar_point, geom.points))
+        return type(geom).__name__, FrozenCoordSet(
+            map(comparable_nektar_point, geom.points)
+        )
 
 
-def comparable_set(vals: Iterable[SD.Geometry]) -> frozenset[ComparableGeometry]:
+def comparable_set(
+    vals: Iterable[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D | SD.Curve],
+) -> frozenset[ComparableDimensionalGeometry]:
     return frozenset(map(comparable_geometry, vals))
+
+
+def comparable_point_set(vals: Iterable[SD.PointGeom]) -> FrozenCoordSet[Coord]:
+    return FrozenCoordSet(map(comparable_nektar_point, vals))
 
 
 def comparable_composite(val: SD.Composite) -> frozenset[ComparableComposite]:
@@ -275,18 +287,15 @@ def test_nektar_edge_higher_order(
 @given(from_type(Quad), integers(1, 12), integers())
 def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
-    corners = frozenset(map(comparable_geometry, points))
+    corners = comparable_point_set(points)
     assert len(quads) == 1
     assert len(segments) == 4
     assert len(points) == len(corners)
     nek_quad = next(iter(quads))
-    assert corners == frozenset(
-        map(
-            comparable_geometry,
-            (nek_quad.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)),
-        )
+    assert corners == comparable_point_set(
+        nek_quad.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)
     )
-    assert corners == frozenset(
+    assert corners == FrozenCoordSet(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )
 
@@ -322,35 +331,29 @@ def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_poloidal_face(
         solid, order, 2, layer
     )
-    corners = frozenset(map(comparable_geometry, points))
+    corners = comparable_point_set(points)
     n = len(solid.sides)
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
-    assert corners == frozenset(
-        map(
-            comparable_geometry,
-            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)),
-        )
+    assert corners == comparable_point_set(
+        nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)
     )
-    assert corners == frozenset(map(comparable_coord, poloidal_corners(solid)))
+    assert corners == FrozenCoordSet(map(comparable_coord, poloidal_corners(solid)))
 
 
 @given(from_type(EndShape), integers(1, 12), integers())
 def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
-    corners = frozenset(map(comparable_geometry, points))
+    corners = comparable_point_set(points)
     n = len(shape.edges)
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
-    assert corners == frozenset(
-        map(
-            comparable_geometry,
-            (nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)),
-        )
+    assert corners == comparable_point_set(
+        nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)
     )
-    assert corners == frozenset(
+    assert corners == FrozenCoordSet(
         map(comparable_coord, shape.corners().to_cartesian().iter_points())
     )
 
@@ -358,11 +361,11 @@ def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
 @given(flat_sided_hex, integers(1, 4), integers())
 def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
     hexes, _, segments, points = nektar_writer.nektar_3d_element(hexa, order, 3, layer)
-    corners = frozenset(map(comparable_geometry, points))
+    corners = comparable_point_set(points)
     assert len(hexes) == 1
     assert len(segments) == 12
     assert len(points) == 8
-    assert corners == frozenset(
+    assert corners == FrozenCoordSet(
         map(comparable_coord, hexa.corners().to_cartesian().iter_points())
     )
 
@@ -372,11 +375,11 @@ def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
     prisms, _, segments, points = nektar_writer.nektar_3d_element(
         prism, order, 3, layer
     )
-    corners = frozenset(map(comparable_geometry, points))
+    corners = comparable_point_set(points)
     assert len(prisms) == 1
     assert len(segments) == 9
     assert len(points) == 6
-    assert corners == frozenset(
+    assert corners == FrozenCoordSet(
         map(comparable_coord, prism.corners().to_cartesian().iter_points())
     )
 
@@ -392,8 +395,8 @@ def check_points(
     actual: Iterable[SD.PointGeom],
     iter_corners: Callable[[Iterable[Quad | Prism]], Iterator[Coord]] = all_points,
 ) -> None:
-    expected_points = frozenset(map(comparable_coord, iter_corners(expected)))
-    actual_points = comparable_set(actual)
+    expected_points = FrozenCoordSet(map(comparable_coord, iter_corners(expected)))
+    actual_points = comparable_point_set(actual)
     assert expected_points == actual_points
 
 
@@ -462,7 +465,7 @@ def check_face_composites(
 ) -> None:
     def comparable_item(
         item: NormalisedCurve | EndShape,
-    ) -> tuple[str, frozenset[Coord]]:
+    ) -> tuple[str, FrozenCoordSet[Coord]]:
         if isinstance(item, EndShape):
             if len(item.edges) == 4:
                 name = SD.QuadGeom.__name__
@@ -470,16 +473,19 @@ def check_face_composites(
                 name = SD.TriGeom.__name__
             else:
                 raise ValueError(f"Unrecognised shape with {len(item.edges)} edges.")
-            return name, frozenset(
+            return name, FrozenCoordSet(
                 map(comparable_coord, item.corners().to_cartesian().iter_points())
             )
         else:
-            return SD.SegGeom.__name__, frozenset(
+            return SD.SegGeom.__name__, FrozenCoordSet(
                 map(comparable_coord, item([0.0, 1.0]).to_cartesian().iter_points())
             )
 
     expected_faces = frozenset(map(comparable_item, expected))
-    actual_faces = comparable_set(actual.geometries)
+    assert isinstance(actual.geometries[0], (SD.Geometry1D, SD.Geometry2D))
+    actual_faces = comparable_set(
+        cast(Iterable[SD.Geometry1D | SD.Geometry2D], actual.geometries)
+    )
     assert expected_faces == actual_faces
 
 
@@ -612,9 +618,9 @@ def test_nektar_poloidal_elements(
 def test_nektar_composite_map(comp_id: int, composite: SD.Composite) -> None:
     comp_map = nektar_writer.nektar_composite_map({comp_id: composite})
     assert len(comp_map) == 1
-    assert comparable_set(composite.geometries) == comparable_set(
-        comp_map[comp_id].geometries
-    )
+    assert comparable_point_set(
+        cast(list[SD.PointGeom], composite.geometries)
+    ) == comparable_point_set(cast(list[SD.PointGeom], comp_map[comp_id].geometries))
 
 
 order = shared(integers(1, 4))
@@ -670,11 +676,11 @@ def check_curved_edges(
                         SD.SegGeom, find_item(seg.GetGlobalID(), all_expected_segments)
                     ).GetCurve()
                 )
-                assert comparable_geometry(seg.GetVertex(0)) == comparable_geometry(
-                    curve.points[0]
+                assert comparable_nektar_point(seg.GetVertex(0)).approx_eq(
+                    comparable_nektar_point(curve.points[0])
                 )
-                assert comparable_geometry(seg.GetVertex(1)) == comparable_geometry(
-                    curve.points[-1]
+                assert comparable_nektar_point(seg.GetVertex(1)).approx_eq(
+                    comparable_nektar_point(curve.points[-1])
                 )
 
 
@@ -767,7 +773,6 @@ def test_nektar_mesh(
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()
     actual_geometries: list[GeomMap] = [
-        meshgraph.GetAllPointGeoms(),
         actual_segments,
         actual_triangles,
         actual_quads,
@@ -776,11 +781,10 @@ def test_nektar_mesh(
         meshgraph.GetAllPrismGeoms(),
         meshgraph.GetAllHexGeoms(),
     ]
-    expected_geometries: list[list[SD.Geometry]] = list(
+    expected_geometries = list(
         map(
             list,
             [
-                elements.points(),
                 elements.segments(),
                 extract_and_merge(SD.TriGeom, elements.faces(), elements.elements()),
                 extract_and_merge(SD.QuadGeom, elements.faces(), elements.elements()),
@@ -791,11 +795,27 @@ def test_nektar_mesh(
             ],
         )
     )
+
+    actual_points = meshgraph.GetAllPointGeoms()
+    expected_points = list(elements.points())
+    assert len(actual_points) == len(expected_points)
+    assert all(item.key() == item.data().GetGlobalID() for item in actual_points)
+    actual_comparable_points = comparable_point_set(
+        cast(SD.PointGeom, item.data()) for item in actual_points
+    )
+    expected_comparable_points = comparable_point_set(expected_points)
+    assert actual_comparable_points == expected_comparable_points
+
     for expected, actual in zip(expected_geometries, actual_geometries):
         assert len(actual) == len(expected)
         assert all(item.key() == item.data().GetGlobalID() for item in actual)
-        actual_comparable = comparable_set(item.data() for item in actual)
-        expected_comparable = comparable_set(expected)
+        actual_comparable = comparable_set(
+            cast(SD.Geometry1D | SD.Geometry2D | SD.Geometry3D, item.data())
+            for item in actual
+        )
+        expected_comparable = comparable_set(
+            cast(list[SD.Geometry1D | SD.Geometry2D | SD.Geometry3D], expected)
+        )
         assert actual_comparable == expected_comparable
 
     curved_edges = meshgraph.GetCurvedEdges()

@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
 
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.offset import LazilyOffsetable, Offset
 
 
@@ -155,7 +156,9 @@ class SliceCoord:
     #         np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
     #         and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE),
     #     )
-    def approx_eq(self, other: SliceCoord, rtol: float = 1e-9, atol: float = 1e-9) -> bool:
+    def approx_eq(
+        self, other: SliceCoord, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> bool:
         """Check equality of coordinates within the the TOLERANCE."""
         return self.system == other.system and cast(
             bool,
@@ -206,10 +209,12 @@ class SliceCoords:
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
-    def get_set(self, index: IndexSlice) -> frozenset[SliceCoord]:
+    def get_set(self, index: IndexSlice) -> FrozenCoordSet[SliceCoord]:
         """Get a set of individual point objects from the collection."""
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
-        return frozenset(SliceCoords(x1[index], x2[index], self.system).iter_points())
+        return FrozenCoordSet(
+            SliceCoords(x1[index], x2[index], self.system).iter_points()
+        )
 
     def round_to(self, figures: int = 8) -> SliceCoords:
         """Round coordinate values to the desired number of significant figures."""
@@ -397,10 +402,10 @@ class Coords:
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
 
-    def get_set(self, index: IndexSlice) -> frozenset[Coord]:
+    def get_set(self, index: IndexSlice) -> FrozenCoordSet[Coord]:
         """Get a set of individual point objects from the collection."""
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
-        return frozenset(
+        return FrozenCoordSet(
             Coords(x1[index], x2[index], x3[index], self.system).iter_points()
         )
 

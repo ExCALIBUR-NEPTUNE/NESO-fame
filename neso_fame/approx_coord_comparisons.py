@@ -26,7 +26,9 @@ class _CoordContainer(Generic[C]):
     _rtree: Index
     _dim: int
 
-    def __init__(self, coords: Iterable[C], rtol: float = 1e-9, atol: float = 1e-9) -> None:
+    def __init__(
+        self, coords: Iterable[C] = {}, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> None:
         self._atol = atol
         self._rtol = rtol
         self._coords = list(coords)
@@ -94,7 +96,9 @@ class _CoordContainer(Generic[C]):
 class FrozenCoordSet(_CoordContainer[C], Set[C]):
     """An immutable set of coordinates, evaluating equality to within a tolerance."""
 
-    pass
+    def __hash__(self) -> int:
+        """Return a very dumb hash that will ensure things work logically (but inefficiently)."""
+        return len(self)
 
 
 class CoordSet(FrozenCoordSet[C], MutableSet[C]):

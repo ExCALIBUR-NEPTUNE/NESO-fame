@@ -1,3 +1,4 @@
+import itertools
 import operator
 from unittest.mock import MagicMock, call
 
@@ -12,6 +13,7 @@ from hypothesis.strategies import (
     shared,
 )
 
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.mesh import (
     CoordinateSystem,
     SliceCoord,
@@ -347,13 +349,15 @@ def test_immediate_mesh_connections_interior(points: SliceCoords) -> None:
     )
 
 
-def get_bounds(points: SliceCoords) -> frozenset[SliceCoord]:
+def get_bounds(points: SliceCoords) -> FrozenCoordSet[SliceCoord]:
     shape = points.x1.shape
-    return (
-        points.get_set((0, slice(0, shape[1])))
-        | points.get_set((shape[0] - 1, slice(0, shape[1])))
-        | points.get_set((slice(1, shape[0] - 1), 0))
-        | points.get_set((slice(1, shape[0] - 1), shape[1] - 1))
+    return FrozenCoordSet(
+        itertools.chain(
+            points.get_set((0, slice(0, shape[1]))),
+            points.get_set((shape[0] - 1, slice(0, shape[1]))),
+            points.get_set((slice(1, shape[0] - 1), 0)),
+            points.get_set((slice(1, shape[0] - 1), shape[1] - 1)),
+        )
     )
 
 
@@ -362,7 +366,7 @@ def test_find_external_points(points: SliceCoords, wall_points: list[Point2D]) -
     wall = wall_points_to_segments(wall_points)
     connections = get_all_rectangular_mesh_connections(points)
     outside, skin = find_external_points(get_bounds(points), connections, wall)
-    points_set = frozenset(points.iter_points())
+    points_set = FrozenCoordSet(points.iter_points())
     inside = points_set - outside
     assert outside <= points_set
     assert skin <= inside

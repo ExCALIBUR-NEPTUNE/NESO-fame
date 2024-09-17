@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from neso_fame import generators
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
@@ -887,13 +888,13 @@ def test_extruding_hypnotoad_mesh() -> None:
     eq = hypno_mesh.equilibrium
     # Extrude only a very short distance to keep run-times quick
     mesh = generators.hypnotoad_mesh(hypno_mesh, (0.0, 0.001 * np.pi), 3, 21)
-    actual_nodes = frozenset(
+    actual_nodes = FrozenCoordSet(
         itertools.chain.from_iterable(
             (q.shape(0.0).to_coord(), q.shape(1.0).to_coord())
             for q in itertools.chain.from_iterable(mesh)
         )
     )
-    expected_nodes = frozenset(
+    expected_nodes = FrozenCoordSet(
         itertools.chain.from_iterable(
             SliceCoords(
                 r.Rxy.corners, r.Zxy.corners, CoordinateSystem.CYLINDRICAL
@@ -1027,7 +1028,7 @@ def test_extruding_hypnotoad_mesh_to_wall() -> None:
 
     wall_remnants, remaining_quads = filter_quads_on_wall(
         itertools.pairwise(wall),
-        frozenset(frozenset(q.shape([0.0, 1.0]).iter_points()) for q in bounds),
+        frozenset(FrozenCoordSet(q.shape([0.0, 1.0]).iter_points()) for q in bounds),
     )
     # Check the walls are entirely covered by the boundary quads
     assert len(wall_remnants) == 0
@@ -1091,7 +1092,7 @@ def point_on_surface(
 
 
 TOL = 1e-8
-QuadPoints = frozenset[frozenset[SliceCoord]]
+QuadPoints = frozenset[FrozenCoordSet[SliceCoord]]
 WallSegment = tuple[SliceCoord, SliceCoord]
 
 

@@ -16,6 +16,7 @@ from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 from hypnotoad import Point2D
 
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
     equilibrium_trace,
@@ -444,7 +445,7 @@ def field_aligned_3d(
 def _merge_connections(left: Connections, right: Connections) -> Connections:
     for k, v in right.items():
         if k in left:
-            left[k] |= v
+            left[k] = cast(FrozenCoordSet, left[k] | v)
         else:
             left[k] = v
     return left
@@ -630,16 +631,16 @@ def _iter_element_corners(
 
 
 def _find_internal_neighbours(
-    outermost: frozenset[SliceCoord],
-    external_points: frozenset[SliceCoord],
+    outermost: FrozenCoordSet[SliceCoord],
+    external_points: FrozenCoordSet[SliceCoord],
     connections: Connections,
-) -> Iterator[frozenset[SliceCoord]]:
+) -> Iterator[FrozenCoordSet[SliceCoord]]:
     yield outermost
-    candidates: frozenset[SliceCoord] = reduce(
-        operator.or_, (connections[p] for p in outermost)
+    candidates = FrozenCoordSet(
+        itertools.chain.from_iterable(connections[p] for p in outermost)
     )
-    new_external = external_points | outermost
-    new_outermost = candidates - new_external
+    new_external = cast(FrozenCoordSet, external_points | outermost)
+    new_outermost = cast(FrozenCoordSet, candidates - new_external)
     yield from _find_internal_neighbours(new_outermost, new_external, connections)
 
 
@@ -652,16 +653,14 @@ def _handle_edge_nodes(
     system: CoordinateSystem,
 ) -> tuple[Callable[[Corners], bool], dict[SliceCoord, float]]:
     """Work out which nodes fall outside the vessle and degree of field-alignment."""
-    initial_outermost_nodes = reduce(
-        operator.or_,
-        (
-            frozenset(bound)
-            for bound in itertools.chain.from_iterable(
+    initial_outermost_nodes = FrozenCoordSet(
+        itertools.chain.from_iterable(
+            itertools.chain.from_iterable(
                 get_region_flux_surface_boundary_points(region, system)[1:]
                 + get_region_perpendicular_boundary_points(region, system)
                 for region in hypnotoad_poloidal_mesh.regions.values()
             )
-        ),
+        )
     )
     wall = wall_points_to_segments(wall_points)
     if restrict_to_vessel:
@@ -685,7 +684,7 @@ def _handle_edge_nodes(
         def corners_within_vessel(
             corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
         ) -> bool:
-            return frozenset(c for c in corners if c is not None).isdisjoint(
+            return FrozenCoordSet(c for c in corners if c is not None).isdisjoint(
                 external_nodes
             )
 
@@ -696,7 +695,7 @@ def _handle_edge_nodes(
         ) -> bool:
             return True
 
-        external_nodes = frozenset()
+        external_nodes = FrozenCoordSet()
         outermost_nodes = initial_outermost_nodes
 
     steps = np.flip(np.linspace(0.0, 1.0, alignment_steps + 1, endpoint=False))

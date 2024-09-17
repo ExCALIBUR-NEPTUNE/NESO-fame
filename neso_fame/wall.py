@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import itertools
-import operator
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property, reduce
-from typing import Callable, Iterable, Iterator, Optional, TypeVar
+from typing import Callable, Iterable, Iterator, Optional, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
 from hypnotoad import Point2D  # type: ignore
 from scipy.interpolate import interp1d
 
+from neso_fame.approx_coord_comparisons import FrozenCoordSet, MutableCoordMap
 from neso_fame.mesh import (
     AcrossFieldCurve,
     CoordinateSystem,
@@ -454,17 +454,17 @@ def point_in_tokamak(point: SliceCoord, wall: Sequence[WallSegment]) -> bool:
     return crossings % 2 == 1
 
 
-Connections = dict[SliceCoord, frozenset[SliceCoord]]
+Connections = MutableCoordMap[SliceCoord, FrozenCoordSet[SliceCoord]]
 
 
 def find_external_points(
-    outermost: frozenset[SliceCoord],
+    outermost: FrozenCoordSet[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
     in_tokamak_test: Optional[
         Callable[[SliceCoord, Sequence[WallSegment]], bool]
     ] = None,
-) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
+) -> tuple[FrozenCoordSet[SliceCoord], FrozenCoordSet[SliceCoord]]:
     """Find the points in a mesh outside the wall of a tokamak.
 
     Parameters
@@ -497,8 +497,8 @@ def find_external_points(
     """
     return _find_external_points(
         outermost,
-        frozenset(),
-        frozenset(),
+        FrozenCoordSet(),
+        FrozenCoordSet(),
         connections,
         wall,
         point_in_tokamak if in_tokamak_test is None else in_tokamak_test,
@@ -506,31 +506,34 @@ def find_external_points(
 
 
 def _find_external_points(
-    candidates: frozenset[SliceCoord],
-    outpoints: frozenset[SliceCoord],
-    skinpoints: frozenset[SliceCoord],
+    candidates: FrozenCoordSet[SliceCoord],
+    outpoints: FrozenCoordSet[SliceCoord],
+    skinpoints: FrozenCoordSet[SliceCoord],
     connections: Connections,
     wall: Sequence[WallSegment],
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
-) -> tuple[frozenset[SliceCoord], frozenset[SliceCoord]]:
+) -> tuple[FrozenCoordSet[SliceCoord], FrozenCoordSet[SliceCoord]]:
     if len(candidates) == 0:
         # If nothing to check, return previous results
         return outpoints, skinpoints
     # Check all candidates
     results = {point: in_tokamak_test(point, wall) for point in candidates}
     # Separate out candidates found to be outside the wall
-    new_outpoints = frozenset(p for p, r in results.items() if not r)
+    new_outpoints = FrozenCoordSet(p for p, r in results.items() if not r)
     # Assemble a set of new candidates, consiting of neighbours of all
     # the points we found were outside the wall (that haven't already
     # been classified)
-    neighbours: frozenset[SliceCoord] = reduce(
-        operator.or_, (connections[p] for p in new_outpoints), frozenset()
+    neighbours = FrozenCoordSet(
+        itertools.chain.from_iterable(connections[p] for p in new_outpoints)
     )
     # Repeat the process on the new set of candidates
     return _find_external_points(
-        neighbours - candidates - outpoints - skinpoints,
-        outpoints | new_outpoints,
-        skinpoints | frozenset(p for p, r in results.items() if r),
+        cast(FrozenCoordSet, neighbours - candidates - outpoints - skinpoints),
+        cast(FrozenCoordSet, outpoints | new_outpoints),
+        cast(
+            FrozenCoordSet,
+            skinpoints | FrozenCoordSet(p for p, r in results.items() if r),
+        ),
         connections,
         wall,
         in_tokamak_test,
@@ -538,14 +541,17 @@ def _find_external_points(
 
 
 def _get_mesh_connections(
-    points: SliceCoords, get_neighbours: Callable[[int, int], frozenset[SliceCoord]]
+    points: SliceCoords,
+    get_neighbours: Callable[[int, int], FrozenCoordSet[SliceCoord]],
 ) -> Connections:
     shape = np.broadcast(points.x1, points.x2).shape
-    return {
-        points[i, j]: get_neighbours(i, j)
-        for i in range(shape[0])
-        for j in range(shape[1])
-    }
+    return MutableCoordMap(
+        {
+            points[i, j]: get_neighbours(i, j)
+            for i in range(shape[0])
+            for j in range(shape[1])
+        }
+    )
 
 
 def get_all_rectangular_mesh_connections(points: SliceCoords) -> Connections:
@@ -568,14 +574,16 @@ def get_all_rectangular_mesh_connections(points: SliceCoords) -> Connections:
 
     """
 
-    def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
+    def get_neighbours(i: int, j: int) -> FrozenCoordSet[SliceCoord]:
         i_min = i - 1 if i > 0 else 0
         i_max = i + 2
         j_min = j - 1 if j > 0 else 0
         j_max = j + 2
-        return (
-            points.get_set((slice(i_min, i_max), slice(j_min, j_max)))
-        ) - points.get_set((i, j))
+        return cast(
+            FrozenCoordSet,
+            (points.get_set((slice(i_min, i_max), slice(j_min, j_max))))
+            - points.get_set((i, j)),
+        )
 
     return _get_mesh_connections(points, get_neighbours)
 
@@ -601,12 +609,12 @@ def get_immediate_rectangular_mesh_connections(points: SliceCoords) -> Connectio
     """
     shape = np.broadcast(points.x1, points.x2).shape
 
-    def get_neighbours(i: int, j: int) -> frozenset[SliceCoord]:
+    def get_neighbours(i: int, j: int) -> FrozenCoordSet[SliceCoord]:
         south = {points[i - 1, j]} if i > 0 else set()
         north = {points[i + 1, j]} if i < shape[0] - 1 else set()
         west = {points[i, j - 1]} if j > 0 else set()
         east = {points[i, j + 1]} if j < shape[1] - 1 else set()
-        return frozenset(north | south | east | west)
+        return FrozenCoordSet(itertools.chain(north, south, east, west))
 
     return _get_mesh_connections(points, get_neighbours)
 

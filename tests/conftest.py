@@ -33,6 +33,7 @@ from hypothesis.strategies import (
 from scipy.special import ellipeinc
 
 from neso_fame import mesh
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.offset import Offset
 
 settings.register_profile("ci", max_examples=200, deadline=None)
@@ -1140,7 +1141,7 @@ linear_quad = cast(
     .filter(lambda x: x is not None)
     .filter(
         lambda x: len(
-            frozenset(cast(mesh.Quad, x).corners().to_cartesian().iter_points())
+            FrozenCoordSet(cast(mesh.Quad, x).corners().to_cartesian().iter_points())
         )
         == 4
     ),

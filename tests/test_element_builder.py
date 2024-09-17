@@ -25,6 +25,7 @@ from hypothesis.strategies import (
     tuples,
 )
 
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
@@ -333,9 +334,9 @@ def test_make_hex(
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, {})
     hexa = builder.make_element(*termini)
-    assert frozenset(hexa.corners().to_slice_coords().iter_points()) == frozenset(
-        termini
-    )
+    assert FrozenCoordSet(
+        hexa.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(termini)
     for quad in hexa:
         assert quad.field == trace
         assert quad.dx3 == dx3
@@ -359,9 +360,9 @@ def test_make_prism(
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, {})
     prism = builder.make_element(*termini[:3], None)
-    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
-        termini[:3]
-    )
+    assert FrozenCoordSet(
+        prism.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(termini[:3])
     for quad in prism:
         assert quad.field == trace
         assert quad.dx3 == dx3
@@ -391,9 +392,9 @@ def test_make_prism_to_centre(
         CoordinateSystem.CYLINDRICAL,
     )
     prism = builder.make_prism_to_centre(north, south)
-    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
-        termini + (o_point,)
-    )
+    assert FrozenCoordSet(
+        prism.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(termini + (o_point,))
     for quad in prism:
         assert quad.field == trace
         assert quad.dx3 == dx3
@@ -598,9 +599,9 @@ def test_make_outer_prism(
     prism_termini = termini[:3]
     builder = ElementBuilder(mesh, trace, dx3, {})
     prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
-    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
-        prism_termini
-    )
+    assert FrozenCoordSet(
+        prism.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(prism_termini)
     for quad in prism:
         assert quad.field == trace
         assert quad.dx3 == dx3
@@ -626,9 +627,9 @@ def test_make_outer_prism_no_bounds(
     prism_termini = termini[:3]
     builder = ElementBuilder(mesh, trace, dx3, {})
     prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
-    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
-        prism_termini
-    )
+    assert FrozenCoordSet(
+        prism.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(prism_termini)
     assert len(bounds) == 0
 
 
@@ -652,15 +653,15 @@ def test_make_outer_prism_one_bound(
     bound_set = frozenset({(termini[bound_points[0]], termini[bound_points[1]])})
     builder = ElementBuilder(mesh, trace, dx3, {})
     prism, bounds = builder.make_outer_prism(*prism_termini, bound_set)
-    assert frozenset(prism.corners().to_slice_coords().iter_points()) == frozenset(
-        prism_termini
-    )
+    assert FrozenCoordSet(
+        prism.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(prism_termini)
     assert bounds < frozenset(prism)
     assert len(bounds) == 1
     bound_quad = next(iter(bounds))
-    assert frozenset(bound_quad.corners().to_slice_coords().iter_points()) == frozenset(
-        next(iter(bound_set))
-    )
+    assert FrozenCoordSet(
+        bound_quad.corners().to_slice_coords().iter_points()
+    ) == FrozenCoordSet(next(iter(bound_set)))
 
 
 @settings(deadline=None)
@@ -712,16 +713,16 @@ EAST_INNER = SliceCoords(R[4:7:, 6], Z[4:7, 6], CoordinateSystem.CYLINDRICAL)
 SOUTH_INNER = SliceCoords(R[4, 4:7], Z[4, 4:7], CoordinateSystem.CYLINDRICAL)
 NORTH_INNER = SliceCoords(R[6, 4:7], Z[6, 4:7], CoordinateSystem.CYLINDRICAL)
 OUTERMOST = (
-    frozenset(EAST_OUTER.iter_points())
-    | frozenset(WEST_OUTER.iter_points())
-    | frozenset(NORTH_OUTER.iter_points())
-    | frozenset(SOUTH_OUTER.iter_points())
+    FrozenCoordSet(EAST_OUTER.iter_points())
+    | FrozenCoordSet(WEST_OUTER.iter_points())
+    | FrozenCoordSet(NORTH_OUTER.iter_points())
+    | FrozenCoordSet(SOUTH_OUTER.iter_points())
 )
 INNERMOST = (
-    frozenset(EAST_INNER.iter_points())
-    | frozenset(WEST_INNER.iter_points())
-    | frozenset(NORTH_INNER.iter_points())
-    | frozenset(SOUTH_INNER.iter_points())
+    FrozenCoordSet(EAST_INNER.iter_points())
+    | FrozenCoordSet(WEST_INNER.iter_points())
+    | FrozenCoordSet(NORTH_INNER.iter_points())
+    | FrozenCoordSet(SOUTH_INNER.iter_points())
 )
 
 
@@ -807,7 +808,7 @@ def test_outermost_vertices_empty() -> None:
 def test_outermost_vertices() -> None:
     ordered_outermost = list(BUILDER.outermost_vertices())
     assert len(ordered_outermost) == len(OUTERMOST)
-    assert frozenset(ordered_outermost) == OUTERMOST
+    assert FrozenCoordSet(ordered_outermost) == OUTERMOST
 
 
 def test_outermost_vertices_order() -> None:
@@ -839,7 +840,7 @@ def test_outermost_quads_empty() -> None:
 
 def test_outermost_quads_between() -> None:
     ordered_outermost = list(BUILDER.outermost_vertices())
-    outermost_between = frozenset(
+    outermost_between = FrozenCoordSet(
         itertools.chain.from_iterable(
             q.shape([0.0, 1.0]).iter_points()
             for q in BUILDER.outermost_quads_between(
@@ -847,24 +848,24 @@ def test_outermost_quads_between() -> None:
             )
         )
     )
-    assert frozenset(ordered_outermost) == outermost_between
+    assert FrozenCoordSet(ordered_outermost) == outermost_between
 
 
 def test_outermost_quads() -> None:
     ordered_outermost = list(BUILDER.outermost_vertices())
     quads = list(BUILDER.outermost_quads())
-    outermost = frozenset(
+    outermost = FrozenCoordSet(
         itertools.chain.from_iterable(q.shape([0.0, 1.0]).iter_points() for q in quads)
     )
-    assert frozenset(ordered_outermost) == outermost
+    assert FrozenCoordSet(ordered_outermost) == outermost
     assert len(ordered_outermost) == len(quads)
 
 
 @given(outer_vertices, outer_vertices)
 def test_outermost_quads_between_termini(start: SliceCoord, end: SliceCoord) -> None:
     outermost_between = list(BUILDER.outermost_quads_between(start, end))
-    assert start in frozenset(outermost_between[0].shape([0.0, 1.0]).iter_points())
-    assert end in frozenset(outermost_between[-1].shape([0.0, 1.0]).iter_points())
+    assert start in FrozenCoordSet(outermost_between[0].shape([0.0, 1.0]).iter_points())
+    assert end in FrozenCoordSet(outermost_between[-1].shape([0.0, 1.0]).iter_points())
 
 
 def test_unfinished_outermost_vertices_between() -> None:
@@ -926,11 +927,11 @@ def test_complex_outermost_vertices() -> None:
     # Leave out a few elements to test a more complex shape of the outermost edges
     unused_outer_point = WEST_OUTER[8]
     complex_outermost = (
-        frozenset(EAST_OUTER.iter_points())
-        | frozenset(p for p in WEST_OUTER.iter_points() if p != unused_outer_point)
-        | frozenset(NORTH_OUTER.iter_points())
-        | frozenset(SOUTH_OUTER.iter_points())
-        | frozenset(
+        FrozenCoordSet(EAST_OUTER.iter_points())
+        | FrozenCoordSet(p for p in WEST_OUTER.iter_points() if p != unused_outer_point)
+        | FrozenCoordSet(NORTH_OUTER.iter_points())
+        | FrozenCoordSet(SOUTH_OUTER.iter_points())
+        | FrozenCoordSet(
             SliceCoords(
                 R[7:10, 1], Z[7:10, 1], CoordinateSystem.CYLINDRICAL
             ).iter_points()
@@ -945,7 +946,7 @@ def test_complex_outermost_vertices() -> None:
 
     ordered_outermost = list(builder.outermost_vertices())
     assert len(ordered_outermost) == len(complex_outermost)
-    assert frozenset(ordered_outermost) == complex_outermost
+    assert FrozenCoordSet(ordered_outermost) == complex_outermost
 
 
 def test_innermost_vertices_empty() -> None:
@@ -956,7 +957,7 @@ def test_innermost_vertices_empty() -> None:
 def test_innermost_vertices() -> None:
     ordered_innermost = list(BUILDER.innermost_vertices())
     assert len(ordered_innermost) == len(INNERMOST)
-    assert frozenset(ordered_innermost) == INNERMOST
+    assert FrozenCoordSet(ordered_innermost) == INNERMOST
 
 
 def test_innermost_quads_empty() -> None:
@@ -967,8 +968,8 @@ def test_innermost_quads_empty() -> None:
 def test_innermost_quads() -> None:
     ordered_innermost = list(BUILDER.innermost_vertices())
     quads = list(BUILDER.innermost_quads())
-    innermost = frozenset(
+    innermost = FrozenCoordSet(
         itertools.chain.from_iterable(q.shape([0.0, 1.0]).iter_points() for q in quads)
     )
-    assert frozenset(ordered_innermost) == innermost
+    assert FrozenCoordSet(ordered_innermost) == innermost
     assert len(ordered_innermost) == len(quads)

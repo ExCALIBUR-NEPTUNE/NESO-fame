@@ -23,6 +23,7 @@ from hypothesis.strategies import (
 from scipy.optimize import minimize_scalar
 
 from neso_fame import mesh
+from neso_fame.approx_coord_comparisons import FrozenCoordSet
 from neso_fame.offset import (
     Offset,
 )
@@ -1004,8 +1005,8 @@ def test_quad_get_field_line(q: mesh.Quad, s: float, t: float) -> None:
 @settings(deadline=None)
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
-    actual = frozenset(q.near(np.array([0.0, 1.0])).iter_points())
-    expected = frozenset({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
+    actual = FrozenCoordSet(q.near(np.array([0.0, 1.0])).iter_points())
+    expected = FrozenCoordSet({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
     assert expected == actual
     s = np.linspace(0.0, 1.0, n)
     cp = q.near(s)
@@ -1020,8 +1021,8 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
 @settings(deadline=None)
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
-    actual = frozenset(q.far(np.array([0.0, 1.0])).iter_points())
-    expected = frozenset({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
+    actual = FrozenCoordSet(q.far(np.array([0.0, 1.0])).iter_points())
+    expected = FrozenCoordSet({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
     assert expected == actual
     s = np.linspace(0.0, 1.0, n)
     cp = q.far(s)
@@ -1035,8 +1036,8 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    expected = frozenset(q.corners().iter_points())
-    actual = frozenset(q.far([0.0, 1.0]).iter_points()) | frozenset(
+    expected = FrozenCoordSet(q.corners().iter_points())
+    actual = FrozenCoordSet(q.far([0.0, 1.0]).iter_points()) | FrozenCoordSet(
         q.near([0.0, 1.0]).iter_points()
     )
     assert expected == actual
@@ -1147,12 +1148,12 @@ def test_quad_make_flat_idempotent(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Prism))
 def test_prism_near_edge(h: mesh.Prism) -> None:
-    expected = frozenset(
+    expected = FrozenCoordSet(
         itertools.chain.from_iterable(
             (s.north(0.0).to_coord(), s.south(0.0).to_coord()) for s in h.sides
         )
     )
-    actual = frozenset(h.near.corners().iter_points())
+    actual = FrozenCoordSet(h.near.corners().iter_points())
     assert expected == actual
 
 
@@ -1163,7 +1164,7 @@ def test_end_shape(shape: mesh.EndShape) -> None:
 
 @given(flat_sided_hex)
 def test_prism_far_edge(h: mesh.Prism) -> None:
-    expected = frozenset(
+    expected = FrozenCoordSet(
         itertools.chain.from_iterable(
             (
                 s.north(1.0).to_coord(),
@@ -1172,14 +1173,14 @@ def test_prism_far_edge(h: mesh.Prism) -> None:
             for s in h.sides
         )
     )
-    actual = frozenset(h.far.corners().iter_points())
+    actual = FrozenCoordSet(h.far.corners().iter_points())
     assert expected == actual
 
 
 @given(from_type(mesh.Prism))
 def test_prism_near_far_corners(h: mesh.Prism) -> None:
-    expected = frozenset(h.corners().iter_points())
-    actual = frozenset(h.near.corners().iter_points()) | frozenset(
+    expected = FrozenCoordSet(h.corners().iter_points())
+    actual = FrozenCoordSet(h.near.corners().iter_points()) | FrozenCoordSet(
         h.far.corners().iter_points()
     )
     assert expected == actual
@@ -1322,7 +1323,7 @@ def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
 )
 def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
     x = np.linspace(0.0, 1.0, n)
-    edgemap = {frozenset({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
+    edgemap = {FrozenCoordSet({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
     directions = [
         (x, np.asarray(0.0)),
         (np.asarray(1.0), x),
@@ -1330,12 +1331,12 @@ def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
     ]
     if len(p.sides) == 4:
         directions.append((x, np.asarray(1.0)))
-    termini: list[frozenset[mesh.SliceCoord]] = []
+    termini: list[FrozenCoordSet[mesh.SliceCoord]] = []
     # Check that when a coord is 0 or 1 then it corresponds to one of
     # the edges of the prism
     for coords in directions:
         actual = p.poloidal_map(*coords)
-        ends = frozenset({actual[0], actual[-1]})
+        ends = FrozenCoordSet({actual[0], actual[-1]})
         termini.append(ends)
         expected = edgemap[ends]
         if actual[0] == expected[0]:
@@ -1536,10 +1537,10 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         actual_elems = frozenset(
-            frozenset(get_corners(elem).iter_points()) for elem in actual_bound
+            FrozenCoordSet(get_corners(elem).iter_points()) for elem in actual_bound
         )
         expected_elems = frozenset(
-            frozenset(get_corners(elem).offset(offset).iter_points())
+            FrozenCoordSet(get_corners(elem).offset(offset).iter_points())
             for elem in expected_bound
         )
         assert actual_elems == expected_elems
@@ -1551,7 +1552,7 @@ def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
     layer = mesh.MeshLayer(*args, subdivisions=subdivisions)
-    expected = frozenset(
+    expected = FrozenCoordSet(
         itertools.chain.from_iterable(
             (
                 x.corners().iter_points()
@@ -1561,12 +1562,12 @@ def test_mesh_layer_elements_with_subdivisions(
             )
         )
     )
-    actual = frozenset(
+    actual = FrozenCoordSet(
         itertools.chain.from_iterable((x.corners().iter_points() for x in layer))
     )
     assert expected == actual
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        expected_corners = frozenset(
+        expected_corners = FrozenCoordSet(
             itertools.chain.from_iterable(
                 (
                     get_corners(x).iter_points()
@@ -1579,7 +1580,7 @@ def test_mesh_layer_elements_with_subdivisions(
                 )
             )
         )
-        actual_corners = frozenset(
+        actual_corners = FrozenCoordSet(
             itertools.chain.from_iterable(
                 (get_corners(x).iter_points() for x in actual_bound)
             )
@@ -1601,12 +1602,12 @@ def test_mesh_layer_near_faces(
     subdivisions: int,
 ) -> None:
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
-    expected = frozenset(
+    expected = FrozenCoordSet(
         itertools.chain.from_iterable(
             (evaluate_element(Offset(x, offset), 0.0) for x in args[0])
         ),
     )
-    actual = frozenset(
+    actual = FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.near_faces())
         ),
@@ -1621,12 +1622,12 @@ def test_mesh_layer_far_faces(
     subdivisions: int,
 ) -> None:
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
-    expected = frozenset(
+    expected = FrozenCoordSet(
         itertools.chain.from_iterable(
             (evaluate_element(Offset(x, offset), 1.0) for x in args[0])
         ),
     )
-    actual = frozenset(
+    actual = FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.far_faces())
         ),
@@ -1636,15 +1637,15 @@ def test_mesh_layer_far_faces(
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
-    element_corners = frozenset(
+    element_corners = FrozenCoordSet(
         itertools.chain.from_iterable((get_corners(x).iter_points() for x in layer)),
     )
-    near_face_corners = frozenset(
+    near_face_corners = FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.near_faces())
         ),
     )
-    far_face_corners = frozenset(
+    far_face_corners = FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.far_faces())
         ),
