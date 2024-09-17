@@ -8,17 +8,14 @@ import meshio  # type: ignore
 import numpy as np
 import numpy.typing as npt
 
+from .coordinates import Coord, Coords, SliceCoord, SliceCoords
 from .mesh import (
     AcrossFieldCurve,
-    Coord,
-    Coords,
     Mesh,
     NormalisedCurve,
     Prism,
     PrismMesh,
     Quad,
-    SliceCoord,
-    SliceCoords,
     control_points,
 )
 

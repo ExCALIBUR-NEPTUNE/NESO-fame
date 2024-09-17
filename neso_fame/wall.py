@@ -14,13 +14,16 @@ import numpy.typing as npt
 from hypnotoad import Point2D  # type: ignore
 from scipy.interpolate import interp1d
 
-from neso_fame.approx_coord_comparisons import FrozenCoordSet, MutableCoordMap
-from neso_fame.mesh import (
-    AcrossFieldCurve,
+from neso_fame.coordinates import (
     CoordinateSystem,
-    Quad,
+    FrozenCoordSet,
+    MutableCoordMap,
     SliceCoord,
     SliceCoords,
+)
+from neso_fame.mesh import (
+    AcrossFieldCurve,
+    Quad,
     StraightLineAcrossField,
 )
 

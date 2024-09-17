@@ -16,7 +16,12 @@ from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
 from hypnotoad import Point2D
 
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
+from neso_fame.coordinates import (
+    CoordinateSystem,
+    FrozenCoordSet,
+    SliceCoord,
+    SliceCoords,
+)
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
     equilibrium_trace,
@@ -24,7 +29,6 @@ from neso_fame.hypnotoad_interface import (
     get_region_perpendicular_boundary_points,
 )
 from neso_fame.mesh import (
-    CoordinateSystem,
     FieldAlignedCurve,
     FieldTrace,
     FieldTracer,
@@ -34,8 +38,6 @@ from neso_fame.mesh import (
     PrismMesh,
     Quad,
     QuadMesh,
-    SliceCoord,
-    SliceCoords,
     StraightLineAcrossField,
     control_points,
 )

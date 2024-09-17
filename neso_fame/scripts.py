@@ -10,10 +10,10 @@ import yaml
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from meshio._helpers import reader_map  # type: ignore
 
+from neso_fame.coordinates import CoordinateSystem, SliceCoords
 from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
-from neso_fame.mesh import CoordinateSystem, SliceCoords
 from neso_fame.meshio_writer import write_poloidal_mesh as write_meshio_poloidal
 from neso_fame.nektar_writer import (
     nektar_3d_element,

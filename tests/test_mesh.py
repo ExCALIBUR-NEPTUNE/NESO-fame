@@ -22,8 +22,7 @@ from hypothesis.strategies import (
 )
 from scipy.optimize import minimize_scalar
 
-from neso_fame import mesh
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
+from neso_fame import coordinates, mesh
 from neso_fame.offset import (
     Offset,
 )
@@ -53,8 +52,8 @@ from .conftest import (
 
 
 @given(non_nans(), non_nans(), coordinate_systems)
-def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
-    coord = mesh.SliceCoord(x1, x2, c)
+def test_slice_coord(x1: float, x2: float, c: coordinates.CoordinateSystem) -> None:
+    coord = coordinates.SliceCoord(x1, x2, c)
     coord_iter = iter(coord)
     assert next(coord_iter) == x1
     assert next(coord_iter) == x2
@@ -64,9 +63,9 @@ def test_slice_coord(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_slice_coord_to_3d(
-    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coord = mesh.SliceCoord(x1, x2, c).to_3d_coord(x3)
+    coord = coordinates.SliceCoord(x1, x2, c).to_3d_coord(x3)
     assert coord.x1 == x1
     assert coord.x2 == x2
     assert coord.x3 == x3
@@ -74,16 +73,18 @@ def test_slice_coord_to_3d(
 
 
 @given(non_nans(), non_nans(), coordinate_systems)
-def test_slice_coord_equal_self(x1: float, x2: float, c: mesh.CoordinateSystem) -> None:
-    coord = mesh.SliceCoord(x1, x2, c)
+def test_slice_coord_equal_self(
+    x1: float, x2: float, c: coordinates.CoordinateSystem
+) -> None:
+    coord = coordinates.SliceCoord(x1, x2, c)
     assert coord == coord
 
 
 @given(non_nans(), non_nans(), coordinate_systems)
 def test_slice_coord_equal_other_type(
-    x1: float, x2: float, c: mesh.CoordinateSystem
+    x1: float, x2: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coord = mesh.SliceCoord(x1, x2, c)
+    coord = coordinates.SliceCoord(x1, x2, c)
     assert coord != x1
     assert coord != x2
 
@@ -92,26 +93,32 @@ def test_slice_coord_equal_other_type(
     "coord1,coord2,places",
     [
         (
-            mesh.SliceCoord(1.0, 1.0, mesh.CoordinateSystem.CARTESIAN),
-            mesh.SliceCoord(1.0001, 0.99999, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.SliceCoord(1.0, 1.0, coordinates.CoordinateSystem.CARTESIAN),
+            coordinates.SliceCoord(
+                1.0001, 0.99999, coordinates.CoordinateSystem.CARTESIAN
+            ),
             4,
         ),
         (
-            mesh.SliceCoord(3314.44949999, 0.0012121, mesh.CoordinateSystem.CARTESIAN),
-            mesh.SliceCoord(
-                3314.44950001, 0.0012121441, mesh.CoordinateSystem.CARTESIAN
+            coordinates.SliceCoord(
+                3314.44949999, 0.0012121, coordinates.CoordinateSystem.CARTESIAN
+            ),
+            coordinates.SliceCoord(
+                3314.44950001, 0.0012121441, coordinates.CoordinateSystem.CARTESIAN
             ),
             5,
         ),
         (
-            mesh.SliceCoord(1.0, 1.0, mesh.CoordinateSystem.CYLINDRICAL),
-            mesh.SliceCoord(1.0001, 0.99999, mesh.CoordinateSystem.CYLINDRICAL),
+            coordinates.SliceCoord(1.0, 1.0, coordinates.CoordinateSystem.CYLINDRICAL),
+            coordinates.SliceCoord(
+                1.0001, 0.99999, coordinates.CoordinateSystem.CYLINDRICAL
+            ),
             4,
         ),
     ],
 )
 def test_slice_coord_round(
-    coord1: mesh.SliceCoord, coord2: mesh.SliceCoord, places: int
+    coord1: coordinates.SliceCoord, coord2: coordinates.SliceCoord, places: int
 ) -> None:
     assert coord1 != coord2
     assert coord1.round_to(places) == coord2.round_to(places)
@@ -125,28 +132,44 @@ def test_slice_coord_round(
             np.array([0.0, 1.0, 2.0]),
             np.array([1.0, 0.5, 0.0]),
             [
-                mesh.SliceCoord(0.0, 1.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.SliceCoord(1.0, 0.5, mesh.CoordinateSystem.CARTESIAN),
-                mesh.SliceCoord(2.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+                coordinates.SliceCoord(
+                    0.0, 1.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.SliceCoord(
+                    1.0, 0.5, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.SliceCoord(
+                    2.0, 0.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
             ],
         ),
         (
             np.array([5.0, 0.0]),
             np.array([[1.0, 1.5], [-10.0, -11.0]]),
             [
-                mesh.SliceCoord(5.0, 1.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.SliceCoord(0.0, 1.5, mesh.CoordinateSystem.CARTESIAN),
-                mesh.SliceCoord(5.0, -10.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.SliceCoord(0.0, -11.0, mesh.CoordinateSystem.CARTESIAN),
+                coordinates.SliceCoord(
+                    5.0, 1.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.SliceCoord(
+                    0.0, 1.5, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.SliceCoord(
+                    5.0, -10.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.SliceCoord(
+                    0.0, -11.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
             ],
         ),
     ],
 )
 def test_slice_coords_iter_points(
-    x1: npt.NDArray, x2: npt.NDArray, expected: list[mesh.SliceCoord]
+    x1: npt.NDArray, x2: npt.NDArray, expected: list[coordinates.SliceCoord]
 ) -> None:
     for c1, c2 in zip(
-        mesh.SliceCoords(x1, x2, mesh.CoordinateSystem.CARTESIAN).iter_points(),
+        coordinates.SliceCoords(
+            x1, x2, coordinates.CoordinateSystem.CARTESIAN
+        ).iter_points(),
         expected,
     ):
         assert c1 == c2
@@ -154,9 +177,9 @@ def test_slice_coords_iter_points(
 
 @given(mutually_broadcastable_arrays(2), coordinate_systems)
 def test_slice_coords_iter(
-    x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem
+    x: tuple[npt.NDArray, npt.NDArray], c: coordinates.CoordinateSystem
 ) -> None:
-    coords = mesh.SliceCoords(*x, c)
+    coords = coordinates.SliceCoords(*x, c)
     coords_iter = iter(coords)
     assert np.all(next(coords_iter) == x[0])
     assert np.all(next(coords_iter) == x[1])
@@ -165,17 +188,17 @@ def test_slice_coords_iter(
 
 
 def test_slice_coords_iter_points_empty() -> None:
-    coords = mesh.SliceCoords(
-        np.array([]), np.array([]), mesh.CoordinateSystem.CARTESIAN
+    coords = coordinates.SliceCoords(
+        np.array([]), np.array([]), coordinates.CoordinateSystem.CARTESIAN
     )
     assert len(list(coords.iter_points())) == 0
 
 
 @given(mutually_broadcastable_arrays(2), coordinate_systems)
 def test_slice_coords_len(
-    x: tuple[npt.NDArray, npt.NDArray], c: mesh.CoordinateSystem
+    x: tuple[npt.NDArray, npt.NDArray], c: coordinates.CoordinateSystem
 ) -> None:
-    coords = mesh.SliceCoords(*x, c)
+    coords = coordinates.SliceCoords(*x, c)
     coords_iter = coords.iter_points()
     for _ in range(len(coords)):
         next(coords_iter)
@@ -190,13 +213,13 @@ def test_slice_coords_len(
             np.array([0.0, 1.0, 2.0]),
             np.array([1.0, 0.5, 0.0]),
             1,
-            mesh.SliceCoord(1.0, 0.5, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.SliceCoord(1.0, 0.5, coordinates.CoordinateSystem.CARTESIAN),
         ),
         (
             np.array([5.0, 0.0]),
             np.array([[1.0, 1.5], [-10.0, -11.0]]),
             (1, 0),
-            mesh.SliceCoord(5.0, -10.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.SliceCoord(5.0, -10.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
     ],
 )
@@ -204,9 +227,9 @@ def test_slice_coords_getitem(
     x1: npt.NDArray,
     x2: npt.NDArray,
     index: tuple[int, ...] | int,
-    expected: mesh.SliceCoord,
+    expected: coordinates.SliceCoord,
 ) -> None:
-    coords = mesh.SliceCoords(x1, x2, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.SliceCoords(x1, x2, coordinates.CoordinateSystem.CARTESIAN)
     coord = coords[index]
     assert coord == expected
 
@@ -222,13 +245,13 @@ def test_slice_coords_getitem(
 def test_slice_coords_bad_getitem(
     x1: npt.NDArray, x2: npt.NDArray, index: int | slice, expected: Type[Exception]
 ) -> None:
-    coords = mesh.SliceCoords(x1, x2, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.SliceCoords(x1, x2, coordinates.CoordinateSystem.CARTESIAN)
     with pytest.raises(expected):
         _ = coords[index]  # type: ignore
 
 
-@given(from_type(mesh.SliceCoords).filter(lambda c: len(c) > 1))
-def test_slice_coords_get_set(coords: mesh.SliceCoords) -> None:
+@given(from_type(coordinates.SliceCoords).filter(lambda c: len(c) > 1))
+def test_slice_coords_get_set(coords: coordinates.SliceCoords) -> None:
     coordset = coords.get_set(slice(None))
     assert len(coordset) <= len(coords)
     for coord in coords.iter_points():
@@ -236,10 +259,10 @@ def test_slice_coords_get_set(coords: mesh.SliceCoords) -> None:
 
 
 def test_slice_coords_get_set_partial() -> None:
-    coords = mesh.SliceCoords(
+    coords = coordinates.SliceCoords(
         np.linspace(0.0, 1.0, 10),
         np.linspace(5.0, 11.0, 10),
-        mesh.CoordinateSystem.CARTESIAN,
+        coordinates.CoordinateSystem.CARTESIAN,
     )
     coordset = coords.get_set(slice(0, 5))
     assert len(coordset) == 5
@@ -253,46 +276,50 @@ def test_slice_coords_get_set_partial() -> None:
     "coord1,coord2,places",
     [
         (
-            mesh.SliceCoords(
+            coordinates.SliceCoords(
                 np.array([1.0, 5.0]),
                 np.array([1.0, 1.0]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
-            mesh.SliceCoords(
+            coordinates.SliceCoords(
                 np.array([1.0001, 5.0]),
                 np.array([0.99999, 1.0]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
             4,
         ),
         (
-            mesh.SliceCoords(
+            coordinates.SliceCoords(
                 np.array([3315.05, 1e-12]),
                 np.array([0.0012121, 1e100]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
-            mesh.SliceCoords(
+            coordinates.SliceCoords(
                 np.array([3315.05, 0.0]),
                 np.array([0.0012121441, 1.0000055e100]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
             5,
         ),
         (
-            mesh.SliceCoords(
-                np.array(1.0), np.array(1.0), mesh.CoordinateSystem.CYLINDRICAL
+            coordinates.SliceCoords(
+                np.array(1.0), np.array(1.0), coordinates.CoordinateSystem.CYLINDRICAL
             ),
-            mesh.SliceCoords(
-                np.array(1.0001), np.array(0.99999), mesh.CoordinateSystem.CYLINDRICAL
+            coordinates.SliceCoords(
+                np.array(1.0001),
+                np.array(0.99999),
+                coordinates.CoordinateSystem.CYLINDRICAL,
             ),
             4,
         ),
     ],
 )
 def test_slice_coords_round(
-    coord1: mesh.SliceCoords, coord2: mesh.SliceCoords, places: int
+    coord1: coordinates.SliceCoords, coord2: coordinates.SliceCoords, places: int
 ) -> None:
-    def coords_equal(lhs: mesh.SliceCoords, rhs: mesh.SliceCoords) -> bool:
+    def coords_equal(
+        lhs: coordinates.SliceCoords, rhs: coordinates.SliceCoords
+    ) -> bool:
         return (
             bool(np.all(lhs.x1 == rhs.x1) and np.all(lhs.x2 == rhs.x2))
             and lhs.system == rhs.system
@@ -305,9 +332,9 @@ def test_slice_coords_round(
 
 @given(mutually_broadcastable_arrays(2), non_nans(), coordinate_systems)
 def test_slice_coords_to_3d(
-    x: tuple[npt.NDArray, npt.NDArray], x3: float, c: mesh.CoordinateSystem
+    x: tuple[npt.NDArray, npt.NDArray], x3: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coords = mesh.SliceCoords(x[0], x[1], c).to_3d_coords(x3)
+    coords = coordinates.SliceCoords(x[0], x[1], c).to_3d_coords(x3)
     assert np.all(coords.x1 == x[0])
     assert np.all(coords.x2 == x[1])
     assert coords.x3 == x3
@@ -315,8 +342,10 @@ def test_slice_coords_to_3d(
 
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
-def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> None:
-    coord = mesh.Coord(x1, x2, x3, c)
+def test_coord(
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem
+) -> None:
+    coord = coordinates.Coord(x1, x2, x3, c)
     coord_iter = iter(coord)
     assert next(coord_iter) == x1
     assert next(coord_iter) == x2
@@ -327,17 +356,17 @@ def test_coord(x1: float, x2: float, x3: float, c: mesh.CoordinateSystem) -> Non
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord_equal_self(
-    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coord = mesh.Coord(x1, x2, x3, c)
+    coord = coordinates.Coord(x1, x2, x3, c)
     assert coord == coord
 
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord_equal_other_type(
-    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coord = mesh.Coord(x1, x2, x3, c)
+    coord = coordinates.Coord(x1, x2, x3, c)
     assert coord != x1
     assert coord != x2
     assert coord != x3
@@ -345,9 +374,9 @@ def test_coord_equal_other_type(
 
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems)
 def test_coord_to_slice_coord(
-    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem
 ) -> None:
-    coord = mesh.Coord(x1, x2, x3, c)
+    coord = coordinates.Coord(x1, x2, x3, c)
     slice_coord = coord.to_slice_coord()
     assert slice_coord.x1 == coord.x1
     assert slice_coord.x2 == coord.x2
@@ -358,28 +387,34 @@ def test_coord_to_slice_coord(
     "coord1,coord2",
     [
         (
-            mesh.Coord(1.0, 2.0, np.pi / 2, mesh.CoordinateSystem.CYLINDRICAL),
-            mesh.Coord(0.0, 1.0, 2.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(
+                1.0, 2.0, np.pi / 2, coordinates.CoordinateSystem.CYLINDRICAL
+            ),
+            coordinates.Coord(0.0, 1.0, 2.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
         (
-            mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CARTESIAN2D),
-            mesh.Coord(-3.0, 1.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CARTESIAN2D),
+            coordinates.Coord(-3.0, 1.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
         (
-            mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CARTESIAN_ROTATED),
-            mesh.Coord(-3.0, 1.0, 2.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(
+                1.0, 2.0, 3.0, coordinates.CoordinateSystem.CARTESIAN_ROTATED
+            ),
+            coordinates.Coord(-3.0, 1.0, 2.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
     ],
 )
-def test_coord_to_cartesian(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
+def test_coord_to_cartesian(
+    coord1: coordinates.Coord, coord2: coordinates.Coord
+) -> None:
     assert coord1.to_cartesian().approx_eq(coord2)
 
 
 @given(non_nans(), non_nans(), non_nans(), integers(1, 50), coordinate_systems)
 def test_to_cartesian_idempotent(
-    x1: float, x2: float, x3: float, n: int, c: mesh.CoordinateSystem
+    x1: float, x2: float, x3: float, n: int, c: coordinates.CoordinateSystem
 ) -> None:
-    new_coords = cartesian_coords = mesh.Coord(x1, x2, x3, c).to_cartesian()
+    new_coords = cartesian_coords = coordinates.Coord(x1, x2, x3, c).to_cartesian()
     for _ in range(n):
         new_coords = new_coords.to_cartesian()
         assert new_coords.approx_eq(cartesian_coords)
@@ -389,30 +424,40 @@ def test_to_cartesian_idempotent(
     "coord1,coord2,places",
     [
         (
-            mesh.Coord(1.0, 1.0, -0.5, mesh.CoordinateSystem.CARTESIAN),
-            mesh.Coord(1.0001, 0.99999, -0.500005, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(1.0, 1.0, -0.5, coordinates.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(
+                1.0001, 0.99999, -0.500005, coordinates.CoordinateSystem.CARTESIAN
+            ),
             4,
         ),
         (
-            mesh.Coord(3315.05, 0.0012121, 1e-12, mesh.CoordinateSystem.CARTESIAN),
-            mesh.Coord(3315.05, 0.0012121441, 2e-12, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(
+                3315.05, 0.0012121, 1e-12, coordinates.CoordinateSystem.CARTESIAN
+            ),
+            coordinates.Coord(
+                3315.05, 0.0012121441, 2e-12, coordinates.CoordinateSystem.CARTESIAN
+            ),
             5,
         ),
         (
-            mesh.Coord(1.0, 1, -10.0, mesh.CoordinateSystem.CYLINDRICAL),
-            mesh.Coord(1.0001, 0.99999, -9.9999, mesh.CoordinateSystem.CYLINDRICAL),
+            coordinates.Coord(1.0, 1, -10.0, coordinates.CoordinateSystem.CYLINDRICAL),
+            coordinates.Coord(
+                1.0001, 0.99999, -9.9999, coordinates.CoordinateSystem.CYLINDRICAL
+            ),
             4,
         ),
     ],
 )
-def test_coord_round(coord1: mesh.Coord, coord2: mesh.Coord, places: int) -> None:
+def test_coord_round(
+    coord1: coordinates.Coord, coord2: coordinates.Coord, places: int
+) -> None:
     assert coord1 != coord2
     assert coord1.round_to(places) == coord2.round_to(places)
     assert coord1.round_to(places + 1) != coord2.round_to(places + 1)
 
 
-@given(builds(mesh.Coord), builds(mesh.Coord))
-def test_coord_hash(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
+@given(builds(coordinates.Coord), builds(coordinates.Coord))
+def test_coord_hash(coord1: coordinates.Coord, coord2: coordinates.Coord) -> None:
     if hash(coord1) != hash(coord2):
         assert coord1 != coord2
 
@@ -420,9 +465,9 @@ def test_coord_hash(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(non_nans(), non_nans(), non_nans(), coordinate_systems, non_nans())
 def test_coord_offset_x1_x2_unchanged(
-    x1: float, x2: float, x3: float, c: mesh.CoordinateSystem, x: float
+    x1: float, x2: float, x3: float, c: coordinates.CoordinateSystem, x: float
 ) -> None:
-    coord = mesh.Coord(x1, x2, x3, c)
+    coord = coordinates.Coord(x1, x2, x3, c)
     new_coord = coord.offset(x)
     assert new_coord.x1 is coord.x1
     assert new_coord.x2 is coord.x2
@@ -456,7 +501,7 @@ def test_coord_offset(
     offset: float,
     expected: float,
 ) -> None:
-    coord = mesh.Coord(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
+    coord = coordinates.Coord(x1, x2, x3, coordinates.CoordinateSystem.CARTESIAN)
     new_coord = coord.offset(offset)
     assert coord.x1 == new_coord.x1
     assert coord.x2 == new_coord.x2
@@ -472,9 +517,15 @@ def test_coord_offset(
             np.array([1.0, 0.5, 0.0]),
             np.array([10.0, -5.0, 1.0]),
             [
-                mesh.Coord(0.0, 1.0, 10.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.Coord(1.0, 0.5, -5.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.Coord(2.0, 0.0, 1.0, mesh.CoordinateSystem.CARTESIAN),
+                coordinates.Coord(
+                    0.0, 1.0, 10.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.Coord(
+                    1.0, 0.5, -5.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.Coord(
+                    2.0, 0.0, 1.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
             ],
         ),
         (
@@ -482,33 +533,43 @@ def test_coord_offset(
             np.array([[1.0, 1.5], [-10.0, -11.0]]),
             np.array([[2.0], [-2.0]]),
             [
-                mesh.Coord(5.0, 1.0, 2.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.Coord(0.0, 1.5, 2.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.Coord(5.0, -10.0, -2.0, mesh.CoordinateSystem.CARTESIAN),
-                mesh.Coord(0.0, -11.0, -2.0, mesh.CoordinateSystem.CARTESIAN),
+                coordinates.Coord(
+                    5.0, 1.0, 2.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.Coord(
+                    0.0, 1.5, 2.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.Coord(
+                    5.0, -10.0, -2.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
+                coordinates.Coord(
+                    0.0, -11.0, -2.0, coordinates.CoordinateSystem.CARTESIAN
+                ),
             ],
         ),
     ],
 )
 def test_coords_iter_points(
-    x1: npt.NDArray, x2: npt.NDArray, x3: npt.NDArray, expected: list[mesh.Coord]
+    x1: npt.NDArray, x2: npt.NDArray, x3: npt.NDArray, expected: list[coordinates.Coord]
 ) -> None:
     for c1, c2 in zip(
-        mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN).iter_points(),
+        coordinates.Coords(
+            x1, x2, x3, coordinates.CoordinateSystem.CARTESIAN
+        ).iter_points(),
         expected,
     ):
         assert c1 == c2
 
 
 def test_coords_iter_points_empty() -> None:
-    coords = mesh.Coords(
-        np.array([]), np.array([]), np.array([]), mesh.CoordinateSystem.CARTESIAN
+    coords = coordinates.Coords(
+        np.array([]), np.array([]), np.array([]), coordinates.CoordinateSystem.CARTESIAN
     )
     assert len(list(coords.iter_points())) == 0
 
 
-@given(from_type(mesh.Coords))
-def test_coords_iter(coords: mesh.Coords) -> None:
+@given(from_type(coordinates.Coords))
+def test_coords_iter(coords: coordinates.Coords) -> None:
     coords_iter = iter(coords)
     assert np.all(next(coords_iter) == coords.x1)
     assert np.all(next(coords_iter) == coords.x2)
@@ -517,8 +578,8 @@ def test_coords_iter(coords: mesh.Coords) -> None:
         next(coords_iter)
 
 
-@given(from_type(mesh.Coords))
-def test_coords_len(coords: mesh.Coords) -> None:
+@given(from_type(coordinates.Coords))
+def test_coords_len(coords: coordinates.Coords) -> None:
     coords_iter = coords.iter_points()
     for _ in range(len(coords)):
         _ = next(coords_iter)
@@ -534,14 +595,14 @@ def test_coords_len(coords: mesh.Coords) -> None:
             np.array([1.0, 0.5, 0.0]),
             np.array([10.0, -5.0, 1.0]),
             1,
-            mesh.Coord(1.0, 0.5, -5.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(1.0, 0.5, -5.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
         (
             np.array([5.0, 0.0]),
             np.array([[1.0, 1.5], [-10.0, -11.0]]),
             np.array([[2.0], [-2.0]]),
             (1, 0),
-            mesh.Coord(5.0, -10.0, -2.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(5.0, -10.0, -2.0, coordinates.CoordinateSystem.CARTESIAN),
         ),
     ],
 )
@@ -550,9 +611,9 @@ def test_coords_getitem(
     x2: npt.NDArray,
     x3: npt.NDArray,
     index: tuple[int, ...] | int,
-    expected: mesh.Coord,
+    expected: coordinates.Coord,
 ) -> None:
-    coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.Coords(x1, x2, x3, coordinates.CoordinateSystem.CARTESIAN)
     coord = coords[index]
     assert coord == expected
 
@@ -590,13 +651,13 @@ def test_coords_bad_getitem(
     index: int | slice,
     expected: Type[Exception],
 ) -> None:
-    coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.Coords(x1, x2, x3, coordinates.CoordinateSystem.CARTESIAN)
     with pytest.raises(expected):
         _ = coords[index]  # type: ignore
 
 
-@given(from_type(mesh.Coords).filter(lambda c: len(c) > 1))
-def test_coords_get_set(coords: mesh.Coords) -> None:
+@given(from_type(coordinates.Coords).filter(lambda c: len(c) > 1))
+def test_coords_get_set(coords: coordinates.Coords) -> None:
     coordset = coords.get_set(slice(None))
     assert len(coordset) <= len(coords)
     for coord in coords.iter_points():
@@ -604,11 +665,11 @@ def test_coords_get_set(coords: mesh.Coords) -> None:
 
 
 def test_coords_get_set_partial() -> None:
-    coords = mesh.Coords(
+    coords = coordinates.Coords(
         np.linspace(0.0, 1.0, 10),
         np.linspace(-50.0, -68.0, 10),
         np.linspace(5.0, 11.0, 10),
-        mesh.CoordinateSystem.CARTESIAN,
+        coordinates.CoordinateSystem.CARTESIAN,
     )
     coordset = coords.get_set(slice(0, 5))
     assert len(coordset) == 5
@@ -619,8 +680,8 @@ def test_coords_get_set_partial() -> None:
 
 
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
-@given(from_type(mesh.Coords), non_nans())
-def test_coords_offset_x1_x2_unchanged(coords: mesh.Coords, x: float) -> None:
+@given(from_type(coordinates.Coords), non_nans())
+def test_coords_offset_x1_x2_unchanged(coords: coordinates.Coords, x: float) -> None:
     new_coords = coords.offset(x)
     assert new_coords.x1 is coords.x1
     assert new_coords.x2 is coords.x2
@@ -654,7 +715,7 @@ def test_coords_offset(
     offset: tuple[int, ...] | int,
     expected: npt.NDArray,
 ) -> None:
-    coords = mesh.Coords(x1, x2, x3, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.Coords(x1, x2, x3, coordinates.CoordinateSystem.CARTESIAN)
     new_coords = coords.offset(offset)
     np.testing.assert_allclose(new_coords.x3, expected)
 
@@ -664,7 +725,7 @@ def test_coords_offset(
 def test_coords_cartesian_to_cartesian(
     xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray],
 ) -> None:
-    coords = mesh.Coords(*xs, mesh.CoordinateSystem.CARTESIAN)
+    coords = coordinates.Coords(*xs, coordinates.CoordinateSystem.CARTESIAN)
     new_coords = coords.to_cartesian()
     assert coords.x1 is new_coords.x1
     assert coords.x2 is new_coords.x2
@@ -672,9 +733,9 @@ def test_coords_cartesian_to_cartesian(
 
 
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
-@given(from_type(mesh.Coords))
-def test_coords_cartesian_correct_system(coords: mesh.Coords) -> None:
-    assert coords.to_cartesian().system is mesh.CoordinateSystem.CARTESIAN
+@given(from_type(coordinates.Coords))
+def test_coords_cartesian_correct_system(coords: coordinates.Coords) -> None:
+    assert coords.to_cartesian().system is coordinates.CoordinateSystem.CARTESIAN
 
 
 @pytest.mark.filterwarnings("ignore:invalid value:RuntimeWarning")
@@ -682,16 +743,16 @@ def test_coords_cartesian_correct_system(coords: mesh.Coords) -> None:
 def test_coords_cylindrical_to_cartesian_z_unchanged(
     xs: tuple[npt.NDArray, npt.NDArray, npt.NDArray],
 ) -> None:
-    coords = mesh.Coords(*xs, mesh.CoordinateSystem.CYLINDRICAL)
+    coords = coordinates.Coords(*xs, coordinates.CoordinateSystem.CYLINDRICAL)
     assert np.all(coords.to_cartesian().x3 == coords.x2)
 
 
 def test_coords_to_cartesian() -> None:
-    coords = mesh.Coords(
+    coords = coordinates.Coords(
         np.array([1.0, 1.5, 2.0]),
         np.array([1.0, 0.5, 0.0]),
         np.array([0.0, np.pi / 2.0, np.pi]),
-        mesh.CoordinateSystem.CYLINDRICAL,
+        coordinates.CoordinateSystem.CYLINDRICAL,
     ).to_cartesian()
     np.testing.assert_allclose(coords.x1, [1.0, 0.0, -2.0], atol=1e-12)
     np.testing.assert_allclose(coords.x2, [0.0, 1.5, 0.0], atol=1e-12)
@@ -702,54 +763,56 @@ def test_coords_to_cartesian() -> None:
     "coord1,coord2,places",
     [
         (
-            mesh.Coords(
+            coordinates.Coords(
                 np.array([1.0, 5.0]),
                 np.array([1.0, 1.0]),
                 np.array([-1e-3, -2e-5]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
-            mesh.Coords(
+            coordinates.Coords(
                 np.array([1.0001, 5.0]),
                 np.array([0.99999, 1.0]),
                 np.array([-1.0001e-3, -1.99999e-5]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
             4,
         ),
         (
-            mesh.Coords(
+            coordinates.Coords(
                 np.array([3315.05, 1e-12]),
                 np.array([0.0012121, 1e100]),
                 np.array([0.0, 22.0]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
-            mesh.Coords(
+            coordinates.Coords(
                 np.array([3315.05, 0.0]),
                 np.array([0.0012121441, 1.0000055e100]),
                 np.array([-0.000000009, 22.0]),
-                mesh.CoordinateSystem.CARTESIAN,
+                coordinates.CoordinateSystem.CARTESIAN,
             ),
             5,
         ),
         (
-            mesh.Coords(
+            coordinates.Coords(
                 np.array(1.0),
                 np.array(1.0),
                 np.array(1.0),
-                mesh.CoordinateSystem.CYLINDRICAL,
+                coordinates.CoordinateSystem.CYLINDRICAL,
             ),
-            mesh.Coords(
+            coordinates.Coords(
                 np.array(1.0001),
                 np.array(0.99999),
                 np.array(1.0),
-                mesh.CoordinateSystem.CYLINDRICAL,
+                coordinates.CoordinateSystem.CYLINDRICAL,
             ),
             4,
         ),
     ],
 )
-def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> None:
-    def coords_equal(lhs: mesh.Coords, rhs: mesh.Coords) -> bool:
+def test_coords_round(
+    coord1: coordinates.Coords, coord2: coordinates.Coords, places: int
+) -> None:
+    def coords_equal(lhs: coordinates.Coords, rhs: coordinates.Coords) -> bool:
         return (
             bool(
                 np.all(lhs.x1 == rhs.x1)
@@ -764,8 +827,8 @@ def test_coords_round(coord1: mesh.Coords, coord2: mesh.Coords, places: int) -> 
     assert not coords_equal(coord1.round_to(places + 1), coord2.round_to(places + 1))
 
 
-@given(from_type(mesh.Coords))
-def test_coords_to_slice_coords(coords: mesh.Coords) -> None:
+@given(from_type(coordinates.Coords))
+def test_coords_to_slice_coords(coords: coordinates.Coords) -> None:
     slice_coords = coords.to_slice_coords()
     assert np.all(slice_coords.x1 == coords.x1)
     assert np.all(slice_coords.x2 == coords.x2)
@@ -846,16 +909,16 @@ def test_curve_control_points_size(curve: mesh.FieldAlignedCurve, n: int) -> Non
 
 
 def example_trace(
-    start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-) -> tuple[mesh.SliceCoords, npt.NDArray]:
+    start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+) -> tuple[coordinates.SliceCoords, npt.NDArray]:
     a = -2.0
     b = -0.5
     c = 1 - start_weight
     return (
-        mesh.SliceCoords(
+        coordinates.SliceCoords(
             c * np.asarray(x3) * a + start_weight * start.x1,
             c * np.asarray(x3) * b + start_weight * start.x2,
-            mesh.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN,
         ),
         np.sqrt(1.0 + c * c * (a * a + b * b)) * np.asarray(x3),
     )
@@ -868,7 +931,7 @@ def test_curve_control_points_values() -> None:
                 example_trace,
                 5,
             ),
-            mesh.SliceCoord(0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
+            coordinates.SliceCoord(0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
             -1.0,
         ),
         x3_offset=-0.5,
@@ -882,8 +945,8 @@ def test_curve_control_points_values() -> None:
 
 def test_bad_straight_line() -> None:
     line = mesh.StraightLine(
-        mesh.Coord(0.0, 0.0, 0.0, mesh.CoordinateSystem.CARTESIAN),
-        mesh.Coord(1.0, 2.0, 3.0, mesh.CoordinateSystem.CYLINDRICAL),
+        coordinates.Coord(0.0, 0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
+        coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CYLINDRICAL),
     )
     with pytest.raises(ValueError):
         _ = line([0.0, 0.5, 1.0])
@@ -1005,8 +1068,10 @@ def test_quad_get_field_line(q: mesh.Quad, s: float, t: float) -> None:
 @settings(deadline=None)
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
-    actual = FrozenCoordSet(q.near(np.array([0.0, 1.0])).iter_points())
-    expected = FrozenCoordSet({q.north(0.0).to_coord(), q.south(0.0).to_coord()})
+    actual = coordinates.FrozenCoordSet(q.near(np.array([0.0, 1.0])).iter_points())
+    expected = coordinates.FrozenCoordSet(
+        {q.north(0.0).to_coord(), q.south(0.0).to_coord()}
+    )
     assert expected == actual
     s = np.linspace(0.0, 1.0, n)
     cp = q.near(s)
@@ -1021,8 +1086,10 @@ def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
 @settings(deadline=None)
 @given(from_type(mesh.Quad), integers(2, 10))
 def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
-    actual = FrozenCoordSet(q.far(np.array([0.0, 1.0])).iter_points())
-    expected = FrozenCoordSet({q.north(1.0).to_coord(), q.south(1.0).to_coord()})
+    actual = coordinates.FrozenCoordSet(q.far(np.array([0.0, 1.0])).iter_points())
+    expected = coordinates.FrozenCoordSet(
+        {q.north(1.0).to_coord(), q.south(1.0).to_coord()}
+    )
     assert expected == actual
     s = np.linspace(0.0, 1.0, n)
     cp = q.far(s)
@@ -1036,10 +1103,10 @@ def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    expected = FrozenCoordSet(q.corners().iter_points())
-    actual = FrozenCoordSet(q.far([0.0, 1.0]).iter_points()) | FrozenCoordSet(
-        q.near([0.0, 1.0]).iter_points()
-    )
+    expected = coordinates.FrozenCoordSet(q.corners().iter_points())
+    actual = coordinates.FrozenCoordSet(
+        q.far([0.0, 1.0]).iter_points()
+    ) | coordinates.FrozenCoordSet(q.near([0.0, 1.0]).iter_points())
     assert expected == actual
 
 
@@ -1067,7 +1134,7 @@ def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
     ) + q.north_start_weight
     distances = np.vectorize(
         lambda x1, x2, x3, start_weight: q.field.trace(
-            mesh.SliceCoord(x1, x2, start_points.system), x3, start_weight
+            coordinates.SliceCoord(x1, x2, start_points.system), x3, start_weight
         )[1]
     )(
         x1_starts,
@@ -1148,12 +1215,12 @@ def test_quad_make_flat_idempotent(q: mesh.Quad, n: int) -> None:
 
 @given(from_type(mesh.Prism))
 def test_prism_near_edge(h: mesh.Prism) -> None:
-    expected = FrozenCoordSet(
+    expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (s.north(0.0).to_coord(), s.south(0.0).to_coord()) for s in h.sides
         )
     )
-    actual = FrozenCoordSet(h.near.corners().iter_points())
+    actual = coordinates.FrozenCoordSet(h.near.corners().iter_points())
     assert expected == actual
 
 
@@ -1164,7 +1231,7 @@ def test_end_shape(shape: mesh.EndShape) -> None:
 
 @given(flat_sided_hex)
 def test_prism_far_edge(h: mesh.Prism) -> None:
-    expected = FrozenCoordSet(
+    expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (
                 s.north(1.0).to_coord(),
@@ -1173,16 +1240,16 @@ def test_prism_far_edge(h: mesh.Prism) -> None:
             for s in h.sides
         )
     )
-    actual = FrozenCoordSet(h.far.corners().iter_points())
+    actual = coordinates.FrozenCoordSet(h.far.corners().iter_points())
     assert expected == actual
 
 
 @given(from_type(mesh.Prism))
 def test_prism_near_far_corners(h: mesh.Prism) -> None:
-    expected = FrozenCoordSet(h.corners().iter_points())
-    actual = FrozenCoordSet(h.near.corners().iter_points()) | FrozenCoordSet(
-        h.far.corners().iter_points()
-    )
+    expected = coordinates.FrozenCoordSet(h.corners().iter_points())
+    actual = coordinates.FrozenCoordSet(
+        h.near.corners().iter_points()
+    ) | coordinates.FrozenCoordSet(h.far.corners().iter_points())
     assert expected == actual
 
 
@@ -1323,7 +1390,10 @@ def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
 )
 def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
     x = np.linspace(0.0, 1.0, n)
-    edgemap = {FrozenCoordSet({c[0], c[-1]}): c for c in (s.shape(x) for s in p.sides)}
+    edgemap = {
+        coordinates.FrozenCoordSet({c[0], c[-1]}): c
+        for c in (s.shape(x) for s in p.sides)
+    }
     directions = [
         (x, np.asarray(0.0)),
         (np.asarray(1.0), x),
@@ -1331,12 +1401,12 @@ def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
     ]
     if len(p.sides) == 4:
         directions.append((x, np.asarray(1.0)))
-    termini: list[FrozenCoordSet[mesh.SliceCoord]] = []
+    termini: list[coordinates.FrozenCoordSet[coordinates.SliceCoord]] = []
     # Check that when a coord is 0 or 1 then it corresponds to one of
     # the edges of the prism
     for coords in directions:
         actual = p.poloidal_map(*coords)
-        ends = FrozenCoordSet({actual[0], actual[-1]})
+        ends = coordinates.FrozenCoordSet({actual[0], actual[-1]})
         termini.append(ends)
         expected = edgemap[ends]
         if actual[0] == expected[0]:
@@ -1354,17 +1424,19 @@ def wedge_hex_profile(
     r1: float,
     theta0: float,
     dtheta: float,
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
     x1_r: bool,
-) -> tuple[mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]]:
+) -> tuple[
+    mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], coordinates.SliceCoords]
+]:
     def polar_coords(
         r: npt.ArrayLike,
         theta: npt.ArrayLike,
-    ) -> mesh.SliceCoords:
+    ) -> coordinates.SliceCoords:
         r = np.asarray(r)
-        return mesh.SliceCoords(r * np.cos(theta), r * np.sin(theta), system)
+        return coordinates.SliceCoords(r * np.cos(theta), r * np.sin(theta), system)
 
-    def expected_mapping(s: npt.ArrayLike, t: npt.ArrayLike) -> mesh.SliceCoords:
+    def expected_mapping(s: npt.ArrayLike, t: npt.ArrayLike) -> coordinates.SliceCoords:
         if x1_r:
             xr = np.asarray(s)
             xt = np.asarray(t)
@@ -1414,7 +1486,7 @@ def wedge_hex_profile(
 )
 def test_prism_poloidal_map_internal(
     prism_expected: tuple[
-        mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], mesh.SliceCoords]
+        mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], coordinates.SliceCoords]
     ],
     n: int,
     m: int,
@@ -1430,7 +1502,7 @@ def test_prism_poloidal_map_internal(
 
 
 def make_symmetric_curved_prism(
-    line_points: list[mesh.SliceCoord], height: float, distortion: float
+    line_points: list[coordinates.SliceCoord], height: float, distortion: float
 ) -> tuple[mesh.Prism, mesh.AcrossFieldCurve]:
     north, south = line_points
     assert north.system == south.system
@@ -1439,10 +1511,10 @@ def make_symmetric_curved_prism(
     dx2 = south.x2 - north.x2
     norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
     perp = [dx2 / norm, -dx1 / norm]
-    centre = mesh.SliceCoord(
+    centre = coordinates.SliceCoord(
         0.5 * (north.x1 + south.x1), 0.5 * (north.x2 + south.x2), north.system
     )
-    vertex = mesh.SliceCoord(
+    vertex = coordinates.SliceCoord(
         centre.x1 + perp[0] * height, centre.x2 + perp[1] * height, north.system
     )
     expected = mesh.StraightLineAcrossField(centre, vertex)
@@ -1473,7 +1545,7 @@ def make_symmetric_curved_prism(
         make_symmetric_curved_prism,
         lists(
             builds(
-                mesh.SliceCoord,
+                coordinates.SliceCoord,
                 whole_numbers,
                 whole_numbers,
                 shared_coordinate_systems,
@@ -1517,7 +1589,7 @@ def test_mesh_layer_elements_no_offset(
 
 def get_corners(
     shape: mesh.Prism | mesh.EndShape | mesh.Quad | mesh.NormalisedCurve,
-) -> mesh.Coords:
+) -> coordinates.Coords:
     if isinstance(shape, (mesh.Prism, mesh.Quad, mesh.EndShape)):
         return shape.corners()
     return shape([0.0, 1.0])
@@ -1537,10 +1609,11 @@ def test_mesh_layer_elements_with_offset(
         np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         actual_elems = frozenset(
-            FrozenCoordSet(get_corners(elem).iter_points()) for elem in actual_bound
+            coordinates.FrozenCoordSet(get_corners(elem).iter_points())
+            for elem in actual_bound
         )
         expected_elems = frozenset(
-            FrozenCoordSet(get_corners(elem).offset(offset).iter_points())
+            coordinates.FrozenCoordSet(get_corners(elem).offset(offset).iter_points())
             for elem in expected_bound
         )
         assert actual_elems == expected_elems
@@ -1552,7 +1625,7 @@ def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
     layer = mesh.MeshLayer(*args, subdivisions=subdivisions)
-    expected = FrozenCoordSet(
+    expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (
                 x.corners().iter_points()
@@ -1562,12 +1635,12 @@ def test_mesh_layer_elements_with_subdivisions(
             )
         )
     )
-    actual = FrozenCoordSet(
+    actual = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable((x.corners().iter_points() for x in layer))
     )
     assert expected == actual
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
-        expected_corners = FrozenCoordSet(
+        expected_corners = coordinates.FrozenCoordSet(
             itertools.chain.from_iterable(
                 (
                     get_corners(x).iter_points()
@@ -1580,7 +1653,7 @@ def test_mesh_layer_elements_with_subdivisions(
                 )
             )
         )
-        actual_corners = FrozenCoordSet(
+        actual_corners = coordinates.FrozenCoordSet(
             itertools.chain.from_iterable(
                 (get_corners(x).iter_points() for x in actual_bound)
             )
@@ -1588,7 +1661,9 @@ def test_mesh_layer_elements_with_subdivisions(
         assert expected_corners == actual_corners
 
 
-def evaluate_element(element: mesh.Quad | mesh.Prism, s: float) -> list[mesh.Coord]:
+def evaluate_element(
+    element: mesh.Quad | mesh.Prism, s: float
+) -> list[coordinates.Coord]:
     if isinstance(element, mesh.Quad):
         return [element.north(s).to_coord(), element.south(s).to_coord()]
     # This works for hexahedrons and triangular prisms
@@ -1602,12 +1677,12 @@ def test_mesh_layer_near_faces(
     subdivisions: int,
 ) -> None:
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
-    expected = FrozenCoordSet(
+    expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (evaluate_element(Offset(x, offset), 0.0) for x in args[0])
         ),
     )
-    actual = FrozenCoordSet(
+    actual = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.near_faces())
         ),
@@ -1622,12 +1697,12 @@ def test_mesh_layer_far_faces(
     subdivisions: int,
 ) -> None:
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
-    expected = FrozenCoordSet(
+    expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (evaluate_element(Offset(x, offset), 1.0) for x in args[0])
         ),
     )
-    actual = FrozenCoordSet(
+    actual = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.far_faces())
         ),
@@ -1637,15 +1712,15 @@ def test_mesh_layer_far_faces(
 
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
-    element_corners = FrozenCoordSet(
+    element_corners = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable((get_corners(x).iter_points() for x in layer)),
     )
-    near_face_corners = FrozenCoordSet(
+    near_face_corners = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.near_faces())
         ),
     )
-    far_face_corners = FrozenCoordSet(
+    far_face_corners = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (get_corners(x).iter_points() for x in layer.far_faces())
         ),
@@ -1669,7 +1744,7 @@ quad_mesh_elements = _quad_mesh_elements(
     10.0,
     ((0.0, 0.0), (1.0, 0.0)),
     4,
-    mesh.CoordinateSystem.CARTESIAN,
+    coordinates.CoordinateSystem.CARTESIAN,
     10,
     False,
     False,
@@ -1683,7 +1758,7 @@ hex_mesh_elements = cast(
         ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
         3,
         3,
-        mesh.CoordinateSystem.CARTESIAN,
+        coordinates.CoordinateSystem.CARTESIAN,
         10,
         False,
     ),
@@ -1750,7 +1825,7 @@ shared_coords = shared(coordinate_systems, key=0)
         floats(-0.1, 0.1),
         tuples(whole_numbers, whole_numbers),
     ),
-    builds(mesh.SliceCoord, non_zero, whole_numbers, shared_coords),
+    builds(coordinates.SliceCoord, non_zero, whole_numbers, shared_coords),
     whole_numbers,
     non_zero,
     integers(2, 8),
@@ -1758,7 +1833,7 @@ shared_coords = shared(coordinate_systems, key=0)
 )
 def test_normalise_straight_field_line(
     trace: mesh.FieldTrace,
-    start: mesh.SliceCoord,
+    start: coordinates.SliceCoord,
     x3_start: float,
     dx3: float,
     resolution: int,
@@ -1797,7 +1872,7 @@ cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
         tuples(x3_start, x3_limit),
         cartesian_coords,
     ),
-    builds(mesh.SliceCoord, x1_start, x2_centre, cartesian_coords),
+    builds(coordinates.SliceCoord, x1_start, x2_centre, cartesian_coords),
     x3_start,
     x3_limit.map(lambda x: 2 * x),
     integers(100, 200),
@@ -1806,7 +1881,7 @@ cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
 def test_normalise_curved_field_line(
     trace: mesh.FieldTrace,
     line: mesh.NormalisedCurve,
-    start: mesh.SliceCoord,
+    start: coordinates.SliceCoord,
     x3_start: float,
     dx3: float,
     resolution: int,

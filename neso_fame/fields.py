@@ -3,7 +3,8 @@
 import numpy as np
 import numpy.typing as npt
 
-from neso_fame.mesh import CoordinateSystem, FieldTrace, SliceCoord, SliceCoords
+from neso_fame.coordinates import CoordinateSystem, SliceCoord, SliceCoords
+from neso_fame.mesh import FieldTrace
 
 
 def straight_field(angle_x1: float = 0.0, angle_x2: float = 0.0) -> "FieldTrace":

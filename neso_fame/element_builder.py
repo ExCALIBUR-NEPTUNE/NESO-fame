@@ -15,6 +15,7 @@ import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 
+from neso_fame.coordinates import CoordinateSystem, SliceCoord, SliceCoords
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     flux_surface_edge,
@@ -22,12 +23,9 @@ from neso_fame.hypnotoad_interface import (
 )
 from neso_fame.mesh import (
     AcrossFieldCurve,
-    CoordinateSystem,
     FieldTracer,
     Prism,
     Quad,
-    SliceCoord,
-    SliceCoords,
     StraightLineAcrossField,
 )
 

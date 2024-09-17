@@ -28,13 +28,16 @@ from NekPy import SpatialDomains as SD
 from pytest import approx, mark
 
 from neso_fame import nektar_writer
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
-from neso_fame.mesh import (
-    B,
-    C,
+from neso_fame.coordinates import (
     Coord,
     CoordinateSystem,
     Coords,
+    FrozenCoordSet,
+    SliceCoord,
+)
+from neso_fame.mesh import (
+    B,
+    C,
     E,
     EndShape,
     FieldAlignedCurve,
@@ -50,7 +53,6 @@ from neso_fame.mesh import (
     QuadMesh,
     QuadMeshLayer,
     Segment,
-    SliceCoord,
     StraightLineAcrossField,
     control_points,
 )

@@ -13,11 +13,13 @@ from hypothesis.strategies import (
     shared,
 )
 
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
-from neso_fame.mesh import (
+from neso_fame.coordinates import (
     CoordinateSystem,
+    FrozenCoordSet,
     SliceCoord,
     SliceCoords,
+)
+from neso_fame.mesh import (
     StraightLineAcrossField,
 )
 from neso_fame.wall import (

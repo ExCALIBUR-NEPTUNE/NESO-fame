@@ -32,8 +32,7 @@ from hypothesis.strategies import (
 )
 from scipy.special import ellipeinc
 
-from neso_fame import mesh
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
+from neso_fame import coordinates, mesh
 from neso_fame.offset import Offset
 
 settings.register_profile("ci", max_examples=200, deadline=None)
@@ -97,18 +96,22 @@ def mutually_broadcastable_from(
     return strategy.flatmap(shape_to_array)
 
 
-coordinate_systems = sampled_from(mesh.CoordinateSystem)
+coordinate_systems = sampled_from(coordinates.CoordinateSystem)
 coordinate_systems3d = coordinate_systems.filter(
-    lambda x: x != mesh.CoordinateSystem.CARTESIAN2D
+    lambda x: x != coordinates.CoordinateSystem.CARTESIAN2D
 )
 
 
 def slice_coord_for_system(
-    system: mesh.CoordinateSystem,
-) -> SearchStrategy[mesh.SliceCoord]:
-    x1 = non_zero if system == mesh.CoordinateSystem.CYLINDRICAL else whole_numbers
+    system: coordinates.CoordinateSystem,
+) -> SearchStrategy[coordinates.SliceCoord]:
+    x1 = (
+        non_zero
+        if system == coordinates.CoordinateSystem.CYLINDRICAL
+        else whole_numbers
+    )
     return builds(
-        mesh.SliceCoord,
+        coordinates.SliceCoord,
         x1,
         whole_numbers,
         just(system),
@@ -116,37 +119,37 @@ def slice_coord_for_system(
 
 
 register_type_strategy(
-    mesh.SliceCoords,
+    coordinates.SliceCoords,
     builds(
-        lambda xs, c: mesh.SliceCoords(xs[0], xs[1], c),
+        lambda xs, c: coordinates.SliceCoords(xs[0], xs[1], c),
         mutually_broadcastable_arrays(2),
-        sampled_from(mesh.CoordinateSystem),
+        sampled_from(coordinates.CoordinateSystem),
     ),
 )
 
 register_type_strategy(
-    mesh.SliceCoord,
-    sampled_from(mesh.CoordinateSystem).flatmap(slice_coord_for_system),
+    coordinates.SliceCoord,
+    sampled_from(coordinates.CoordinateSystem).flatmap(slice_coord_for_system),
 )
 
 register_type_strategy(
-    mesh.Coords,
+    coordinates.Coords,
     builds(
-        lambda xs, c: mesh.Coords(xs[0], xs[1], xs[2], c),
+        lambda xs, c: coordinates.Coords(xs[0], xs[1], xs[2], c),
         mutually_broadcastable_arrays(3),
-        sampled_from(mesh.CoordinateSystem),
+        sampled_from(coordinates.CoordinateSystem),
     ),
 )
 
 
 register_type_strategy(
-    mesh.Coord,
+    coordinates.Coord,
     builds(
-        mesh.Coord,
+        coordinates.Coord,
         whole_numbers,
         whole_numbers,
         whole_numbers,
-        sampled_from(mesh.CoordinateSystem),
+        sampled_from(coordinates.CoordinateSystem),
     ),
 )
 
@@ -155,10 +158,10 @@ num_divs = shared(integers(1, 10), key=999)
 
 
 def straight_line_for_system(
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
 ) -> SearchStrategy[mesh.StraightLine]:
     coords = builds(
-        mesh.Coord, whole_numbers, whole_numbers, whole_numbers, just(system)
+        coordinates.Coord, whole_numbers, whole_numbers, whole_numbers, just(system)
     )
     return builds(
         mesh.StraightLine,
@@ -175,9 +178,9 @@ register_type_strategy(
 )
 
 CARTESIAN_SYSTEMS = {
-    mesh.CoordinateSystem.CARTESIAN,
-    mesh.CoordinateSystem.CARTESIAN2D,
-    mesh.CoordinateSystem.CARTESIAN_ROTATED,
+    coordinates.CoordinateSystem.CARTESIAN,
+    coordinates.CoordinateSystem.CARTESIAN2D,
+    coordinates.CoordinateSystem.CARTESIAN_ROTATED,
 }
 
 
@@ -185,16 +188,16 @@ def linear_field_trace(
     a1: float,
     a2: float,
     a3: float,
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     skew: float,
     centre: Pair,
 ) -> mesh.FieldTrace:
     a1p = a1 / a3 if c in CARTESIAN_SYSTEMS else 0.0
-    a2p = a2 / a3 if c != mesh.CoordinateSystem.CARTESIAN2D else 0.0
+    a2p = a2 / a3 if c != coordinates.CoordinateSystem.CARTESIAN2D else 0.0
 
     def cartesian_func(
-        start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-    ) -> tuple[mesh.SliceCoords, npt.NDArray]:
+        start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+    ) -> tuple[coordinates.SliceCoords, npt.NDArray]:
         offset = np.sqrt((start.x1 - centre[0]) ** 2 + (start.x2 - centre[1]) ** 2)
         t = 1 - start_weight
         t2 = t * t
@@ -207,7 +210,7 @@ def linear_field_trace(
                 x3
             )
         return (
-            mesh.SliceCoords(
+            coordinates.SliceCoords(
                 t * b1 * np.asarray(x3) + start.x1,
                 t * b2 * np.asarray(x3) + start.x2,
                 start.system,
@@ -225,15 +228,15 @@ def linear_field_line(
     b1: float,
     b2: float,
     b3: float,
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     skew: float,
     centre: Pair,
 ) -> mesh.NormalisedCurve:
     offset = np.sqrt((b1 - centre[0]) ** 2 + (b2 - centre[1]) ** 2)
 
-    def linear_func(x: npt.ArrayLike) -> mesh.Coords:
+    def linear_func(x: npt.ArrayLike) -> coordinates.Coords:
         a = a1 if c in CARTESIAN_SYSTEMS else 0.0
-        return mesh.Coords(
+        return coordinates.Coords(
             a * (1 + skew * offset) * np.asarray(x) + b1 - 0.5 * a,
             a2 * (1 + skew * offset) * np.asarray(x) + b2 - 0.5 * a2,
             a3 * np.asarray(x) + b3 - 0.5 * a3,
@@ -248,7 +251,7 @@ def trapezoidal_quad(
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair],
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     skew: float,
     resolution: int,
     division: int,
@@ -261,11 +264,13 @@ def trapezoidal_quad(
         starts[0][0] + (starts[0][0] - starts[1][0]) / 2,
         starts[0][1] + (starts[0][1] - starts[1][1]) / 2,
     )
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (starts[0][0] * starts[1][0] <= 0.0):
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and (
+        starts[0][0] * starts[1][0] <= 0.0
+    ):
         return None
     shape = mesh.StraightLineAcrossField(
-        mesh.SliceCoord(starts[0][0], starts[0][1], c),
-        mesh.SliceCoord(starts[1][0], starts[1][1], c),
+        coordinates.SliceCoord(starts[0][0], starts[0][1], c),
+        coordinates.SliceCoord(starts[1][0], starts[1][1], c),
     )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
     return Offset(
@@ -283,9 +288,11 @@ def trapezoidal_quad(
 
 
 def end_quad(
-    corners: tuple[Pair, Pair, Pair, Pair], c: mesh.CoordinateSystem, x3: float
+    corners: tuple[Pair, Pair, Pair, Pair], c: coordinates.CoordinateSystem, x3: float
 ) -> Optional[mesh.EndShape]:
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (0.0 in [c[0] for c in corners]):
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and (
+        0.0 in [c[0] for c in corners]
+    ):
         return None
 
     sorted_corners = sorted(corners, key=operator.itemgetter(1))
@@ -295,8 +302,8 @@ def end_quad(
 
     def make_line(point1: Pair, point2: Pair) -> mesh.StraightLine:
         return mesh.StraightLine(
-            mesh.Coord(point1[0], point1[1], x3, c),
-            mesh.Coord(point2[0], point2[1], x3, c),
+            coordinates.Coord(point1[0], point1[1], x3, c),
+            coordinates.Coord(point2[0], point2[1], x3, c),
         )
 
     return mesh.EndShape(
@@ -310,15 +317,17 @@ def end_quad(
 
 
 def end_triangle(
-    corners: tuple[Pair, Pair, Pair], c: mesh.CoordinateSystem, x3: float
+    corners: tuple[Pair, Pair, Pair], c: coordinates.CoordinateSystem, x3: float
 ) -> Optional[mesh.EndShape]:
-    if c == mesh.CoordinateSystem.CYLINDRICAL and (0.0 in [c[0] for c in corners]):
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and (
+        0.0 in [c[0] for c in corners]
+    ):
         return None
 
     def make_line(point1: Pair, point2: Pair) -> mesh.StraightLine:
         return mesh.StraightLine(
-            mesh.Coord(point1[0], point1[1], x3, c),
-            mesh.Coord(point2[0], point2[1], x3, c),
+            coordinates.Coord(point1[0], point1[1], x3, c),
+            coordinates.Coord(point2[0], point2[1], x3, c),
         )
 
     return mesh.EndShape(
@@ -341,7 +350,7 @@ def trapezohedronal_hex(
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair, Pair, Pair],
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     skew: float,
     resolution: int,
     division: int,
@@ -357,7 +366,7 @@ def trapezohedronal_hex(
     sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(0)) + sorted(
         sorted_starts[2:4], key=operator.itemgetter(0), reverse=True
     )
-    if c == mesh.CoordinateSystem.CYLINDRICAL and any(
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((p[0] for p in starts), 2)
     ):
         return None
@@ -365,8 +374,8 @@ def trapezohedronal_hex(
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
-            mesh.SliceCoord(point1[0], point1[1], c),
-            mesh.SliceCoord(point2[0], point2[1], c),
+            coordinates.SliceCoord(point1[0], point1[1], c),
+            coordinates.SliceCoord(point2[0], point2[1], c),
         )
         return Offset(
             mesh.Quad(
@@ -404,7 +413,7 @@ def simple_prism(
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair, Pair],
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     skew: float,
     resolution: int,
     division: int,
@@ -416,7 +425,7 @@ def simple_prism(
         sum(map(operator.itemgetter(0), starts)),
         sum(map(operator.itemgetter(1), starts)),
     )
-    if c == mesh.CoordinateSystem.CYLINDRICAL and any(
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((p[0] for p in starts), 2)
     ):
         return None
@@ -424,8 +433,8 @@ def simple_prism(
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
-            mesh.SliceCoord(point1[0], point1[1], c),
-            mesh.SliceCoord(point2[0], point2[1], c),
+            coordinates.SliceCoord(point1[0], point1[1], c),
+            coordinates.SliceCoord(point2[0], point2[1], c),
         )
         return Offset(
             mesh.Quad(
@@ -451,8 +460,8 @@ def simple_prism(
 
 def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
     def cylindrical_func(
-        start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-    ) -> tuple[mesh.SliceCoords, npt.NDArray]:
+        start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+    ) -> tuple[coordinates.SliceCoords, npt.NDArray]:
         assert start.system in CARTESIAN_SYSTEMS
         b = 1 - start_weight
         rad = start.x1 - centre
@@ -465,7 +474,7 @@ def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
         x2 = b * (np.asarray(start.x2) + x2_slope * dtheta) + start_weight * start.x2
         alpha = 1 + b * b * x2_slope * x2_slope
         return (
-            mesh.SliceCoords(x1, x2, start.system),
+            coordinates.SliceCoords(x1, x2, start.system),
             np.sqrt(alpha) * ellipeinc(dtheta, (b * b - 1) / alpha) * rad,
         )
 
@@ -478,7 +487,7 @@ def cylindrical_field_line(
     x2_centre: float,
     x2_slope: float,
     x3_limits: Pair,
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
 ) -> mesh.NormalisedCurve:
     assert system in CARTESIAN_SYSTEMS
     rad = x1_start - centre
@@ -486,12 +495,12 @@ def cylindrical_field_line(
     x3_centre = x3_limits[0] + half_x3_sep
     theta_max = 2 * np.arcsin(half_x3_sep / rad)
 
-    def cylindrical_func(s: npt.ArrayLike) -> mesh.Coords:
+    def cylindrical_func(s: npt.ArrayLike) -> coordinates.Coords:
         theta = theta_max * (np.asarray(s) - 0.5)
         x1 = centre + rad * np.cos(theta)
         x2 = x2_centre + x2_slope * theta
         x3 = x3_centre + rad * np.sin(theta)
-        return mesh.Coords(x1, x2, x3, system)
+        return coordinates.Coords(x1, x2, x3, system)
 
     return cylindrical_func
 
@@ -502,7 +511,7 @@ def curved_quad(
     x2_centre: float,
     x2_slope: float,
     dx3: float,
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
     resolution: int,
     division: int,
     num_divisions: int,
@@ -512,8 +521,8 @@ def curved_quad(
 ) -> mesh.Quad:
     trace = cylindrical_field_trace(centre, x2_slope)
     shape = mesh.StraightLineAcrossField(
-        mesh.SliceCoord(x1_start[0], x2_centre, system),
-        mesh.SliceCoord(x1_start[1], x2_centre, system),
+        coordinates.SliceCoord(x1_start[0], x2_centre, system),
+        coordinates.SliceCoord(x1_start[1], x2_centre, system),
     )
     return Offset(
         mesh.Quad(
@@ -534,7 +543,7 @@ def curved_hex(
     starts: tuple[Pair, Pair, Pair, Pair],
     x2_slope: float,
     dx3: float,
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
     resolution: int,
     division: int,
     num_divisions: int,
@@ -549,8 +558,8 @@ def curved_hex(
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
-            mesh.SliceCoord(point1[0], point1[1], system),
-            mesh.SliceCoord(point2[0], point2[1], system),
+            coordinates.SliceCoord(point1[0], point1[1], system),
+            coordinates.SliceCoord(point2[0], point2[1], system),
         )
         return Offset(
             mesh.Quad(
@@ -588,7 +597,7 @@ def curved_prism(
     starts: tuple[Pair, Pair, Pair],
     x2_slope: float,
     dx3: float,
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
     resolution: int,
     division: int,
     num_divisions: int,
@@ -599,8 +608,8 @@ def curved_prism(
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
         shape = mesh.StraightLineAcrossField(
-            mesh.SliceCoord(point1[0], point1[1], system),
-            mesh.SliceCoord(point2[0], point2[1], system),
+            coordinates.SliceCoord(point1[0], point1[1], system),
+            coordinates.SliceCoord(point2[0], point2[1], system),
         )
         return Offset(
             mesh.Quad(
@@ -625,7 +634,7 @@ def curved_prism(
 
 
 def make_arc(
-    north: mesh.SliceCoords, south: mesh.SliceCoords, angle: float
+    north: coordinates.SliceCoords, south: coordinates.SliceCoords, angle: float
 ) -> mesh.AcrossFieldCurve:
     x1_1 = float(north.x1)
     x2_1 = float(north.x2)
@@ -641,9 +650,9 @@ def make_arc(
     x2_c = x2_1 - r * np.sin(angle)
     a = np.arctan2(x2_2 - x2_c, x1_2 - x1_c) - angle
 
-    def curve(s: npt.ArrayLike) -> mesh.SliceCoords:
+    def curve(s: npt.ArrayLike) -> coordinates.SliceCoords:
         s = np.asarray(s)
-        return mesh.SliceCoords(
+        return coordinates.SliceCoords(
             x1_c + r * np.cos(angle + a * s),
             x2_c + r * np.sin(angle + a * s),
             north.system,
@@ -662,11 +671,11 @@ def offset_straight_line(
     norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
     perp = [dx2 / norm, -dx1 / norm]
 
-    def result(s: npt.ArrayLike) -> mesh.SliceCoords:
+    def result(s: npt.ArrayLike) -> coordinates.SliceCoords:
         s = np.asarray(s)
         linear = line(s)
         t = 4 * magnitude * s * (1 - s)
-        return mesh.SliceCoords(
+        return coordinates.SliceCoords(
             linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system
         )
 
@@ -726,19 +735,22 @@ def _quad_mesh_elements(
     a3: float,
     limits: tuple[Pair, Pair],
     num_quads: int,
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     resolution: int,
     left_fixed: bool,
     right_fixed: bool,
 ) -> Optional[list[mesh.Quad]]:
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
-    if c == mesh.CoordinateSystem.CYLINDRICAL and limits[0][0] * limits[1][0] <= 0:
+    if (
+        c == coordinates.CoordinateSystem.CYLINDRICAL
+        and limits[0][0] * limits[1][0] <= 0
+    ):
         return None
 
     def make_shape(starts: tuple[Pair, Pair]) -> mesh.AcrossFieldCurve:
         return mesh.StraightLineAcrossField(
-            mesh.SliceCoord(starts[0][0], starts[0][1], c),
-            mesh.SliceCoord(starts[1][0], starts[1][1], c),
+            coordinates.SliceCoord(starts[0][0], starts[0][1], c),
+            coordinates.SliceCoord(starts[1][0], starts[1][1], c),
         )
 
     points = np.linspace(limits[0], limits[1], num_quads + 1)
@@ -766,7 +778,7 @@ def _hex_mesh_arguments(
     limits: tuple[Pair, Pair, Pair, Pair],
     num_hexes_x1: int,
     num_hexes_x2: int,
-    c: mesh.CoordinateSystem,
+    c: coordinates.CoordinateSystem,
     resolution: int,
     fixed_bounds: bool,
 ) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
@@ -799,15 +811,15 @@ def _hex_mesh_arguments(
         return None
 
     trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
-    if c == mesh.CoordinateSystem.CYLINDRICAL and any(
+    if c == coordinates.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((lim[0] for lim in limits), 2)
     ):
         return None
 
     def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
         return mesh.StraightLineAcrossField(
-            mesh.SliceCoord(start[0], start[1], c),
-            mesh.SliceCoord(end[0], end[1], c),
+            coordinates.SliceCoord(start[0], start[1], c),
+            coordinates.SliceCoord(end[0], end[1], c),
         )
 
     def get_start_weight(
@@ -966,7 +978,7 @@ def _get_end_point(
 
 
 def straight_field_line_for_system(
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     a1 = shared(whole_numbers, key=541)
     a2 = shared(whole_numbers, key=542)
@@ -1004,7 +1016,7 @@ _small_x1_start = tuples(_small_centre, _small_rad).map(lambda x: x[0] + x[1])
 
 
 def curved_field_line_for_system(
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     trace = builds(cylindrical_field_trace, _centre, whole_numbers)
 
@@ -1012,7 +1024,7 @@ def curved_field_line_for_system(
         mesh.FieldAlignedCurve,
         builds(mesh.FieldTracer, trace, integers(100, 200)),
         builds(
-            mesh.SliceCoord,
+            coordinates.SliceCoord,
             builds(operator.add, _centre, _rad),
             whole_numbers,
             just(system),
@@ -1025,7 +1037,7 @@ def curved_field_line_for_system(
 
 
 def field_aligned_curve_for_system(
-    system: mesh.CoordinateSystem,
+    system: coordinates.CoordinateSystem,
 ) -> SearchStrategy[mesh.FieldAlignedCurve]:
     if system in CARTESIAN_SYSTEMS:
         return one_of(
@@ -1047,7 +1059,7 @@ register_type_strategy(
     one_of(straight_field_line, curved_field_line),
 )
 
-shared_coordinate_systems = shared(sampled_from(mesh.CoordinateSystem), key=22)
+shared_coordinate_systems = shared(sampled_from(coordinates.CoordinateSystem), key=22)
 segments: SearchStrategy[mesh.Segment] = one_of(
     (
         shared_coordinate_systems.flatmap(straight_line_for_system),
@@ -1141,7 +1153,9 @@ linear_quad = cast(
     .filter(lambda x: x is not None)
     .filter(
         lambda x: len(
-            FrozenCoordSet(cast(mesh.Quad, x).corners().to_cartesian().iter_points())
+            coordinates.FrozenCoordSet(
+                cast(mesh.Quad, x).corners().to_cartesian().iter_points()
+            )
         )
         == 4
     ),
@@ -1195,7 +1209,10 @@ nonlinear_quad = builds(
     whole_numbers,
     _dx3,
     sampled_from(
-        [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]
+        [
+            coordinates.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN_ROTATED,
+        ]
     ),
     integers(100, 200),
     _divisions,
@@ -1213,7 +1230,10 @@ nonlinear_hex = builds(
     whole_numbers,
     _dx3,
     sampled_from(
-        [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]
+        [
+            coordinates.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN_ROTATED,
+        ]
     ),
     integers(100, 200),
     _divisions,
@@ -1230,7 +1250,10 @@ nonlinear_prism = builds(
     small_whole_numbers,
     _small_dx3,
     sampled_from(
-        [mesh.CoordinateSystem.CARTESIAN, mesh.CoordinateSystem.CARTESIAN_ROTATED]
+        [
+            coordinates.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN_ROTATED,
+        ]
     ),
     integers(100, 200),
     _divisions,
@@ -1255,9 +1278,9 @@ register_type_strategy(
                 whole_numbers.flatmap(hex_starts),
                 sampled_from(
                     [
-                        mesh.CoordinateSystem.CARTESIAN,
-                        mesh.CoordinateSystem.CARTESIAN_ROTATED,
-                        mesh.CoordinateSystem.CYLINDRICAL,
+                        coordinates.CoordinateSystem.CARTESIAN,
+                        coordinates.CoordinateSystem.CARTESIAN_ROTATED,
+                        coordinates.CoordinateSystem.CYLINDRICAL,
                     ]
                 ),
                 whole_numbers,
@@ -1270,9 +1293,9 @@ register_type_strategy(
                 whole_numbers.flatmap(hex_starts).map(lambda x: x[:3]),
                 sampled_from(
                     [
-                        mesh.CoordinateSystem.CARTESIAN,
-                        mesh.CoordinateSystem.CARTESIAN_ROTATED,
-                        mesh.CoordinateSystem.CYLINDRICAL,
+                        coordinates.CoordinateSystem.CARTESIAN,
+                        coordinates.CoordinateSystem.CARTESIAN_ROTATED,
+                        coordinates.CoordinateSystem.CYLINDRICAL,
                     ]
                 ),
                 whole_numbers,
@@ -1386,13 +1409,13 @@ register_type_strategy(
 
 
 def simple_trace(
-    start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-) -> tuple[mesh.SliceCoords, npt.NDArray]:
+    start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+) -> tuple[coordinates.SliceCoords, npt.NDArray]:
     return (
-        mesh.SliceCoords(
+        coordinates.SliceCoords(
             np.full_like(x3, start.x1),
             np.full_like(x3, start.x2),
-            mesh.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN,
         ),
         np.asarray(x3),
     )

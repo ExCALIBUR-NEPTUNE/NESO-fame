@@ -36,6 +36,7 @@ from scipy.integrate import quad
 from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
+from neso_fame.coordinates import CoordinateSystem, SliceCoord
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     eqdsk_equilibrium,
@@ -47,10 +48,8 @@ from neso_fame.hypnotoad_interface import (
     perpendicular_edge,
 )
 from neso_fame.mesh import (
-    CoordinateSystem,
     FieldTracer,
     Quad,
-    SliceCoord,
     StraightLineAcrossField,
 )
 

@@ -16,13 +16,11 @@ from hypnotoad.cases.tokamak import TokamakEquilibrium, read_geqdsk  # type: ign
 from scipy.integrate import solve_ivp
 from scipy.optimize import root_scalar
 
+from .coordinates import CoordinateSystem, SliceCoord, SliceCoords
 from .mesh import (
     AcrossFieldCurve,
-    CoordinateSystem,
     FieldTrace,
     Quad,
-    SliceCoord,
-    SliceCoords,
 )
 
 Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]

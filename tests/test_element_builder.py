@@ -25,14 +25,16 @@ from hypothesis.strategies import (
     tuples,
 )
 
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
+from neso_fame.coordinates import (
+    CoordinateSystem,
+    FrozenCoordSet,
+    SliceCoord,
+    SliceCoords,
+)
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
-    CoordinateSystem,
     FieldTracer,
-    SliceCoord,
-    SliceCoords,
     StraightLineAcrossField,
 )
 

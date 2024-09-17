@@ -8,19 +8,21 @@ import numpy as np
 import pytest
 
 from neso_fame import generators
-from neso_fame.approx_coord_comparisons import FrozenCoordSet
+from neso_fame.coordinates import (
+    Coord,
+    CoordinateSystem,
+    FrozenCoordSet,
+    SliceCoord,
+    SliceCoords,
+)
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
-    Coord,
-    CoordinateSystem,
     FieldAlignedCurve,
     FieldTracer,
     Prism,
     Quad,
     Segment,
-    SliceCoord,
-    SliceCoords,
     control_points,
 )
 from neso_fame.nektar_writer import nektar_3d_element

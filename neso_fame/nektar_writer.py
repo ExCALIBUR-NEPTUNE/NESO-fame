@@ -12,10 +12,9 @@ import NekPy.SpatialDomains as SD
 import numpy as np
 import numpy.typing as npt
 
-from .approx_coord_comparisons import coord_cache
+from neso_fame.coordinates import Coord, Coords, coord_cache
+
 from .mesh import (
-    Coord,
-    Coords,
     EndShape,
     Mesh,
     MeshLayer,
