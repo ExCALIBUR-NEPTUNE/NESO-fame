@@ -371,7 +371,7 @@ def test_coord_to_slice_coord(
     ],
 )
 def test_coord_to_cartesian(coord1: mesh.Coord, coord2: mesh.Coord) -> None:
-    assert coord1.to_cartesian() == coord2
+    assert coord1.to_cartesian().approx_eq(coord2)
 
 
 @given(non_nans(), non_nans(), non_nans(), integers(1, 50), coordinate_systems)
@@ -381,7 +381,7 @@ def test_to_cartesian_idempotent(
     new_coords = cartesian_coords = mesh.Coord(x1, x2, x3, c).to_cartesian()
     for _ in range(n):
         new_coords = new_coords.to_cartesian()
-        assert new_coords == cartesian_coords
+        assert new_coords.approx_eq(cartesian_coords)
 
 
 @pytest.mark.parametrize(

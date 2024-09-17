@@ -5,17 +5,16 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
-from typing import Callable, Optional, TypeVar, cast
+from typing import Optional, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
 import numpy as np
 import numpy.typing as npt
-from rtree.index import Index, Property
 
+from .approx_coord_comparisons import coord_cache
 from .mesh import (
     Coord,
-    CoordinateSystem,
     Coords,
     EndShape,
     Mesh,
@@ -236,56 +235,8 @@ def reset_id_counts() -> None:
     _solid_count = -1
 
 
-T = TypeVar("T")
-atol = 1e-8
-rtol = 1e-8
-
-
-def _get_bound_box(position: Coord, atol: float, rtol: float) -> tuple[float, ...]:
-    if position.system != CoordinateSystem.CARTESIAN:
-        raise ValueError(
-            "Should only construct bounding-boxes around cartesian coordinates"
-        )
-
-    def offset(x: float) -> tuple[float, float]:
-        dx = max(abs(atol), abs(x * rtol))
-        return x - dx, x + dx
-
-    return tuple(itertools.chain.from_iterable(map(offset, position)))
-
-
-def rtree_cache(func: Callable[[Coord, int, int], T]) -> Callable[[Coord, int, int], T]:
-    """Return a wrapped function that caches based on proximity of coordinates."""
-    # Create R-tree object
-    cache_data: dict[tuple[int, int], tuple[Index, list[T]]] = {}
-
-    def wrapper(position: Coord, spatial_dim: int, layer_id: int) -> T:
-        pos = position.to_cartesian()
-        idx = (spatial_dim, layer_id)
-        if idx not in cache_data:
-            obj = func(pos, spatial_dim, layer_id)
-            rtree = Index(interleaved=False, properties=Property(dimension=3))
-            rtree.insert(0, _get_bound_box(pos, atol, rtol))
-            cache_data[idx] = (
-                rtree,
-                [obj],
-            )
-            return obj
-        tree, objects = cache_data[idx]
-        bounds = _get_bound_box(pos, atol, rtol)
-        for item in tree.intersection(bounds, objects=False):
-            # Return the point for the first intersection found
-            return objects[item]
-        obj = func(pos, spatial_dim, layer_id)
-        tree.insert(len(objects), bounds)
-        objects.append(obj)
-        return obj
-
-    return wrapper
-
-
-@rtree_cache
-def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
+@coord_cache(1e-9, 1e-9)
+def _nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Return a Nektar++ PointGeom object at the specified position.
 
     Caching is used to ensure that, given the same location and layer,
@@ -307,6 +258,20 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
         _round_zero(pos.x2, tol),
         _round_zero(pos.x3, tol),
     )
+
+
+def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
+    """Return a Nektar++ PointGeom object at the specified position.
+
+    Caching is used to ensure that, given the same location and layer,
+    the object will always be the same.
+
+    Group
+    -----
+    factory
+
+    """
+    return _nektar_point(position.to_cartesian(), spatial_dim, layer_id)
 
 
 @cache
