@@ -456,15 +456,18 @@ class _CoordContainer(Generic[C]):
     ) -> None:
         self._atol = atol
         self._rtol = rtol
-        self._coords = list(coords)
-        if len(self._coords) > 0:
-            self._dim = 3 if isinstance(self._coords[0], Coord) else 2
+        self._coords = []
+        coords_list = list(coords)
+        if len(coords_list) > 0:
+            self._dim = 3 if isinstance(coords_list[0], Coord) else 2
         else:
             self._dim = 3
         self._rtree = Index(interleaved=False, properties=Property(dimension=self._dim))
-        for i, c in enumerate(cast(list[C], self._coords)):
+        for c in coords_list:
             self._check_coord_system(c)
-            self._rtree.insert(i, self._get_bound_box(c))
+            if c not in self:
+                self._rtree.insert(len(self._coords), self._get_bound_box(c))
+                self._coords.append(c)
 
     @property
     def system(self) -> CoordinateSystem | None:
@@ -525,6 +528,10 @@ class FrozenCoordSet(_CoordContainer[C], Set[C]):
         """Return a very dumb hash that will ensure things work logically (but inefficiently)."""
         return len(self)
 
+    def __repr__(self) -> str:
+        """Produce a string representation of this object."""
+        return f"{self.__class__.__name__}({{{', '.join(repr(c) for c in self._coords if c is not None)}}})"
+
 
 class CoordSet(FrozenCoordSet[C], MutableSet[C]):
     """A set of coordinates, evaluating equality to within a tolerance."""
@@ -578,6 +585,10 @@ class CoordMap(_CoordContainer[C], Mapping[C, T]):
             return cast(T, self._values[i])
         except StopIteration:
             raise KeyError(f"Coordinate {item} not present in mapping")
+
+    def __repr__(self) -> str:
+        """Produce a string representation of this object."""
+        return f"{self.__class__.__name__}({{{', '.join(repr(c) + ': ' + repr(v) for c, v in zip(self._coords, self._values) if c is not None)}}})"
 
     # TODO: Ideally would override some of hte mixins for better
     # performance. Also not sure whether the MappingView will work

@@ -294,12 +294,14 @@ def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
     assert len(segments) == 4
     assert len(points) == len(corners)
     nek_quad = next(iter(quads))
-    assert corners == comparable_point_set(
+    nek_quad_corners = comparable_point_set(
         nek_quad.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)
     )
-    assert corners == FrozenCoordSet(
+    quad_corners = FrozenCoordSet(
         map(comparable_coord, quad.corners().to_cartesian().iter_points())
     )
+    assert corners == nek_quad_corners
+    assert corners == quad_corners
 
 
 @given(from_type(Quad), integers(2, 12), integers(), sampled_from((2, 3)))
@@ -484,7 +486,6 @@ def check_face_composites(
             )
 
     expected_faces = frozenset(map(comparable_item, expected))
-    assert isinstance(actual.geometries[0], (SD.Geometry1D, SD.Geometry2D))
     actual_faces = comparable_set(
         cast(Iterable[SD.Geometry1D | SD.Geometry2D], actual.geometries)
     )

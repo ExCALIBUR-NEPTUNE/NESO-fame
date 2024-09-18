@@ -24,6 +24,7 @@ from neso_fame.coordinates import (
     Coord,
     CoordinateSystem,
     Coords,
+    FrozenCoordSet,
     SliceCoord,
     SliceCoords,
 )
@@ -516,10 +517,8 @@ class EndShape(LazilyOffsetable):
 
     def corners(self) -> Coords:
         """Return the points corresponding to the vertices of the polygon."""
-        # We want to maintain the order of the elements, so use a dict
-        # rather than a set
         all_points = list(
-            dict.fromkeys(
+            FrozenCoordSet(
                 itertools.chain.from_iterable(
                     control_points(e, 1).iter_points() for e in self.edges
                 )

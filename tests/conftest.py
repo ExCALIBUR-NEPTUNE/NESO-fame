@@ -906,24 +906,32 @@ def _hex_mesh_arguments(
 
 
 def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
-    v1 = {
-        (q1.shape(0.0).to_coord(), q1.north_start_weight),
-        (q1.shape(1.0).to_coord(), q1.south_start_weight),
-    }
-    v2 = {
-        (q2.shape(0.0).to_coord(), q2.north_start_weight),
-        (q2.shape(1.0).to_coord(), q2.south_start_weight),
-    }
-    point1 = next(iter(v1 - v2))
-    point2 = next(iter(v2 - v1))
+    v1 = coordinates.CoordMap(
+        {
+            q1.shape(0.0).to_coord(): q1.north_start_weight,
+            q1.shape(1.0).to_coord(): q1.south_start_weight,
+        }
+    )
+    v2 = coordinates.CoordMap(
+        {
+            q2.shape(0.0).to_coord(): q2.north_start_weight,
+            q2.shape(1.0).to_coord(): q2.south_start_weight,
+        }
+    )
+    weights = coordinates.MutableCoordMap(v1)
+    weights.update(v2)
+    s1 = coordinates.FrozenCoordSet(v1)
+    s2 = coordinates.FrozenCoordSet(v2)
+    point1 = next(iter(s1 - s2))
+    point2 = next(iter(s2 - s1))
     return mesh.Quad(
-        mesh.StraightLineAcrossField(point1[0], point2[0]),
+        mesh.StraightLineAcrossField(point1, point2),
         q1.field,
         q1.dx3,
         q1.subdivision,
         q1.num_divisions,
-        point1[1],
-        point2[1],
+        weights[point1],
+        weights[point2],
     )
 
 
