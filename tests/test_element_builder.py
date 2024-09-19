@@ -27,6 +27,7 @@ from hypothesis.strategies import (
 
 from neso_fame.coordinates import (
     CoordinateSystem,
+    CoordMap,
     FrozenCoordSet,
     SliceCoord,
     SliceCoords,
@@ -98,6 +99,9 @@ def flux_surface_points(draw: Any, mesh: HypnoMesh) -> tuple[SliceCoord, SliceCo
     )
 
 
+EMPTY_MAP = CoordMap.empty_slicecoord(float)
+
+
 @composite
 def points_in_region(draw: Any, region: MeshRegion) -> SliceCoord:
     shape = region.Rxy.corners.shape
@@ -140,11 +144,13 @@ def _get_boundaries(region: MeshRegion) -> list[tuple[npt.NDArray, ...]]:
 
 
 @cache
-def _get_boundary_weights(region: MeshRegion) -> dict[SliceCoord, float]:
-    return {
-        SliceCoord(float(p[0]), float(p[1]), CoordinateSystem.CYLINDRICAL): 0.0
-        for p in _get_boundaries(region)
-    }
+def _get_boundary_weights(region: MeshRegion) -> CoordMap[SliceCoord, float]:
+    return CoordMap(
+        {
+            SliceCoord(float(p[0]), float(p[1]), CoordinateSystem.CYLINDRICAL): 0.0
+            for p in _get_boundaries(region)
+        }
+    )
 
 
 def region_boundary_points(region: MeshRegion) -> SearchStrategy[SliceCoord]:
@@ -256,7 +262,7 @@ def test_perpendicular_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     north, south = termini
     quad = builder._perpendicular_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
@@ -281,7 +287,7 @@ def test_flux_surface_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     north, south = termini
     quad = builder._flux_surface_quad(north, south)
     assert quad.shape(0.0).to_coord() == north
@@ -306,7 +312,7 @@ def test_connecting_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     quad = builder.make_quad_to_o_point(point)
     assert quad.shape(0.0).to_coord() == point
     assert quad.shape(1.0).to_coord() == SliceCoord(
@@ -334,7 +340,7 @@ def test_make_hex(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     hexa = builder.make_element(*termini)
     assert FrozenCoordSet(
         hexa.corners().to_slice_coords().iter_points()
@@ -360,7 +366,7 @@ def test_make_prism(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     prism = builder.make_element(*termini[:3], None)
     assert FrozenCoordSet(
         prism.corners().to_slice_coords().iter_points()
@@ -386,7 +392,7 @@ def test_make_prism_to_centre(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     north, south = termini
     o_point = SliceCoord(
         mesh.equilibrium.o_point.R,
@@ -416,10 +422,10 @@ def test_quad_for_prism(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     quad, boundary_quads = builder.make_quad_for_prism(*points, frozenset())
-    assert quad.shape(0.0).to_coord() == points[0]
-    assert quad.shape(1.0).to_coord() == points[1]
+    assert quad.shape(0.0).to_coord().approx_eq(points[0])
+    assert quad.shape(1.0).to_coord().approx_eq(points[1])
     assert quad.field == trace
     assert quad.dx3 == dx3
     assert quad.north_start_weight == 1
@@ -441,7 +447,7 @@ def test_quad_for_prism_order_invariant(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     assert (
         builder.make_quad_for_prism(points[0], points[1], frozenset())[0]
         == builder.make_quad_for_prism(points[1], points[0], frozenset())[0]
@@ -512,7 +518,7 @@ def test_quad_on_wall_for_prism(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     q, b = builder.make_quad_for_prism(points[0], points[1], frozenset({points}))
     assert len(b) == 1
     assert q in b
@@ -534,7 +540,7 @@ def test_quad_not_quite_on_wall_for_prism(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     q, b = builder.make_quad_for_prism(points[0], points[1], frozenset())
     assert len(b) == 0
 
@@ -553,7 +559,7 @@ def test_make_wall_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     shape = StraightLineAcrossField(*points)
     q1 = builder.make_wall_quad_for_prism(shape)
     assert q1.shape is shape
@@ -577,7 +583,7 @@ def test_make_wall_quad_caching(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     shape = StraightLineAcrossField(*points)
     q1 = builder.make_wall_quad_for_prism(shape)
     q2 = builder.make_wall_quad_for_prism(shape)
@@ -599,7 +605,7 @@ def test_make_outer_prism(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     prism_termini = termini[:3]
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
     assert FrozenCoordSet(
         prism.corners().to_slice_coords().iter_points()
@@ -627,7 +633,7 @@ def test_make_outer_prism_no_bounds(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     prism_termini = termini[:3]
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     prism, bounds = builder.make_outer_prism(*prism_termini, frozenset())
     assert FrozenCoordSet(
         prism.corners().to_slice_coords().iter_points()
@@ -653,7 +659,7 @@ def test_make_outer_prism_one_bound(
     trace = FieldTracer(simple_trace, interp_resolution)
     prism_termini = termini[:3]
     bound_set = frozenset({(termini[bound_points[0]], termini[bound_points[1]])})
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     prism, bounds = builder.make_outer_prism(*prism_termini, bound_set)
     assert FrozenCoordSet(
         prism.corners().to_slice_coords().iter_points()
@@ -680,7 +686,7 @@ def test_get_element_for_quad(
     dx3: float,
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
-    builder = ElementBuilder(mesh, trace, dx3, {})
+    builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
     prism1 = builder.make_element(*termini[:3], None)
     prism2, _ = builder.make_outer_prism(*termini[1:], frozenset())
     for q in prism1:
@@ -741,8 +747,10 @@ NOT_IN_UNFINISHED = SliceCoords(
 MOCK_MESH = MagicMock()
 MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
 
-BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
-BUILDER_UNFINISHED = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+BUILDER = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
+BUILDER_UNFINISHED = ElementBuilder(
+    MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP
+)
 with (
     patch(
         "neso_fame.element_builder.flux_surface_edge",
@@ -803,7 +811,7 @@ outer_vertices = sampled_from(list(OUTERMOST))
 
 
 def test_outermost_vertices_empty() -> None:
-    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
     assert len(list(builder.outermost_vertices())) == 0
 
 
@@ -836,7 +844,7 @@ def test_outermost_single_point(vertex: SliceCoord) -> None:
 
 
 def test_outermost_quads_empty() -> None:
-    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
     assert len(list(builder.outermost_quads())) == 0
 
 
@@ -939,7 +947,7 @@ def test_complex_outermost_vertices() -> None:
             ).iter_points()
         )
     )
-    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
     for corners in zip(
         *map(operator.methodcaller("iter_points"), _element_corners(R, Z))
     ):
@@ -952,7 +960,7 @@ def test_complex_outermost_vertices() -> None:
 
 
 def test_innermost_vertices_empty() -> None:
-    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
     assert len(list(builder.innermost_vertices())) == 0
 
 
@@ -963,7 +971,7 @@ def test_innermost_vertices() -> None:
 
 
 def test_innermost_quads_empty() -> None:
-    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, {})
+    builder = ElementBuilder(MOCK_MESH, FieldTracer(simple_trace, 10), 0.1, EMPTY_MAP)
     assert len(list(builder.innermost_quads())) == 0
 
 

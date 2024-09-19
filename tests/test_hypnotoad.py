@@ -2,7 +2,6 @@ import itertools
 import operator
 import os.path
 import warnings
-from collections import Counter
 from collections.abc import Iterable
 from functools import cache
 from tempfile import TemporaryDirectory
@@ -36,7 +35,7 @@ from scipy.integrate import quad
 from scipy.optimize import root_scalar
 from scipy.special import ellipeinc
 
-from neso_fame.coordinates import CoordinateSystem, SliceCoord
+from neso_fame.coordinates import CoordinateSystem, MutableCoordMap, SliceCoord
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     eqdsk_equilibrium,
@@ -1017,7 +1016,9 @@ def check_coordinate_pairs_connected(
 ) -> None:
     """Check that the pairs of coordinates describe line segments that
     all connect together to form a larger curve."""
-    location_counts = Counter(itertools.chain(*coord_pairs))
+    location_counts = MutableCoordMap.empty_slicecoord(int)
+    for coord in itertools.chain.from_iterable(coord_pairs):
+        location_counts[coord] = location_counts.get(coord, 0) + 1
     expected_hanging = 0 if periodic or len(location_counts) == 0 else 2
     hanging_nodes = len([c for c in location_counts.values() if c == 1])
     assert hanging_nodes == expected_hanging

@@ -11,6 +11,7 @@ from neso_fame import generators
 from neso_fame.coordinates import (
     Coord,
     CoordinateSystem,
+    CoordMap,
     FrozenCoordSet,
     SliceCoord,
     SliceCoords,
@@ -852,7 +853,11 @@ def test_validate_wall_elements() -> None:
     c21 = SliceCoord(2.0, 1.0, CoordinateSystem.CARTESIAN)
     wall_vertices = frozenset({(c00, c20), (c20, c21)})
     builder = ElementBuilder(
-        MagicMock(), FieldTracer(simple_trace, 2), 0.1, {}, CoordinateSystem.CARTESIAN
+        MagicMock(),
+        FieldTracer(simple_trace, 2),
+        0.1,
+        CoordMap.empty_slicecoord(float),
+        CoordinateSystem.CARTESIAN,
     )
     curved_quad = builder.make_wall_quad_for_prism(
         lambda s: SliceCoords(

@@ -6,7 +6,7 @@ import itertools
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
-from functools import cache, cached_property, reduce
+from functools import cached_property, reduce
 from typing import Callable, Optional
 from warnings import warn
 
@@ -15,7 +15,14 @@ import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
 from hypnotoad.cases.tokamak import TokamakEquilibrium  # type: ignore
 
-from neso_fame.coordinates import CoordinateSystem, SliceCoord, SliceCoords
+from neso_fame.coordinates import (
+    CoordinateSystem,
+    CoordMap,
+    FrozenCoordSet,
+    SliceCoord,
+    SliceCoords,
+    coord_cache,
+)
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     flux_surface_edge,
@@ -285,7 +292,7 @@ class ElementBuilder:
         hypnotoad_poloidal_mesh: HypnoMesh,
         tracer: FieldTracer,
         dx3: float,
-        vertex_start_weights: dict[SliceCoord, float],
+        vertex_start_weights: CoordMap[SliceCoord, float],
         system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
     ) -> None:
         """Instantiate an object of this class.
@@ -312,9 +319,9 @@ class ElementBuilder:
         self._tracer = tracer
         self._dx3 = dx3
         self._vertex_start_weights = vertex_start_weights
-        self._edges: dict[frozenset[SliceCoord], Quad] = {}
+        self._edges: dict[FrozenCoordSet[SliceCoord], Quad] = {}
         self._prism_quads: dict[
-            frozenset[SliceCoord], tuple[Quad, frozenset[Quad]]
+            FrozenCoordSet[SliceCoord], tuple[Quad, frozenset[Quad]]
         ] = {}
         op = hypnotoad_poloidal_mesh.equilibrium.o_point
         self._o_point = SliceCoord(op.R, op.Z, system)
@@ -340,7 +347,7 @@ class ElementBuilder:
         """
 
         def check_edges(north: SliceCoord, south: SliceCoord) -> Quad:
-            key = frozenset({north, south})
+            key = FrozenCoordSet({north, south})
             try:
                 return self._edges.pop(key)
             except KeyError:
@@ -350,7 +357,7 @@ class ElementBuilder:
 
         return check_edges
 
-    @cache
+    @coord_cache()
     def _perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, perpendicular to flux surfaces."""
         try:
@@ -366,7 +373,7 @@ class ElementBuilder:
             south_start_weight=self._vertex_start_weights.get(south, 0.0),
         )
 
-    @cache
+    @coord_cache()
     def _flux_surface_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, following a flux surface."""
         return Quad(
@@ -377,7 +384,7 @@ class ElementBuilder:
             south_start_weight=self._vertex_start_weights.get(south, 0.0),
         )
 
-    @cache
+    @coord_cache()
     def make_quad_to_o_point(self, coord: SliceCoord) -> Quad:
         """Create a quad along a straight line between the point and the magnetic axis."""
         return Quad(
@@ -451,7 +458,7 @@ class ElementBuilder:
         be empty otherwise.
 
         """
-        key = frozenset({north, south})
+        key = FrozenCoordSet({north, south})
         # Check if this quad will be on the outermost surface of the original hex-mesh
         if key in self._edges:
             return self._edges[key], frozenset()
@@ -501,7 +508,7 @@ class ElementBuilder:
         :method:`~neso_fame.element_builder.ElementBuilder.make_quad_for_prism`.
 
         """
-        key = frozenset(shape([0.0, 1.0]).iter_points())
+        key = FrozenCoordSet(shape([0.0, 1.0]).iter_points())
         if key in self._prism_quads:
             return self._prism_quads[key][0]
         q = Quad(

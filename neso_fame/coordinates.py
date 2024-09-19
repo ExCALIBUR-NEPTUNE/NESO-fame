@@ -19,6 +19,7 @@ from typing import (
     Concatenate,
     Generic,
     ParamSpec,
+    Type,
     TypeVar,
     cast,
 )
@@ -452,16 +453,23 @@ class _CoordContainer(Generic[C]):
     _dim: int
 
     def __init__(
-        self, coords: Iterable[C] = {}, rtol: float = 1e-9, atol: float = 1e-9
+        self,
+        coords: Iterable[C] = {},
+        rtol: float = 1e-9,
+        atol: float = 1e-9,
+        _dim: int | None = None,
     ) -> None:
         self._atol = atol
         self._rtol = rtol
         self._coords = []
         coords_list = list(coords)
-        if len(coords_list) > 0:
-            self._dim = 3 if isinstance(coords_list[0], Coord) else 2
+        if _dim is not None:
+            self._dim = _dim
         else:
-            self._dim = 3
+            if len(coords_list) > 0:
+                self._dim = 3 if isinstance(coords_list[0], Coord) else 2
+            else:
+                self._dim = 3
         self._rtree = Index(interleaved=False, properties=Property(dimension=self._dim))
         for c in coords_list:
             self._check_coord_system(c)
@@ -497,11 +505,16 @@ class _CoordContainer(Generic[C]):
             return offset(position.x1) + offset(position.x2) + (0.0, 0.0)
         return offset(position.x1) + offset(position.x2) + offset(position.x3)
 
+    @property
+    def contents_type(self) -> Type[C] | None:
+        try:
+            return type(next(iter(self)))
+        except StopIteration:
+            return None
+
     def __contains__(self, c: object) -> bool:
         """Check if a coordinate is already stored in this object (within tolerance)."""
-        try:
-            expected_type = next(type(x) for x in self._coords if x is not None)
-        except StopIteration:
+        if (expected_type := self.contents_type) is None:
             return False
         if not isinstance(c, expected_type):
             return False
@@ -526,11 +539,32 @@ class FrozenCoordSet(_CoordContainer[C], Set[C]):
 
     def __hash__(self) -> int:
         """Return a very dumb hash that will ensure things work logically (but inefficiently)."""
-        return len(self)
+        return hash((len(self), self.contents_type, self._rtol, self._atol, self._dim))
 
     def __repr__(self) -> str:
         """Produce a string representation of this object."""
         return f"{self.__class__.__name__}({{{', '.join(repr(c) for c in self._coords if c is not None)}}})"
+
+    def __len__(self) -> int:
+        """Get the number of coordinates stored in this object.
+
+        Optimised version for immutable case.
+        """
+        return len(self._coords)
+
+    @classmethod
+    def empty_slicecoord(
+        cls, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> FrozenCoordSet[SliceCoord]:
+        """Construct an empty set for SliceCoords."""
+        return cast(FrozenCoordSet[SliceCoord], cls([], rtol, atol, 2))
+
+    @classmethod
+    def empty_coord(
+        cls, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> FrozenCoordSet[Coord]:
+        """Construct an empty set for Coords."""
+        return cast(FrozenCoordSet[Coord], cls([], rtol, atol, 3))
 
 
 class CoordSet(FrozenCoordSet[C], MutableSet[C]):
@@ -552,6 +586,18 @@ class CoordSet(FrozenCoordSet[C], MutableSet[C]):
             self._coords[item.id] = None
             break
 
+    @classmethod
+    def empty_slicecoord(
+        cls, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> CoordSet[SliceCoord]:
+        """Construct an empty set for SliceCoords."""
+        return cast(CoordSet[SliceCoord], cls([], rtol, atol, 2))
+
+    @classmethod
+    def empty_coord(cls, rtol: float = 1e-9, atol: float = 1e-9) -> CoordSet[Coord]:
+        """Construct an empty set for Coords."""
+        return cast(CoordSet[Coord], cls([], rtol, atol, 3))
+
 
 class CoordMap(_CoordContainer[C], Mapping[C, T]):
     """An immutable map taking coordinates as keys and comparing them within a tolerance."""
@@ -559,23 +605,38 @@ class CoordMap(_CoordContainer[C], Mapping[C, T]):
     _values: list[T | None]
 
     def __init__(
-        self, data: Mapping[C, T] = {}, rtol: float = 1e-9, atol: float = 1e-9
+        self,
+        data: Mapping[C, T] = {},
+        rtol: float = 1e-9,
+        atol: float = 1e-9,
+        _dim: int | None = None,
     ) -> None:
         self._atol = atol
         self._rtol = rtol
         self._coords = []
         self._values = []
-        try:
-            c = next(iter(data))
-            self._dim = 3 if isinstance(c, Coord) else 2
-        except StopIteration:
-            self._dim = 3
+        if _dim is not None:
+            self._dim = _dim
+        else:
+            try:
+                c = next(iter(data))
+                self._dim = 3 if isinstance(c, Coord) else 2
+            except StopIteration:
+                self._dim = 3
         self._rtree = Index(interleaved=False, properties=Property(dimension=self._dim))
         for i, (c, v) in enumerate(data.items()):
             self._check_coord_system(c)
             self._rtree.insert(i, self._get_bound_box(c))
             self._coords.append(c)
             self._values.append(v)
+
+    @property
+    def system(self) -> CoordinateSystem | None:
+        """The coordinate system use by the coordinates stored in this object."""
+        try:
+            return next(c.system for c in self._coords if c is not None)
+        except StopIteration:
+            return None
 
     def __getitem__(self, item: C) -> T:
         """Access the value associated with the coordinate."""
@@ -589,6 +650,27 @@ class CoordMap(_CoordContainer[C], Mapping[C, T]):
     def __repr__(self) -> str:
         """Produce a string representation of this object."""
         return f"{self.__class__.__name__}({{{', '.join(repr(c) + ': ' + repr(v) for c, v in zip(self._coords, self._values) if c is not None)}}})"
+
+    def __len__(self) -> int:
+        """Get the number of coordinates stored in this object.
+
+        Optimised version for immutable case.
+        """
+        return len(self._coords)
+
+    @classmethod
+    def empty_slicecoord(
+        cls, t: Type[T], rtol: float = 1e-9, atol: float = 1e-9
+    ) -> CoordMap[SliceCoord, T]:
+        """Construct an empty mapping for SliceCoords."""
+        return cast(CoordMap[SliceCoord, T], cls({}, rtol, atol, 2))
+
+    @classmethod
+    def empty_coord(
+        cls, t: Type[T], rtol: float = 1e-9, atol: float = 1e-9
+    ) -> CoordMap[Coord, T]:
+        """Construct an empty mapping for Coords."""
+        return cast(CoordMap[Coord, T], cls({}, rtol, atol, 3))
 
     # TODO: Ideally would override some of hte mixins for better
     # performance. Also not sure whether the MappingView will work
@@ -619,34 +701,59 @@ class MutableCoordMap(CoordMap[C, T], MutableMapping[C, T]):
             self._values[item.id] = None
             break
 
+    @classmethod
+    def empty_slicecoord(
+        cls, t: Type[T], rtol: float = 1e-9, atol: float = 1e-9
+    ) -> MutableCoordMap[SliceCoord, T]:
+        """Construct an empty mapping for SliceCoords."""
+        return cast(MutableCoordMap[SliceCoord, T], cls({}, rtol, atol, 2))
+
+    @classmethod
+    def empty_coord(
+        cls, t: Type[T], rtol: float = 1e-9, atol: float = 1e-9
+    ) -> MutableCoordMap[Coord, T]:
+        """Construct an empty mapping for Coords."""
+        return cast(MutableCoordMap[Coord, T], cls({}, rtol, atol, 3))
+
 
 P = ParamSpec("P")
 CoordParams = Concatenate[C, P]
 
 
+@dataclass(frozen=True)
+class _CoordRecord:
+    ctype: Type[Coord] | Type[SliceCoord]
+    index: int
+
+
 def coord_cache(
     rtol: float = 1e-9, atol: float = 1e-9
-) -> Callable[[Callable[Concatenate[C, P], T]], Callable[Concatenate[C, P], T]]:
-    """Return a wrapped function that caches based on proximity of coordinates."""
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Wrap a function to cache results comparing coordinate arguments based on proximity."""
 
     def decorator(
-        func: Callable[Concatenate[C, P], T],
-    ) -> Callable[Concatenate[C, P], T]:
-        cache_data: dict[tuple, MutableCoordMap[C, T]] = {}
+        func: Callable[P, T],
+    ) -> Callable[P, T]:
+        coord_data = MutableCoordMap.empty_coord(int)
+        slicecoord_data = MutableCoordMap.empty_slicecoord(int)
+        cache_data: dict[tuple, T] = {}
 
-        def wrapper(position: C, *args: P.args, **kwargs: P.kwargs) -> T:
-            idx = args + tuple(kwargs.items())
+        def process_arg(x: object) -> object:
+            if isinstance(x, Coord):
+                return _CoordRecord(Coord, coord_data.setdefault(x, len(coord_data)))
+            elif isinstance(x, SliceCoord):
+                return _CoordRecord(
+                    SliceCoord, slicecoord_data.setdefault(x, len(slicecoord_data))
+                )
+            return x
+
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            idx = tuple(map(process_arg, args + tuple(kwargs.items())))
             if idx not in cache_data:
-                obj = func(position, *args, **kwargs)
-                cache_data[idx] = MutableCoordMap({position: obj}, rtol, atol)
+                obj = func(*args, **kwargs)
+                cache_data[idx] = obj
                 return obj
-            cmap = cache_data[idx]
-            try:
-                return cmap[position]
-            except KeyError:
-                obj = func(position, *args, **kwargs)
-                cmap[position] = obj
-                return obj
+            return cache_data[idx]
 
         return wrapper
 

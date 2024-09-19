@@ -18,6 +18,7 @@ from hypnotoad import Point2D
 
 from neso_fame.coordinates import (
     CoordinateSystem,
+    CoordMap,
     FrozenCoordSet,
     SliceCoord,
     SliceCoords,
@@ -653,7 +654,7 @@ def _handle_edge_nodes(
     in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
     alignment_steps: int,
     system: CoordinateSystem,
-) -> tuple[Callable[[Corners], bool], dict[SliceCoord, float]]:
+) -> tuple[Callable[[Corners], bool], CoordMap[SliceCoord, float]]:
     """Work out which nodes fall outside the vessle and degree of field-alignment."""
     initial_outermost_nodes = FrozenCoordSet(
         itertools.chain.from_iterable(
@@ -714,14 +715,16 @@ def _handle_edge_nodes(
             for region in hypnotoad_poloidal_mesh.regions.values()
         ),
     )
-    vertex_weights = dict(
-        itertools.chain.from_iterable(
-            zip(points, itertools.repeat(w))
-            for w, points in zip(
-                steps,
-                _find_internal_neighbours(
-                    outermost_nodes, external_nodes, connections2
-                ),
+    vertex_weights = CoordMap(
+        dict(
+            itertools.chain.from_iterable(
+                zip(points, itertools.repeat(w))
+                for w, points in zip(
+                    steps,
+                    _find_internal_neighbours(
+                        outermost_nodes, external_nodes, connections2
+                    ),
+                )
             )
         )
     )
