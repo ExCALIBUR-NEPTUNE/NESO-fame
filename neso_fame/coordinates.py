@@ -13,6 +13,7 @@ from collections.abc import (
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
+from functools import wraps
 from typing import (
     Callable,
     ClassVar,
@@ -734,8 +735,8 @@ def coord_cache(
     def decorator(
         func: Callable[P, T],
     ) -> Callable[P, T]:
-        coord_data = MutableCoordMap.empty_coord(int)
-        slicecoord_data = MutableCoordMap.empty_slicecoord(int)
+        coord_data = MutableCoordMap.empty_coord(int, rtol, atol)
+        slicecoord_data = MutableCoordMap.empty_slicecoord(int, rtol, atol)
         cache_data: dict[tuple, T] = {}
 
         def process_arg(x: object) -> object:
@@ -747,6 +748,7 @@ def coord_cache(
                 )
             return x
 
+        @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             idx = tuple(map(process_arg, args + tuple(kwargs.items())))
             if idx not in cache_data:
