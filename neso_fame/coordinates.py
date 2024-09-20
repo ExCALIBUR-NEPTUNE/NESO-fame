@@ -103,62 +103,10 @@ class SliceCoord:
             self.system,
         )
 
-    # def __hash__(self) -> int:
-    #     """Hash the SliceCoord object.
-
-    #     Hashing is done so that floats are the same to the number of
-    #     significant figures set by TOLERANCE will have the same hash
-    #     value.
-
-    #     FIXME
-
-    #     This isn't as important as it used to be, given that I now use
-    #     an R-tree for caching the creation of Nektar++ coordinates,
-    #     but it is still useful to be able to do approximate equality
-    #     for sets (when testing if nothing else). Perhaps I can set up
-    #     some sort of global or class-level R-tree for storing hash
-    #     values and use that in this method?
-
-    #     """
-    #     decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
-    #     context = Context(decimal_places)
-
-    #     # FIXME: This can still result in hashes being different for
-    #     # two similar numbers, if rounding would affect multiple
-    #     # decimal places (e.g., rounding .999995 up to 1.). The
-    #     # likelihood is low but non-zero.
-    #     def get_digits(
-    #         x: float,
-    #     ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
-    #         y = Decimal(x).normalize(context).as_tuple()
-    #         spare_places = decimal_places - len(y[1])
-    #         if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
-    #             return 0, (), 0
-    #         truncated = (y[1] + (0,) * spare_places)[:-3]
-    #         if all(t == 0 for t in truncated):
-    #             return 0, (), 0
-    #         exponent = y[2]
-    #         if isinstance(exponent, int):
-    #             exponent -= spare_places - 3
-    #         return y[0], truncated, exponent
-
-    #     x1 = get_digits(self.x1)
-    #     x2 = get_digits(self.x2)
-    #     return hash((x1, x2, self.system))
-
     def to_3d_coord(self, x3: float) -> Coord:
         """Create a 3D coordinate object from this 2D one."""
         return Coord(self.x1, self.x2, x3, self.system)
 
-    # def __eq__(self, other: object) -> bool:
-    #     """Check equality of coordinates within the the TOLERANCE."""
-    #     if not isinstance(other, self.__class__):
-    #         return False
-    #     return self.system == other.system and cast(
-    #         bool,
-    #         np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
-    #         and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE),
-    #     )
     def approx_eq(
         self, other: SliceCoord, rtol: float = 1e-9, atol: float = 1e-9
     ) -> bool:
@@ -290,51 +238,6 @@ class Coord:
             self.system,
         )
 
-    # def __hash__(self) -> int:
-    #     """Hash the Coord object.
-
-    #     Hashing is done so that floats are the same to the number of
-    #     significant figures set by TOLERANCE will have the same hash
-    #     value.
-    #     """
-    #     decimal_places = -int(np.floor(np.log10(self.TOLERANCE))) - 1
-    #     context = Context(decimal_places)
-
-    #     # FIXME: This can still result in hashes being different for
-    #     # two similar numbers, if rounding would affect multiple
-    #     # decimal places (e.g., rounding .999995 up to 1.). The
-    #     # likelihood is low but non-zero.
-    #     def get_digits(
-    #         x: float,
-    #     ) -> tuple[int, tuple[int, ...], int | Literal["n", "N", "F"]]:
-    #         y = Decimal(x).normalize(context).as_tuple()
-    #         spare_places = decimal_places - len(y[1])
-    #         if isinstance(y[2], int) and len(y[1]) + y[2] < -8:
-    #             return 0, (), 0
-    #         truncated = (y[1] + (0,) * spare_places)[:-3]
-    #         if all(t == 0 for t in truncated):
-    #             return 0, (), 0
-    #         exponent = y[2]
-    #         if isinstance(exponent, int):
-    #             exponent -= spare_places - 3
-    #         return y[0], truncated, exponent
-
-    #     x1 = get_digits(self.x1)
-    #     x2 = get_digits(self.x2)
-    #     x3 = get_digits(self.x3)
-
-    #     return hash((x1, x2, x3, self.system))
-
-    # def __eq__(self, other: object) -> bool:
-    #     """Check equality of coordinates within the the TOLERANCE."""
-    #     if not isinstance(other, self.__class__):
-    #         return False
-    #     return self.system == other.system and cast(
-    #         bool,
-    #         np.isclose(self.x1, other.x1, self.TOLERANCE, self.TOLERANCE)
-    #         and np.isclose(self.x2, other.x2, self.TOLERANCE, self.TOLERANCE)
-    #         and np.isclose(self.x3, other.x3, self.TOLERANCE, self.TOLERANCE),
-    #     )
     def approx_eq(self, other: Coord, rtol: float = 1e-9, atol: float = 1e-9) -> bool:
         """Check equality of coordinates within the the TOLERANCE."""
         return self.system == other.system and cast(

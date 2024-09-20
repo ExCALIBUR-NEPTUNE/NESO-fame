@@ -27,6 +27,7 @@ from neso_fame.coordinates import (
     FrozenCoordSet,
     SliceCoord,
     SliceCoords,
+    coord_cache,
 )
 from neso_fame.offset import LazilyOffsetable, Offset
 
@@ -1181,7 +1182,7 @@ class FieldTracer:
 
         return normalised_interpolator
 
-    @cache
+    @coord_cache()
     def _normalise_and_subdivide(
         self,
         start: SliceCoord,

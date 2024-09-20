@@ -767,10 +767,10 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
         raise ValueError("Prisms share more than one face; unclear how to join")
     join_on = next(iter(common_face))
     north, potential_east = (face for face in p1.sides if face != join_on)
-    north_points = frozenset(north.shape([0.0, 1.0]).iter_points())
-    potential_east_points = frozenset(potential_east.shape([0.0, 1.0]).iter_points())
+    north_points = FrozenCoordSet(north.shape([0.0, 1.0]).iter_points())
+    potential_east_points = FrozenCoordSet(potential_east.shape([0.0, 1.0]).iter_points())
     q2_1, q2_2 = (face for face in p2.sides if face != join_on)
-    if len(frozenset(q2_1.shape([0.0, 1.0]).iter_points()) & north_points) == 0:
+    if len(FrozenCoordSet(q2_1.shape([0.0, 1.0]).iter_points()) & north_points) == 0:
         south = q2_1
         potential_west = q2_2
     else:
@@ -780,7 +780,7 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
     vertex0 = next(iter(north_points - potential_east_points))
     vertex1 = next(iter(potential_east_points - north_points))
     vertex3 = next(
-        iter(frozenset(potential_west.shape([0.0, 1.0]).iter_points()) - north_points)
+        iter(FrozenCoordSet(potential_west.shape([0.0, 1.0]).iter_points()) - north_points)
     )
     jacobian = (vertex1.x2 - vertex0.x2) * (vertex3.x1 - vertex0.x1) - (
         vertex1.x1 - vertex0.x1
@@ -832,6 +832,10 @@ def _validate_wall_elements(
     # TODO: Should I validate internal elements too? If I flatten one
     # then that could end up makign a further element invalid, which
     # sounds unpleasant to have to deal with...
+    # FIXME: Hashing elements and faces like this can end up hashing
+    # SliceCoord objects. This means there is no room for floating
+    # point differences. So far that has not been a problem, but it
+    # might become one.
     new_elements = set(elements)
     new_faces = set(boundary_faces)
     for prism in elements:
@@ -887,6 +891,9 @@ def _validate_wall_elements(
             new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
             # Update surrounding prisms to use the flattened faces
             for p in adjacent_elements:
+                # FIXME: Could this result in element with curved
+                # sides that were previously found to be OK not being
+                # modified properly?
                 if p in new_elements:
                     new_elements.remove(p)
                     new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
@@ -1069,6 +1076,7 @@ def hypnotoad_mesh(
         else:
             wall = eqdsk_wall
         wall_points = [tuple(p) for p in wall]
+        # Should be fine to require exact equality when comparing wall coordinates, 
         wall_coord_pairs = frozenset(
             periodic_pairwise(SliceCoord(p[0], p[1], system) for p in wall_points)
         )

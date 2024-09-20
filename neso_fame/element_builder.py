@@ -347,7 +347,7 @@ class ElementBuilder:
         """
 
         def check_edges(north: SliceCoord, south: SliceCoord) -> Quad:
-            key = FrozenCoordSet({north, south})
+            key = FrozenCoordSet([north, south])
             try:
                 return self._edges.pop(key)
             except KeyError:
@@ -458,7 +458,7 @@ class ElementBuilder:
         be empty otherwise.
 
         """
-        key = FrozenCoordSet({north, south})
+        key = FrozenCoordSet([north, south])
         # Check if this quad will be on the outermost surface of the original hex-mesh
         if key in self._edges:
             return self._edges[key], frozenset()

@@ -235,7 +235,7 @@ def reset_id_counts() -> None:
 
 
 @coord_cache(1e-9, 1e-9)
-def _nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
+def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
     """Return a Nektar++ PointGeom object at the specified position.
 
     Caching is used to ensure that, given the same location and layer,
@@ -257,20 +257,6 @@ def _nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointG
         _round_zero(pos.x2, tol),
         _round_zero(pos.x3, tol),
     )
-
-
-def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGeom:
-    """Return a Nektar++ PointGeom object at the specified position.
-
-    Caching is used to ensure that, given the same location and layer,
-    the object will always be the same.
-
-    Group
-    -----
-    factory
-
-    """
-    return _nektar_point(position.to_cartesian(), spatial_dim, layer_id)
 
 
 @cache

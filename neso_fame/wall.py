@@ -15,6 +15,7 @@ from hypnotoad import Point2D  # type: ignore
 from scipy.interpolate import interp1d
 
 from neso_fame.coordinates import (
+    CoordMap,
     CoordinateSystem,
     FrozenCoordSet,
     MutableCoordMap,
@@ -520,7 +521,7 @@ def _find_external_points(
         # If nothing to check, return previous results
         return outpoints, skinpoints
     # Check all candidates
-    results = {point: in_tokamak_test(point, wall) for point in candidates}
+    results = CoordMap({point: in_tokamak_test(point, wall) for point in candidates})
     # Separate out candidates found to be outside the wall
     new_outpoints = FrozenCoordSet(p for p, r in results.items() if not r)
     # Assemble a set of new candidates, consiting of neighbours of all
