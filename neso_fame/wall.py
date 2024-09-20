@@ -15,8 +15,8 @@ from hypnotoad import Point2D  # type: ignore
 from scipy.interpolate import interp1d
 
 from neso_fame.coordinates import (
-    CoordMap,
     CoordinateSystem,
+    CoordMap,
     FrozenCoordSet,
     MutableCoordMap,
     SliceCoord,
