@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import (
     Iterable,
     Iterator,
@@ -627,6 +628,7 @@ CoordParams = Concatenate[C, P]
 @dataclass(frozen=True)
 class _CoordRecord:
     ctype: Type[Coord] | Type[SliceCoord]
+    system: CoordinateSystem
     index: int
 
 
@@ -638,16 +640,26 @@ def coord_cache(
     def decorator(
         func: Callable[P, T],
     ) -> Callable[P, T]:
-        coord_data = MutableCoordMap.empty_coord(int, rtol, atol)
-        slicecoord_data = MutableCoordMap.empty_slicecoord(int, rtol, atol)
+        coord_data: dict[CoordinateSystem, MutableCoordMap[Coord, int]] = defaultdict(
+            lambda: MutableCoordMap.empty_coord(int, rtol, atol)
+        )
+        slicecoord_data: dict[CoordinateSystem, MutableCoordMap[SliceCoord, int]] = (
+            defaultdict(lambda: MutableCoordMap.empty_slicecoord(int, rtol, atol))
+        )
         cache_data: dict[tuple, T] = {}
 
         def process_arg(x: object) -> object:
             if isinstance(x, Coord):
-                return _CoordRecord(Coord, coord_data.setdefault(x, len(coord_data)))
+                sys = x.system
+                dat = coord_data[sys]
+                return _CoordRecord(Coord, sys, dat.setdefault(x, len(dat)))
             elif isinstance(x, SliceCoord):
+                sys = x.system
+                sdat = slicecoord_data[sys]
                 return _CoordRecord(
-                    SliceCoord, slicecoord_data.setdefault(x, len(slicecoord_data))
+                    SliceCoord,
+                    sys,
+                    sdat.setdefault(x, len(sdat)),
                 )
             return x
 
