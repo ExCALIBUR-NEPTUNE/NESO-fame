@@ -2,15 +2,16 @@
 
 from collections.abc import Iterator, Sequence
 from functools import cache
-from typing import DefaultDict, TypedDict
+from typing import Callable, DefaultDict, TypedDict, TypeVar, overload
 
 import meshio  # type: ignore
 import numpy as np
 import numpy.typing as npt
 
-from .coordinates import Coord, Coords, SliceCoord, SliceCoords
+from .coordinates import Coord, Coords, SliceCoord, SliceCoords, coord_cache
 from .mesh import (
     AcrossFieldCurve,
+    EndShape,
     Mesh,
     NormalisedCurve,
     Prism,
@@ -27,6 +28,8 @@ class _ElementType(TypedDict):
     prism: str
     hexahedron: str
 
+
+C = TypeVar("C", Coord, SliceCoord)
 
 # Each item in the list contains the names of the element types to use
 # when the order is one greater than the corresponding list index
@@ -137,10 +140,19 @@ def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
     return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
 
 
-def _gmsh_line_point_order(
+@overload
+def _meshio_line_point_order(points: SliceCoords) -> Iterator[SliceCoord]: ...
+@overload
+def _meshio_line_point_order(points: Coords) -> Iterator[Coord]: ...
+def _meshio_line_point_order(
     points: SliceCoords | Coords,
 ) -> Iterator[SliceCoord | Coord]:
-    """Iterate through points in order expected by meshio and gmsh."""
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 1-D array going from the start
+    to the end of the line.
+
+    """
     shape = points.x1.shape
     if len(shape) != 1:
         raise RuntimeError("Points must be in a 1D sequence")
@@ -150,10 +162,19 @@ def _gmsh_line_point_order(
         yield points[i]
 
 
-def _gmsh_quad_point_order(
+@overload
+def _meshio_quad_point_order(points: SliceCoords) -> Iterator[SliceCoord]: ...
+@overload
+def _meshio_quad_point_order(points: Coords) -> Iterator[Coord]: ...
+def _meshio_quad_point_order(
     points: SliceCoords | Coords,
 ) -> Iterator[SliceCoord | Coord]:
-    """Iterate through points in order expected by meshio and gmsh."""
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 2-D array with indices
+    corresponding to rows/columns of points on the quad.
+
+    """
     shape = points.x1.shape
     if len(shape) != 2 or shape[0] != shape[1]:
         raise RuntimeError("Points must be in a square")
@@ -172,17 +193,26 @@ def _gmsh_quad_point_order(
             yield points[-1, i]
         for i in range(n - 2, 0, -1):
             yield points[i, -1]
-        for i in range(n - 2, 0, -1):
+        for i in range(1, n - 1):
             yield points[0, i]
-        yield from _gmsh_quad_point_order(
+        yield from _meshio_quad_point_order(
             type(points)(*(x[1:-1, 1:-1] for x in points), points.system)  # type: ignore
         )
 
 
-def _gmsh_triangle_point_order(
+@overload
+def _meshio_triangle_point_order(points: SliceCoords) -> Iterator[SliceCoord]: ...
+@overload
+def _meshio_triangle_point_order(points: Coords) -> Iterator[Coord]: ...
+def _meshio_triangle_point_order(
     points: SliceCoords | Coords,
 ) -> Iterator[SliceCoord | Coord]:
-    """Iterate through points in order expected by meshio and gmsh."""
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 2-D array with indices
+    corresponding to rows/columns of points on the quad.
+
+    """
     if len(points) == 0:
         return
     shape = points.x1.shape
@@ -200,12 +230,235 @@ def _gmsh_triangle_point_order(
             yield points[i, 0]
         for i in range(1, n - 1):
             yield points[n - i - 1, i]
-        for i in range(n - 2, 0, -1):
+        for i in range(1, n - 1):
             yield points[0, i]
         if n > 3:
-            yield from _gmsh_triangle_point_order(
+            yield from _meshio_triangle_point_order(
                 type(points)(*(x[1:-2, 1:-2] for x in points), points.system)  # type: ignore
             )
+
+
+def _meshio_hex27_point_order(points: Coords) -> Iterator[Coord]:
+    """Iterate through points of second-order hex in order expected by meshio.
+
+    Meshio uses a different ordering for points (following that used
+    by VTU) in a second-order hex than it does for higher-order ones
+    (following that used by gmsh).
+
+    Input coords are expected to be a 3-D array with indices
+    corresponding to rows/columns/etc. of points in the hex.
+
+    """
+    shape = points.x1.shape
+    if shape != (3, 3, 3):
+        raise RuntimeError("Points must be in a 3 by 3 by 3 cube")
+    # FIXME: Will need to check this
+    yield points[0, 0, 0]
+    yield points[2, 0, 0]
+    yield points[2, 2, 0]
+    yield points[0, 2, 0]
+    yield points[0, 0, 2]
+    yield points[2, 0, 2]
+    yield points[2, 2, 2]
+    yield points[0, 2, 2]
+    yield points[1, 0, 0]
+    yield points[2, 1, 0]
+    yield points[1, 2, 0]
+    yield points[0, 1, 0]
+    yield points[1, 0, 2]
+    yield points[2, 1, 2]
+    yield points[1, 2, 2]
+    yield points[0, 1, 2]
+    yield points[0, 0, 1]
+    yield points[2, 0, 1]
+    yield points[2, 2, 1]
+    yield points[0, 2, 1]
+    yield points[0, 1, 1]
+    yield points[2, 1, 1]
+    yield points[1, 0, 0]
+    yield points[1, 1, 2]
+    yield points[1, 1, 0]
+    yield points[1, 1, 2]
+    yield points[1, 1, 1]
+
+
+def _meshio_hex_point_order(points: Coords) -> Iterator[Coord]:
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 3-D array with indices
+    corresponding to rows/columns/etc. of points in the hex.
+
+    """
+    if len(points) == 0:
+        return
+    shape = points.x1.shape
+    if len(shape) != 3 or shape[0] != shape[1] or shape[0] != shape[2]:
+        raise RuntimeError("Points must be in a cube")
+    n = shape[0]
+    if len(points) == 1:
+        yield points.to_coord()
+        return
+    if len(points) == 27:
+        # Irritatingly, meshio uses a different order for hexes of 2nd order
+        yield from _meshio_hex27_point_order(points)
+        return
+    yield points[0, 0, 0]
+    yield points[-1, 0, 0]
+    yield points[-1, -1, 0]
+    yield points[0, -1, 0]
+    yield points[0, 0, -1]
+    yield points[-1, 0, -1]
+    yield points[-1, -1, -1]
+    yield points[0, -1, -1]
+    if n <= 2:
+        return
+    for coord in [
+        lambda i: (i, 0, 0),
+        lambda i: (0, i, 0),
+        lambda i: (0, 0, i),
+        lambda i: (-1, i, 0),
+        lambda i: (-1, 0, i),
+        lambda i: (n - i - 1, -1, 0),
+        lambda i: (-1, -1, i),
+        lambda i: (0, -1, i),
+        lambda i: (i, 0, -1),
+        lambda i: (0, i, -1),
+        lambda i: (-1, i, -1),
+        lambda i: (n - i - 1, -1, -1),
+    ]:
+        for i in range(1, n - 1):
+            yield points[coord(i)]
+
+    # for i in range(1, n - 1):
+    #     yield points[i, 0, 0]
+    # for i in range(1, n - 1):
+    #     yield points[0, i, 0]
+    # for i in range(1, n - 1):
+    #     yield points[0, 0, i]
+    # for i in range(1, n - 1):
+    #     yield points[-1, i, 0]
+    # for i in range(1, n - 1):
+    #     yield points[-1, 0, i]
+    # for i in range(n - 2, 0, -1):
+    #     yield points[i, -1, 0]
+    # for i in range(1, n - 1):
+    #     yield points[-1, -1, i]
+    # for i in range(1, n - 1):
+    #     yield points[0, -1, i]
+    # for i in range(1, n - 1):
+    #     yield points[i, 0, -1]
+    # for i in range(1, n - 1):
+    #     yield points[0, i, -1]
+    # for i in range(1, n - 1):
+    #     yield points[-1, i, -1]
+    # for i in range(n - 2, 0, -1):
+    #     yield points[i, -1, -1]
+
+    # FIXME: Will the normals of these be in the right direction?
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, 1:-1, 0] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, 0, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[0, 1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[-1, 1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, -1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, 1:-1, -1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_hex_point_order(
+        Coords(*(x[1:-1, 1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+
+
+def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 3-D array with indices
+    corresponding to rows/columns/etc. of points in the prism. The
+    triangular cross section is in the first two coordinates.
+
+    """
+    if len(points) == 0:
+        return
+    shape = points.x1.shape
+    if len(shape) != 3 or shape[0] != shape[1] or shape[0] != shape[2]:
+        raise RuntimeError("Points must be in a cube")
+    n = shape[0]
+    if len(points) == 1:
+        yield points.to_coord()
+        return
+    yield points[0, 0, 0]
+    yield points[-1, 0, 0]
+    yield points[0, -1, 0]
+    yield points[0, 0, -1]
+    yield points[-1, 0, -1]
+    yield points[0, -1, -1]
+    if n <= 2:
+        return
+    for coord in [
+        lambda i: (i, 0, 0),
+        lambda i: (0, i, 0),
+        lambda i: (0, 0, i),
+        lambda i: (n - i - 1, i, 0),
+        lambda i: (-1, 0, i),
+        lambda i: (0, -1, i),
+        lambda i: (i, 0, -1),
+        lambda i: (0, i, -1),
+        lambda i: (n - i - 1, i, -1),
+    ]:
+        for i in range(1, n - 1):
+            yield points[coord(i)]
+
+    # for i in range(1, n - 1):
+    #     yield points[i, 0, 0]
+    # for i in range(1, n - 1):
+    #     yield points[0, i, 0]
+    # for i in range(1, n - 1):
+    #     yield points[0, 0, i]
+    # for i in range(1, n - 1):
+    #     yield points[n - i - 1, i, 0]
+    # for i in range(1, n - 1):
+    #     yield points[-1, 0, i]
+    # for i in range(1, n - 1):
+    #     yield points[0, -1, i]
+    # for i in range(1, n - 1):
+    #     yield points[i, 0, -1]
+    # for i in range(1, n - 1):
+    #     yield points[0, i, -1]
+    # for i in range(1, n - 1):
+    #     yield points[n - i - 1, i, -1]
+
+    # FIXME: Will the normals of these be in the right direction?
+    # FIXME: I've taken my best guess at the ordering of the
+    # triangular faces, based on analogy to hex, but not certain it's
+    # right.
+    yield from _meshio_triangle_point_order(
+        Coords(*(x[1:-1, 1:-1, 0] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, 0, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[0, 1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    # FIXME: This is the complicated face that is going diagonally through data. Not 100% sure I got it right.
+    yield from _meshio_quad_point_order(
+        Coords(*(np.flipud(x).diagonal()[1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_triangle_point_order(
+        Coords(*(x[1:-1, 1:-1, -1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_prism_point_order(
+        Coords(*(x[1:-2, 1:-2, 1:-1] for x in points), points.system)  # type: ignore
+    )
 
 
 def _sort_cellset(
@@ -230,22 +483,25 @@ class MeshioData:
     _cells: DefaultDict[str, list[npt.ArrayLike]]
     _cell_sets: DefaultDict[str, DefaultDict[str, list[int]]]
     _dim_tags: list[tuple[int, int]]
-    _next_dim_tag = [1, 1, 1, 1]
+    _next_dim_tag: list[int]
 
     def __init__(self) -> None:
         self._points = []
         self._cells = DefaultDict(list)
         self._cell_sets = DefaultDict(lambda: DefaultDict(list))
         self._dim_tags = []
+        self._next_dim_tag = [1, 1, 1, 1]
 
     @cache
     def _element_dim_tag(self, element_type: str, layer_id: int) -> tuple[int, int]:
         dim = _ELEMENT_DIMS[element_type]
         tag = self._next_dim_tag[dim]
-        self._next_dim_tag[dim] += tag + 1
+        # FIXME: This should probably just be += 1, right?
+        # self._next_dim_tag[dim] += tag + 1
+        self._next_dim_tag[dim] += 1
         return dim, tag
 
-    @cache
+    @coord_cache()
     def point(
         self, coords: SliceCoord | Coord, element_type: str, layer_id: int
     ) -> int:
@@ -288,13 +544,14 @@ class MeshioData:
             raise NotImplementedError(
                 "Currently only triangular and rectangular prisms are supported."
             )
+        # FIXME: Avoid calling this if order == 1?
         coords = solid.poloidal_map(s, t)
         points = tuple(
             self.point(p, shape, layer_id)
             for p in (
-                _gmsh_quad_point_order(coords)
+                _meshio_quad_point_order(coords)
                 if len(solid.sides) == 4
-                else _gmsh_triangle_point_order(coords)
+                else _meshio_triangle_point_order(coords)
             )
         )
         cell_list = self._cells[shape]
@@ -311,13 +568,12 @@ class MeshioData:
         order: int,
         layer_id: int,
         cellsets: frozenset[str] = frozenset(),
-        bounds_element_type: None | str = None,
     ) -> int:
-        """Add a 1D element to the mesh data and returns the integer ID for it."""
+        """Add a 1D element to the mesh data and return the integer ID for it."""
         shape = _ELEMENT_TYPES[order - 1]["line"]
         points = tuple(
             self.point(p, shape, layer_id)
-            for p in _gmsh_line_point_order(control_points(curve, order))
+            for p in _meshio_line_point_order(control_points(curve, order))
         )
         cell_list = self._cells[shape]
         cell_list.append(points)
@@ -326,8 +582,42 @@ class MeshioData:
             self._cell_sets[setname][shape].append(cell_id)
         return cell_id
 
+    @cache
+    def end_shape(
+        self,
+        shape: EndShape,
+        order: int,
+        layer_id: int,
+        cellsets: frozenset[str] = frozenset(),
+    ) -> int:
+        """Add a 2D element representing a poloidal face and return the integer ID for it."""
+        return 0
+
+    @cache
+    def quad(
+        self, quad: Quad, order: int, layer_id: int, cellsets: frozenset[str]
+    ) -> int:
+        """Add a 2D element representing a quad and return the integer ID for it."""
+        return 0
+
+    @cache
+    def solid(
+        self, solid: Prism, order: int, layer_id: int, cellsets: frozenset[str]
+    ) -> int:
+        """Add a 3D element representing to the mesh and return the integer ID for it."""
+        return 0
+
     def meshio(self) -> meshio.Mesh:
         """Create a meshio mesh object from the stored data."""
+        # Each cell block has a unique (per dimension) geometrical
+        # tag. This matches the dim_tag of the nodes making up the
+        # cells. (There may be dim_tag corresponding to nodes that do
+        # not make up any cells.) Each cell block will also have a
+        # physical entity ID, which need not be unique (i.e., physical
+        # entities can be made up of more than one cell block).
+
+        # In contrast, the meshio cell_sets allow elements of a cell
+        # block to be int different cell_sets (and even more than one)
         type_order = list(self._cells)
         return meshio.Mesh(
             np.array(self._points),
@@ -343,6 +633,7 @@ class MeshioData:
                     np.full(len(v), self._element_dim_tag(k, 0)[1])
                     for k, v in self._cells.items()
                 ],
+                # FIXME: This needs to have different IDs for each layer, cell-type, and boundary/ Can numbers be shared between different types of elements? Appears not; each number must refer to only one cell-block (but is treated seperately for each dimension) Probably best way to handle this is to assemble it from cell_sets
                 "gmsh:physical": [
                     np.full(len(v), self._element_dim_tag(k, 0)[1])
                     for k, v in self._cells.items()
@@ -353,7 +644,7 @@ class MeshioData:
             # quads/triangles floating around. Certainly, the way I
             # have stored the boundary data isn't particularly
             # amenable to knowing whether something belongs to a quad
-            # or triangle.
+            # or triangle. Not sure it's actually useful anyway.
             cell_sets={
                 k: _sort_cellset(cells, type_order)
                 for k, cells in self._cell_sets.items()
@@ -383,6 +674,46 @@ def meshio_poloidal_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
         sets = frozenset({f"Boundary {i}"})
         for quad in bound:
             result.line(quad.shape, order, 0, sets)
+    return result.meshio()
+
+
+def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
+    """Create a 3D MeshIO object representing the mesh.
+
+    Group
+    -----
+    public meshio
+
+    """
+    print("Converting FAME mesh to MeshIO object.")
+    make_element: Callable[[Quad | Prism, int, int, frozenset[str]], int]
+    make_bound: Callable[[NormalisedCurve | Quad, int, int, frozenset[str]], int]
+    make_interface: Callable[
+        [NormalisedCurve | EndShape, int, int, frozenset[str]], int
+    ]
+    result = MeshioData()
+    if issubclass(mesh.reference_layer.element_type, Quad):
+        make_element = result.quad
+        make_bound = result.line
+        make_interface = result.line
+    else:
+        make_element = result.solid
+        make_bound = result.quad
+        make_interface = result.end_shape
+    for i, layer in enumerate(mesh.layers()):
+        sets = frozenset({f"Layer {i}"})
+        for element in layer:
+            make_element(element, order, i, sets)
+        for j, bound in enumerate(layer.boundaries()):
+            sets = frozenset({f"Boundary {j}"})
+            for b in bound:
+                make_bound(b, order, i, sets)
+        sets = frozenset(f"Interface {2*i}")
+        for f in layer.near_faces():
+            make_interface(f, order, i, sets)
+        sets = frozenset(f"Interface {2*i + 1}")
+        for f in layer.far_faces():
+            make_interface(f, order, i, sets)
     return result.meshio()
 
 
