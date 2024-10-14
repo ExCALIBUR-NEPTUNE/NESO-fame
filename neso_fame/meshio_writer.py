@@ -479,21 +479,28 @@ class MeshioData:
 
     """
 
+    # TODO: Stop using layer_id for anything and instead just work
+    # based on cell-sets. Each unique combination of cell-sets will get
+    # its own cellblock and element-dim-tag.
+
     _points: list[npt.ArrayLike]
-    _cells: DefaultDict[str, list[npt.ArrayLike]]
-    _cell_sets: DefaultDict[str, DefaultDict[str, list[int]]]
+    _cells: DefaultDict[tuple[str, frozenset[str]], list[npt.ArrayLike]]
     _dim_tags: list[tuple[int, int]]
     _next_dim_tag: list[int]
 
     def __init__(self) -> None:
         self._points = []
         self._cells = DefaultDict(list)
-        self._cell_sets = DefaultDict(lambda: DefaultDict(list))
         self._dim_tags = []
         self._next_dim_tag = [1, 1, 1, 1]
 
     @cache
-    def _element_dim_tag(self, element_type: str, layer_id: int) -> tuple[int, int]:
+    def _element_dim_tag(
+        self, element_type: str, cellsets: frozenset[str] = frozenset()
+    ) -> tuple[int, int]:
+        # FIXME: Do I need seperate dim-tags corresponding to each
+        # collection of elements, even when those elements have the
+        # same type? Looks like I probably do.
         dim = _ELEMENT_DIMS[element_type]
         tag = self._next_dim_tag[dim]
         # FIXME: This should probably just be += 1, right?
@@ -503,14 +510,17 @@ class MeshioData:
 
     @coord_cache()
     def point(
-        self, coords: SliceCoord | Coord, element_type: str, layer_id: int
+        self,
+        coords: SliceCoord | Coord,
+        element_type: str,
+        cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a point to the mesh data and return the integer ID for it."""
         pos = (
             coords.to_3d_coord(0.0) if isinstance(coords, SliceCoord) else coords
         ).to_cartesian()
         self._points.append(tuple(pos))
-        self._dim_tags.append(self._element_dim_tag(element_type, layer_id))
+        self._dim_tags.append(self._element_dim_tag(element_type, cellsets))
         return len(self._points) - 1
 
     @cache
@@ -547,18 +557,16 @@ class MeshioData:
         # FIXME: Avoid calling this if order == 1?
         coords = solid.poloidal_map(s, t)
         points = tuple(
-            self.point(p, shape, layer_id)
+            self.point(p, shape, cellsets)
             for p in (
                 _meshio_quad_point_order(coords)
                 if len(solid.sides) == 4
                 else _meshio_triangle_point_order(coords)
             )
         )
-        cell_list = self._cells[shape]
+        cell_list = self._cells[shape, cellsets]
         cell_list.append(points)
         cell_id = len(cell_list) - 1
-        for setname in cellsets:
-            self._cell_sets[setname][shape].append(cell_id)
         return cell_id
 
     @cache
@@ -566,20 +574,17 @@ class MeshioData:
         self,
         curve: NormalisedCurve | AcrossFieldCurve,
         order: int,
-        layer_id: int,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 1D element to the mesh data and return the integer ID for it."""
         shape = _ELEMENT_TYPES[order - 1]["line"]
         points = tuple(
-            self.point(p, shape, layer_id)
+            self.point(p, shape, cellsets)
             for p in _meshio_line_point_order(control_points(curve, order))
         )
-        cell_list = self._cells[shape]
+        cell_list = self._cells[shape, cellsets]
         cell_list.append(points)
         cell_id = len(cell_list) - 1
-        for setname in cellsets:
-            self._cell_sets[setname][shape].append(cell_id)
         return cell_id
 
     @cache
@@ -587,23 +592,19 @@ class MeshioData:
         self,
         shape: EndShape,
         order: int,
-        layer_id: int,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 2D element representing a poloidal face and return the integer ID for it."""
+        # FIXME: This will require a bit of rethinking about how best to represent shape data in teh fame mesh. In particular, we want to avoid re-integrating the whole shape to get the data at the end. This applies for the 2D-case with quad ends too, actually. Makes me wonder if my attempt to avoid specifying the order until output is a good idea. Perhaps should just do it from the start. Then can specify shape of elements using arrays of points. Plus can use hypnotoad to compute the point once (relatively) cheaply. Would need to change technique for merging thin elements though, which I think would be complicated.
         return 0
 
     @cache
-    def quad(
-        self, quad: Quad, order: int, layer_id: int, cellsets: frozenset[str]
-    ) -> int:
+    def quad(self, quad: Quad, order: int, cellsets: frozenset[str]) -> int:
         """Add a 2D element representing a quad and return the integer ID for it."""
         return 0
 
     @cache
-    def solid(
-        self, solid: Prism, order: int, layer_id: int, cellsets: frozenset[str]
-    ) -> int:
+    def solid(self, solid: Prism, order: int, cellsets: frozenset[str]) -> int:
         """Add a 3D element representing to the mesh and return the integer ID for it."""
         return 0
 
@@ -615,39 +616,26 @@ class MeshioData:
         # not make up any cells.) Each cell block will also have a
         # physical entity ID, which need not be unique (i.e., physical
         # entities can be made up of more than one cell block).
-
-        # In contrast, the meshio cell_sets allow elements of a cell
-        # block to be int different cell_sets (and even more than one)
         type_order = list(self._cells)
+        n = len(self._cells)
         return meshio.Mesh(
             np.array(self._points),
-            list(self._cells.items()),
-            # FIXME: Can I construct some of this stuff from
-            # cell_sets? Problem is needing separate nodes for each
-            # dimension.
+            [(k[0], v) for k, v in self._cells.items()],
             point_data={"gmsh:dim_tags": self._dim_tags},
-            # FIXME: Will need to have a different cellblock for each
-            # layer, so repeat for different cell types
             cell_data={
                 "gmsh:geometrical": [
-                    np.full(len(v), self._element_dim_tag(k, 0)[1])
+                    np.full(len(v), self._element_dim_tag(*k)[1])
                     for k, v in self._cells.items()
                 ],
-                # FIXME: This needs to have different IDs for each layer, cell-type, and boundary/ Can numbers be shared between different types of elements? Appears not; each number must refer to only one cell-block (but is treated seperately for each dimension) Probably best way to handle this is to assemble it from cell_sets
                 "gmsh:physical": [
-                    np.full(len(v), self._element_dim_tag(k, 0)[1])
+                    np.full(len(v), self._element_dim_tag(*k)[1])
                     for k, v in self._cells.items()
                 ],
             },
-            # FIXME: Do I need gmsh:bounding_entities? Don't think it
-            # would be very useful given there are random
-            # quads/triangles floating around. Certainly, the way I
-            # have stored the boundary data isn't particularly
-            # amenable to knowing whether something belongs to a quad
-            # or triangle. Not sure it's actually useful anyway.
             cell_sets={
-                k: _sort_cellset(cells, type_order)
-                for k, cells in self._cell_sets.items()
+                name: [[] if i != j else np.arange(len(cells)) for j in range(n)]
+                for i, (k, cells) in enumerate(self._cells.items())
+                for name in k[1]
             },
         )
 
@@ -669,7 +657,7 @@ def meshio_poloidal_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
         raise ValueError("Can not create poloidal mesh for 2D mesh")
     result = MeshioData()
     for element in layer:
-        result.poloidal_face(element, order, 0)
+        result.poloidal_face(element, order)
     for i, bound in enumerate(layer.boundaries()):
         sets = frozenset({f"Boundary {i}"})
         for quad in bound:
@@ -686,11 +674,9 @@ def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
 
     """
     print("Converting FAME mesh to MeshIO object.")
-    make_element: Callable[[Quad | Prism, int, int, frozenset[str]], int]
-    make_bound: Callable[[NormalisedCurve | Quad, int, int, frozenset[str]], int]
-    make_interface: Callable[
-        [NormalisedCurve | EndShape, int, int, frozenset[str]], int
-    ]
+    make_element: Callable[[Quad | Prism, int, frozenset[str]], int]
+    make_bound: Callable[[NormalisedCurve | Quad, int, frozenset[str]], int]
+    make_interface: Callable[[NormalisedCurve | EndShape, int, frozenset[str]], int]
     result = MeshioData()
     if issubclass(mesh.reference_layer.element_type, Quad):
         make_element = result.quad
@@ -703,17 +689,17 @@ def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
     for i, layer in enumerate(mesh.layers()):
         sets = frozenset({f"Layer {i}"})
         for element in layer:
-            make_element(element, order, i, sets)
+            make_element(element, order, sets)
         for j, bound in enumerate(layer.boundaries()):
             sets = frozenset({f"Boundary {j}"})
             for b in bound:
-                make_bound(b, order, i, sets)
+                make_bound(b, order, sets)
         sets = frozenset(f"Interface {2*i}")
         for f in layer.near_faces():
-            make_interface(f, order, i, sets)
+            make_interface(f, order, sets)
         sets = frozenset(f"Interface {2*i + 1}")
         for f in layer.far_faces():
-            make_interface(f, order, i, sets)
+            make_interface(f, order, sets)
     return result.meshio()
 
 
