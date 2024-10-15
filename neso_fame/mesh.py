@@ -657,23 +657,23 @@ class Prism(LazilyOffsetable):
         others.remove(south)
         tmp1, tmp2 = others[0].shape([0.0, 1.0]).iter_points()
 
-        if tmp1 == sw:
+        if tmp1.approx_eq(sw):
             west = west_initial = others[0].shape
             north = tmp2
             east_initial = others[1].shape
             east = _ensure_function_start_direction(others[1].shape, se)
-        elif tmp2 == sw:
+        elif tmp2.approx_eq(sw):
             west_initial = others[0].shape
             west = _reverse(others[0].shape)
             north = tmp1
             east_initial = others[1].shape
             east = _ensure_function_start_direction(others[1].shape, se)
-        elif tmp1 == se:
+        elif tmp1.approx_eq(se):
             east = east_initial = others[0].shape
             north = tmp2
             west_initial = others[1].shape
             west = _ensure_function_start_direction(others[1].shape, sw)
-        elif tmp2 == se:
+        elif tmp2.approx_eq(se):
             east_initial = others[0].shape
             east = _reverse(others[0].shape)
             north = tmp1
@@ -710,13 +710,13 @@ class Prism(LazilyOffsetable):
         scurve_initial: AcrossFieldCurve,
         x_at_start: bool,
     ) -> tuple[SliceCoord, SliceCoord, AcrossFieldCurve, AcrossFieldCurve]:
-        if nx == x0:
+        if nx.approx_eq(x0):
             sx = x1
             xcurve = _reverse(xcurve_initial)
         else:
             sx = x0
             xcurve = xcurve_initial
-        if south0 == sx:
+        if south0.approx_eq(sx):
             sy = south1
             if x_at_start:
                 scurve = scurve_initial

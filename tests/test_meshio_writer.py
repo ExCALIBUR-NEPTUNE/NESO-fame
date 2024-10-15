@@ -44,6 +44,7 @@ from neso_fame.mesh import (
     C,
     E,
     EndShape,
+    AcrossFieldCurve,
     FieldAlignedCurve,
     FieldTracer,
     GenericMesh,
@@ -61,8 +62,10 @@ from neso_fame.mesh import (
     control_points,
 )
 from neso_fame.offset import Offset
+from tests.test_nektar_writer import poloidal_corners
 
 from .conftest import (
+    across_field_curves,
     flat_sided_hex,
     flat_sided_prism,
     linear_field_trace,
@@ -91,7 +94,7 @@ cellsets = frozensets(text())
 
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(one_of((from_type(SliceCoord), from_type(Coord))), element_types, cellsets)
-def test_nektar_point(coord: Coord, element: str, csets: frozenset[str]) -> None:
+def test_point(coord: Coord, element: str, csets: frozenset[str]) -> None:
     mesh_data = meshio_writer.MeshioData()
     point_id = mesh_data.point(coord, element, csets)
     meshio = mesh_data.meshio()
@@ -107,7 +110,7 @@ def test_nektar_point(coord: Coord, element: str, csets: frozenset[str]) -> None
     lists(element_types, min_size=2, max_size=2, unique=True),
     lists(cellsets, min_size=2, max_size=2, unique=True),
 )
-def test_nektar_point_caching(
+def test_point_caching(
     coords: list[Coord], element: list[str], csets: list[frozenset[str]]
 ) -> None:
     mesh_data = meshio_writer.MeshioData()
@@ -117,3 +120,40 @@ def test_nektar_point_caching(
     assert c1 != mesh_data.point(coords[0], element[0], csets[1])
     assert c1 != mesh_data.point(coords[0], element[1], csets[0])
     assert mesh_data.meshio().points.shape[0] == 4
+
+
+@given(one_of((from_type(Segment), across_field_curves)), integers(1, 9), cellsets)
+def test_line(curve: FieldAlignedCurve, order: int, layer: frozenset[str]) -> None:
+    mesh_data = meshio_writer.MeshioData()
+    mesh_data.line(curve, order, layer)
+    meshio = mesh_data.meshio()
+    cells = meshio.cells_dict
+    assert len(cells) == 1
+    shape = f"line{order + 1}" if order > 1 else "line"
+    assert shape in cells
+    line_points = cells[shape][0]
+    assert len(line_points) == order + 1
+    assert_points_eq(meshio.points[line_points[0]], curve(0.0).to_coord())
+    assert_points_eq(meshio.points[line_points[1]], curve(1.0).to_coord())
+    for i in range(1, order):
+        assert_points_eq(meshio.points[line_points[i + 1]], curve((i)/(order)).to_coord())
+
+
+@given(from_type(Prism), integers(1, 9), cellsets)
+def test_poloidal_face(solid: Prism, order: int, layer: frozenset[str]) -> None:
+    mesh_data = meshio_writer.MeshioData()
+    mesh_data.poloidal_face(solid, order, layer)
+    meshio = mesh_data.meshio()
+    cells = meshio.cells_dict
+    assert len(cells) == 1
+    if len(solid.sides) == 3:
+        shape = f"triangle{(order + 1) * (order + 2) // 2}" if order > 1 else "triangle"
+        n = 3
+    else:
+        shape = f"quad{(order + 1) ** 2}" if order > 1 else "quad"
+        n= 4
+    assert shape in cells
+    corners = cells[shape][0][:n]
+    expected = FrozenCoordSet(c.to_cartesian() for c in poloidal_corners(solid))
+    actual = FrozenCoordSet(Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in corners)
+    assert actual == expected

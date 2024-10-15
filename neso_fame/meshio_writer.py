@@ -524,6 +524,24 @@ class MeshioData:
         return len(self._points) - 1
 
     @cache
+    def line(
+        self,
+        curve: NormalisedCurve | AcrossFieldCurve,
+        order: int,
+        cellsets: frozenset[str] = frozenset(),
+    ) -> int:
+        """Add a 1D element to the mesh data and return the integer ID for it."""
+        shape = _ELEMENT_TYPES[order - 1]["line"]
+        points = tuple(
+            self.point(p, shape, cellsets)
+            for p in _meshio_line_point_order(control_points(curve, order))
+        )
+        cell_list = self._cells[shape, cellsets]
+        cell_list.append(points)
+        cell_id = len(cell_list) - 1
+        return cell_id
+
+    @cache
     def poloidal_face(
         self,
         solid: Prism,
@@ -563,24 +581,6 @@ class MeshioData:
                 if len(solid.sides) == 4
                 else _meshio_triangle_point_order(coords)
             )
-        )
-        cell_list = self._cells[shape, cellsets]
-        cell_list.append(points)
-        cell_id = len(cell_list) - 1
-        return cell_id
-
-    @cache
-    def line(
-        self,
-        curve: NormalisedCurve | AcrossFieldCurve,
-        order: int,
-        cellsets: frozenset[str] = frozenset(),
-    ) -> int:
-        """Add a 1D element to the mesh data and return the integer ID for it."""
-        shape = _ELEMENT_TYPES[order - 1]["line"]
-        points = tuple(
-            self.point(p, shape, cellsets)
-            for p in _meshio_line_point_order(control_points(curve, order))
         )
         cell_list = self._cells[shape, cellsets]
         cell_list.append(points)

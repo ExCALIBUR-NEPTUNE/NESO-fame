@@ -21,6 +21,7 @@ from hypothesis.strategies import (
     composite,
     floats,
     from_type,
+    frozensets,
     integers,
     just,
     lists,
@@ -1058,6 +1059,7 @@ def field_aligned_curve_for_system(
         return straight_field_line_for_system(system)
 
 
+shared_coordinate_systems = shared(sampled_from(coordinates.CoordinateSystem), key=22)
 straight_field_line = coordinate_systems.flatmap(straight_field_line_for_system)
 curved_field_line = sampled_from(list(CARTESIAN_SYSTEMS)).flatmap(
     curved_field_line_for_system
@@ -1066,8 +1068,17 @@ register_type_strategy(
     mesh.FieldAlignedCurve,
     one_of(straight_field_line, curved_field_line),
 )
-
-shared_coordinate_systems = shared(sampled_from(coordinates.CoordinateSystem), key=22)
+common_slice_coords = shared_coordinate_systems.flatmap(slice_coord_for_system)
+slice_coord_pair: SearchStrategy[tuple[mesh.SliceCoord, mesh.SliceCoord]] = frozensets(
+        common_slice_coords,
+        min_size=2,
+        max_size=2
+).map(tuple)
+register_type_strategy(
+    mesh.StraightLineAcrossField,
+    slice_coord_pair.map(lambda x: mesh.StraightLineAcrossField(*x)),
+)
+across_field_curves = builds(offset_straight_line, from_type(mesh.StraightLineAcrossField), floats(-0.5, 0.5))
 segments: SearchStrategy[mesh.Segment] = one_of(
     (
         shared_coordinate_systems.flatmap(straight_line_for_system),
