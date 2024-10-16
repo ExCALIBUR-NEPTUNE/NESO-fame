@@ -1070,15 +1070,15 @@ register_type_strategy(
 )
 common_slice_coords = shared_coordinate_systems.flatmap(slice_coord_for_system)
 slice_coord_pair: SearchStrategy[tuple[mesh.SliceCoord, mesh.SliceCoord]] = frozensets(
-        common_slice_coords,
-        min_size=2,
-        max_size=2
+    common_slice_coords, min_size=2, max_size=2
 ).map(tuple)
 register_type_strategy(
     mesh.StraightLineAcrossField,
     slice_coord_pair.map(lambda x: mesh.StraightLineAcrossField(*x)),
 )
-across_field_curves = builds(offset_straight_line, from_type(mesh.StraightLineAcrossField), floats(-0.5, 0.5))
+across_field_curves = builds(
+    offset_straight_line, from_type(mesh.StraightLineAcrossField), floats(-0.5, 0.5)
+)
 segments: SearchStrategy[mesh.Segment] = one_of(
     (
         shared_coordinate_systems.flatmap(straight_line_for_system),

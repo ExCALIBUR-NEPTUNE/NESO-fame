@@ -479,10 +479,6 @@ class MeshioData:
 
     """
 
-    # TODO: Stop using layer_id for anything and instead just work
-    # based on cell-sets. Each unique combination of cell-sets will get
-    # its own cellblock and element-dim-tag.
-
     _points: list[npt.ArrayLike]
     _cells: DefaultDict[tuple[str, frozenset[str]], list[npt.ArrayLike]]
     _dim_tags: list[tuple[int, int]]
@@ -546,7 +542,6 @@ class MeshioData:
         self,
         solid: Prism,
         order: int,
-        layer_id: int,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 2D element representing the poloidal cross-section of the prism.
@@ -656,12 +651,12 @@ def meshio_poloidal_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
     if issubclass(layer.element_type, Quad):
         raise ValueError("Can not create poloidal mesh for 2D mesh")
     result = MeshioData()
-    for element in layer:
+    for element in layer.reference_elements:
         result.poloidal_face(element, order)
-    for i, bound in enumerate(layer.boundaries()):
+    for i, bound in enumerate(layer.bounds):
         sets = frozenset({f"Boundary {i}"})
         for quad in bound:
-            result.line(quad.shape, order, 0, sets)
+            result.line(quad.shape, order, sets)
     return result.meshio()
 
 

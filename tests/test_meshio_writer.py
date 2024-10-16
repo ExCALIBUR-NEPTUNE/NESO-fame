@@ -10,6 +10,8 @@ from functools import reduce
 from tempfile import TemporaryDirectory
 from typing import Callable, Iterator, Type, TypeGuard, TypeVar, Union, cast
 
+import meshio
+
 import numpy as np
 import numpy.typing as npt
 from hypothesis import given, settings
@@ -92,6 +94,18 @@ def assert_points_eq(actual: npt.NDArray, expected: SliceCoord | Coord) -> None:
 cellsets = frozensets(text())
 
 
+def line_name(order: int) -> str:
+    return f"line{order + 1}" if order > 1 else "line"
+
+
+def triangle_name(order: int) -> str:
+    return f"triangle{(order + 1) * (order + 2) // 2}" if order > 1 else "triangle"
+
+
+def quad_name(order: int) -> str:
+    return f"quad{(order + 1) ** 2}" if order > 1 else "quad"
+
+
 @mark.filterwarnings("ignore:invalid value:RuntimeWarning")
 @given(one_of((from_type(SliceCoord), from_type(Coord))), element_types, cellsets)
 def test_point(coord: Coord, element: str, csets: frozenset[str]) -> None:
@@ -129,14 +143,16 @@ def test_line(curve: FieldAlignedCurve, order: int, layer: frozenset[str]) -> No
     meshio = mesh_data.meshio()
     cells = meshio.cells_dict
     assert len(cells) == 1
-    shape = f"line{order + 1}" if order > 1 else "line"
+    shape = line_name(order)
     assert shape in cells
     line_points = cells[shape][0]
     assert len(line_points) == order + 1
     assert_points_eq(meshio.points[line_points[0]], curve(0.0).to_coord())
     assert_points_eq(meshio.points[line_points[1]], curve(1.0).to_coord())
     for i in range(1, order):
-        assert_points_eq(meshio.points[line_points[i + 1]], curve((i)/(order)).to_coord())
+        assert_points_eq(
+            meshio.points[line_points[i + 1]], curve((i) / (order)).to_coord()
+        )
 
 
 @given(from_type(Prism), integers(1, 9), cellsets)
@@ -147,13 +163,79 @@ def test_poloidal_face(solid: Prism, order: int, layer: frozenset[str]) -> None:
     cells = meshio.cells_dict
     assert len(cells) == 1
     if len(solid.sides) == 3:
-        shape = f"triangle{(order + 1) * (order + 2) // 2}" if order > 1 else "triangle"
+        shape = triangle_name(order)
         n = 3
     else:
-        shape = f"quad{(order + 1) ** 2}" if order > 1 else "quad"
-        n= 4
+        shape = quad_name(order)
+        n = 4
     assert shape in cells
     corners = cells[shape][0][:n]
     expected = FrozenCoordSet(c.to_cartesian() for c in poloidal_corners(solid))
-    actual = FrozenCoordSet(Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in corners)
+    actual = FrozenCoordSet(
+        Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in corners
+    )
     assert actual == expected
+
+
+@settings(deadline=None)
+@given(prism_meshes, integers(1, 4))
+def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
+    meshio = meshio_writer.meshio_poloidal_elements(mesh, order)
+    cells = meshio.cells_dict
+    lines = line_name(order)
+    quads = quad_name(order)
+    tris = triangle_name(order)
+    empty = np.empty((0, 4))
+    quad_elems = cells.get(quads, empty)
+    triangle_elems = cells.get(tris, empty)
+    assert (
+        len(mesh.reference_layer.reference_elements)
+        == quad_elems.shape[0] + triangle_elems.shape[0]
+    )
+    element_corners = frozenset(
+        tuple(quad_elems[i, :4]) for i in range(quad_elems.shape[0])
+    ) | frozenset(tuple(triangle_elems[i, :3]) for i in range(triangle_elems.shape[0]))
+    expected_elements = frozenset(
+        FrozenCoordSet(c.to_cartesian() for c in poloidal_corners(element))
+        for element in mesh.reference_layer
+    )
+    actual_elements = frozenset(
+        FrozenCoordSet(
+            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in element
+        )
+        for element in element_corners
+    )
+    assert expected_elements == actual_elements
+    expected_bounds = frozenset(
+        FrozenCoordSet(
+            b.shape([0.0, 1.0]).to_3d_coords(0.0).to_cartesian().iter_points()
+        )
+        for b in itertools.chain.from_iterable(mesh.reference_layer.boundaries())
+    )
+    actual_bounds = frozenset(
+        FrozenCoordSet(
+            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN)
+            for i in cells[lines][i, :2]
+        )
+        for i in range(cells[lines].shape[0])
+    )
+    assert expected_bounds == actual_bounds
+
+
+@settings(deadline=None)
+@given(prism_meshes, integers(1, 4))
+def test_write_poloidal_elements(mesh: PrismMesh, order: int) -> None:
+    with TemporaryDirectory() as tmp_path:
+        msh_file = pathlib.Path(tmp_path) / "output.msh"
+        meshio_writer.write_poloidal_mesh(mesh, order, str(msh_file), "gmsh")
+        data = meshio.read(msh_file, "gmsh")
+    cells = data.cells_dict
+    q = quad_name(order)
+    t = triangle_name(order)
+    s = line_name(order)
+    assert q in cells or t in cells
+    assert s in cells
+    assert sum(len(b) for b in mesh.reference_layer.bounds) == cells[s].shape[0]
+    assert len(mesh.reference_layer.reference_elements) == (
+        cells[q].shape[0] if q in cells else 0
+    ) + (cells[t].shape[0] if t in cells else 0)

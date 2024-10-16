@@ -401,7 +401,7 @@ class Quad(LazilyOffsetable):
         alignment_diff = self.south_start_weight - self.north_start_weight
 
         for i, (sval, start) in enumerate(zip(s, self.shape(s).iter_points())):
-            # FIXME: This is duplicating work in the case of the actual edges.
+            # FIXME: This is duplicating work in the case of the actual edges. Also not caching anything.
             weight = alignment_diff * sval + self.north_start_weight
             x1_coord[i], x2_coord[i] = self.field.trace(start, x3, weight)[0].to_coord()
         coordinates = np.stack([x1_coord, x2_coord])
@@ -537,9 +537,9 @@ def _ensure_function_start_direction(
     func: AcrossFieldCurve, start: SliceCoord
 ) -> AcrossFieldCurve:
     tmp1, tmp2 = func([0.0, 1.0]).iter_points()
-    if tmp1 == start:
+    if tmp1.approx_eq(start):
         return func
-    if tmp2 != start:
+    if not tmp2.approx_eq(start):
         raise RuntimeError("Neither terminus of `func` is at `start`")
     return _reverse(func)
 

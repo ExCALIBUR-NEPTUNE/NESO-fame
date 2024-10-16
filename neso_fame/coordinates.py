@@ -183,7 +183,9 @@ class SliceCoords:
         point. Otherwise, an exception is raised.
         """
         if len(self) > 1:
-            raise RuntimeError("Can not convert array of coordinates to a single coordinate.")
+            raise RuntimeError(
+                "Can not convert array of coordinates to a single coordinate."
+            )
         return SliceCoord(float(self.x1.flat[0]), float(self.x2.flat[0]), self.system)
 
     def to_3d_coords(self, x3: float) -> Coords:
@@ -325,8 +327,15 @@ class Coords:
         point. Otherwise, an exception is raised.
         """
         if len(self) > 1:
-            raise RuntimeError("Can not convert array of coordinates to a single coordinate.")
-        return Coord(float(self.x1.flat[0]), float(self.x2.flat[0]), float(self.x3.flat[0]), self.system)
+            raise RuntimeError(
+                "Can not convert array of coordinates to a single coordinate."
+            )
+        return Coord(
+            float(self.x1.flat[0]),
+            float(self.x2.flat[0]),
+            float(self.x3.flat[0]),
+            self.system,
+        )
 
     def round_to(self, figures: int = 8) -> Coords:
         """Round coordinate values to the desired number of significant figures."""
