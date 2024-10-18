@@ -174,6 +174,14 @@ def test_slice_coords_len(
         next(coords_iter)
 
 
+@given(from_type(coordinates.SliceCoords))
+def test_slice_coords_shape(x: coordinates.SliceCoords) -> None:
+    if len(x.shape) > 0:
+        assert np.prod(x.shape) == len(x)
+    else:
+        assert len(x) == 1
+
+
 @pytest.mark.parametrize(
     "x1,x2,index,expected",
     [
@@ -553,6 +561,14 @@ def test_coords_len(coords: coordinates.Coords) -> None:
         _ = next(coords_iter)
     with pytest.raises(StopIteration):
         next(coords_iter)
+
+
+@given(from_type(coordinates.Coords))
+def test_coords_shape(x: coordinates.Coords) -> None:
+    if len(x.shape) > 0:
+        assert np.prod(x.shape) == len(x)
+    else:
+        assert len(x) == 1
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,6 @@ from enum import Enum
 from functools import wraps
 from typing import (
     Callable,
-    ClassVar,
     Concatenate,
     Generic,
     ParamSpec,
@@ -88,8 +87,6 @@ class SliceCoord:
     """Coordinate in second dimension"""
     system: CoordinateSystem
     """The type of coordinates being used"""
-    TOLERANCE: ClassVar[float] = 1e-9
-    """The absolute and relative tolerance to use when comparing Coord objects."""
 
     def __iter__(self) -> Iterator[float]:
         """Iterate over the coordinates of the point."""
@@ -111,7 +108,7 @@ class SliceCoord:
     def approx_eq(
         self, other: SliceCoord, rtol: float = 1e-9, atol: float = 1e-9
     ) -> bool:
-        """Check equality of coordinates within the the TOLERANCE."""
+        """Check equality of coordinates within the the tolerance."""
         return self.system == other.system and cast(
             bool,
             np.isclose(self.x1, other.x1, rtol, atol)
@@ -155,6 +152,11 @@ class SliceCoords:
     def __len__(self) -> int:
         """Return the number of points contained in the object."""
         return np.broadcast(self.x1, self.x2).size
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Return the logical shape of the coordinate array."""
+        return np.broadcast(self.x1, self.x2).shape
 
     def __getitem__(self, idx: CoordIndex) -> SliceCoord:
         """Return an individual point from the collection."""
@@ -211,8 +213,6 @@ class Coord:
     """Coordinate in third dimension"""
     system: CoordinateSystem
     """The type of coordinates being used"""
-    TOLERANCE: ClassVar[float] = 1e-9
-    """The absolute and relative tolerance to use when comparing Coord objects."""
 
     def to_cartesian(self) -> "Coord":
         """Convert the point to Cartesian coordinates."""
@@ -244,7 +244,7 @@ class Coord:
         )
 
     def approx_eq(self, other: Coord, rtol: float = 1e-9, atol: float = 1e-9) -> bool:
-        """Check equality of coordinates within the the TOLERANCE."""
+        """Check equality of coordinates within the the tolerance."""
         return self.system == other.system and cast(
             bool,
             np.isclose(self.x1, other.x1, rtol, atol)
@@ -307,6 +307,11 @@ class Coords:
     def __len__(self) -> int:
         """Return the number of points present in the collection."""
         return np.broadcast(self.x1, self.x2, self.x3).size
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Return the logical shape of the coordinate array."""
+        return np.broadcast(self.x1, self.x2, self.x3).shape
 
     def __getitem__(self, idx: CoordIndex) -> Coord:
         """Return the coordinates of an individual point."""
