@@ -248,7 +248,7 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
     """
     global _point_count
     pos = position.to_cartesian()
-    tol = pos.TOLERANCE
+    tol = 1e-9
     _point_count += 1
     return SD.PointGeom(
         spatial_dim,
