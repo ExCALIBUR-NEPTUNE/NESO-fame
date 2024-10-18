@@ -1,80 +1,42 @@
 from __future__ import annotations
 
 import itertools
-import operator
-import os
 import pathlib
-import xml.etree.ElementTree as ET
-from collections.abc import Iterable
-from functools import reduce
 from tempfile import TemporaryDirectory
-from typing import Callable, Iterator, Type, TypeGuard, TypeVar, Union, cast
 
-import meshio
-
+import meshio  # type: ignore
 import numpy as np
 import numpy.typing as npt
 from hypothesis import given, settings
 from hypothesis.strategies import (
-    booleans,
-    builds,
-    floats,
     from_type,
-    integers,
     frozensets,
-    text,
-    just,
+    integers,
     lists,
     one_of,
     sampled_from,
-    shared,
+    text,
 )
-from NekPy import LibUtilities as LU
-from NekPy import SpatialDomains as SD
 from pytest import approx, mark
 
 from neso_fame import meshio_writer
 from neso_fame.coordinates import (
     Coord,
     CoordinateSystem,
-    Coords,
     FrozenCoordSet,
     SliceCoord,
 )
 from neso_fame.mesh import (
-    B,
-    C,
-    E,
-    EndShape,
     AcrossFieldCurve,
     FieldAlignedCurve,
-    FieldTracer,
-    GenericMesh,
-    Mesh,
-    MeshLayer,
-    NormalisedCurve,
     Prism,
     PrismMesh,
-    PrismMeshLayer,
-    Quad,
-    QuadMesh,
-    QuadMeshLayer,
-    Segment,
-    StraightLineAcrossField,
-    control_points,
 )
-from neso_fame.offset import Offset
 from tests.test_nektar_writer import poloidal_corners
 
 from .conftest import (
     across_field_curves,
-    flat_sided_hex,
-    flat_sided_prism,
-    linear_field_trace,
-    non_nans,
     prism_meshes,
-    quad_meshes,
-    simple_trace,
 )
 
 element_types = sampled_from(
@@ -136,8 +98,14 @@ def test_point_caching(
     assert mesh_data.meshio().points.shape[0] == 4
 
 
-@given(one_of((from_type(Segment), across_field_curves)), integers(1, 9), cellsets)
-def test_line(curve: FieldAlignedCurve, order: int, layer: frozenset[str]) -> None:
+@given(
+    one_of((from_type(FieldAlignedCurve), across_field_curves)),
+    integers(1, 9),
+    cellsets,
+)
+def test_line(
+    curve: FieldAlignedCurve | AcrossFieldCurve, order: int, layer: frozenset[str]
+) -> None:
     mesh_data = meshio_writer.MeshioData()
     mesh_data.line(curve, order, layer)
     meshio = mesh_data.meshio()
@@ -172,7 +140,8 @@ def test_poloidal_face(solid: Prism, order: int, layer: frozenset[str]) -> None:
     corners = cells[shape][0][:n]
     expected = FrozenCoordSet(c.to_cartesian() for c in poloidal_corners(solid))
     actual = FrozenCoordSet(
-        Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in corners
+        Coord(*meshio.points[i], CoordinateSystem.CARTESIAN)  # type: ignore
+        for i in corners
     )
     assert actual == expected
 
@@ -201,7 +170,8 @@ def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
     )
     actual_elements = frozenset(
         FrozenCoordSet(
-            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN) for i in element
+            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN)  # type: ignore
+            for i in element
         )
         for element in element_corners
     )
@@ -214,7 +184,7 @@ def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
     )
     actual_bounds = frozenset(
         FrozenCoordSet(
-            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN)
+            Coord(*meshio.points[i], CoordinateSystem.CARTESIAN)  # type: ignore
             for i in cells[lines][i, :2]
         )
         for i in range(cells[lines].shape[0])

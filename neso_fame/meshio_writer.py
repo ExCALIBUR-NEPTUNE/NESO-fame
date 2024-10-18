@@ -611,7 +611,6 @@ class MeshioData:
         # not make up any cells.) Each cell block will also have a
         # physical entity ID, which need not be unique (i.e., physical
         # entities can be made up of more than one cell block).
-        type_order = list(self._cells)
         n = len(self._cells)
         return meshio.Mesh(
             np.array(self._points),
