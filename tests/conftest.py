@@ -1,5 +1,6 @@
 import itertools
 import operator
+from collections.abc import Sequence
 from functools import reduce
 from operator import attrgetter, methodcaller
 from typing import Any, Optional, TypeVar, cast
@@ -11,6 +12,7 @@ from hypothesis.extra.numpy import (
     BroadcastableShapes,
     array_shapes,
     arrays,
+    broadcastable_shapes,
     floating_dtypes,
     mutually_broadcastable_shapes,
 )
@@ -155,6 +157,21 @@ register_type_strategy(
 )
 
 
+def compatible_alignments(coords: mesh.SliceCoords) -> SearchStrategy[npt.NDArray]:
+    shape = np.broadcast(*coords).shape
+    return arrays(
+        float,
+        broadcastable_shapes(shape, max_dims=len(shape)),
+        elements=floats(-1.0, 0.0).map(lambda y: y + 1),
+        fill=just(1.0),
+    )
+
+
+compatible_coords_and_alignments = from_type(coordinates.SliceCoords).flatmap(
+    lambda x: tuples(just(x), compatible_alignments(x))
+)
+
+
 num_divs = shared(integers(1, 10), key=999)
 
 
@@ -220,6 +237,29 @@ def linear_field_trace(
         )
 
     return cartesian_func
+
+
+linear_traces = builds(
+    linear_field_trace,
+    whole_numbers,
+    whole_numbers,
+    non_zero,
+    coordinate_systems,
+    floats(-2.0, 2.0),
+    tuples(whole_numbers, whole_numbers),
+)
+
+
+@composite
+def unbroadcastable_shape(draw: Any, shape: Sequence[int]) -> tuple[int, ...]:
+    if len(shape) == 0:
+        raise ValueError("0-length arrays are broadcastable with all array shapes")
+    idx = draw(integers(0, len(shape) - 1))
+    initial = shape[idx]
+    new_val = draw(integers(2, 10).filter(lambda x: x != initial))
+    tmp = list(shape)
+    tmp[idx] = new_val
+    return tuple(tmp)
 
 
 def linear_field_line(
@@ -1069,9 +1109,10 @@ register_type_strategy(
     one_of(straight_field_line, curved_field_line),
 )
 common_slice_coords = shared_coordinate_systems.flatmap(slice_coord_for_system)
-slice_coord_pair: SearchStrategy[tuple[mesh.SliceCoord, mesh.SliceCoord]] = frozensets(
-    common_slice_coords, min_size=2, max_size=2
-).map(tuple)
+slice_coord_pair = cast(
+    SearchStrategy[tuple[mesh.SliceCoord, mesh.SliceCoord]],
+    frozensets(common_slice_coords, min_size=2, max_size=2).map(tuple),
+)
 register_type_strategy(
     mesh.StraightLineAcrossField,
     slice_coord_pair.map(lambda x: mesh.StraightLineAcrossField(*x)),

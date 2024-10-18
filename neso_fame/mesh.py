@@ -32,6 +32,220 @@ from neso_fame.coordinates import (
 from neso_fame.offset import LazilyOffsetable, Offset
 
 
+def field_aligned_positions(
+    start_points: SliceCoords,
+    dx3: float,
+    field: FieldTrace,
+    alignments: npt.NDArray,
+    order: int,
+    num_divisions: int = 1,
+) -> FieldAlignedPositions:
+    """Construct a :class:`~neso_fame.mesh.FieldAlignedPositions` object.
+
+    This is the recommended way to instantiate
+    ``FieldAlignedPositions`` objects, as it will ensure they end up
+    in a valid
+
+    Parameters
+    ----------
+    start_points
+        The positions on the poloidal plane from which to project along field lines.
+    dx3
+        The width of the data in the x3-direction, before subdividing.
+    field
+        The underlying magnetic field along which to trace.
+    alignments
+        The extent to which projections from each of the starting
+        points follows the field line versus stays fixed at the starting
+        poloidal position. A value of 1 corresponds to it completely
+        following the field line while 0 means it doesn't follow it at all
+        (the x1 and x2 coordinates are unchanged as moving in the x3
+        direction). Values in between result in linear interpolation
+        between these two extremes. This array should be of the same or
+        lower dimension as `start_points` and must be broadcast-compatible
+        with it.
+    order
+        The order of accuracy with which to represent lines in the
+        x3-direction. Determines the number of points that will be
+        stored.
+    num_divisions
+        The number of segments this data is divided into along the
+        x3-direction. Note that the result will not actually be divided
+        in this way; it will just be able to be divided while still
+        providing the desired order of accuracy.
+
+    """
+    start_array = np.broadcast(start_points.x1, start_points.x2)
+    if start_array.ndim < alignments.ndim:
+        raise ValueError(
+            "`alignments` can not be of higher dimension than `start_points`"
+        )
+    try:
+        np.broadcast(start_points.x1, start_points.x2, alignments)
+    except ValueError:
+        raise ValueError(
+            "`alignments` must be broadcast-compatible with `start_points`"
+        )
+    if order < 1:
+        raise ValueError("`order` must be strictly positive")
+    if num_divisions < 1:
+        raise ValueError("`num_divisions` must be strictly positive")
+    n = num_divisions * order + 1
+    x3 = np.linspace(-dx3 / 2, dx3 / 2, n)
+    shape = start_array.shape + (n,)
+    return FieldAlignedPositions(
+        start_points,
+        x3,
+        field,
+        alignments,
+        0,
+        1,
+        np.empty(shape),
+        np.empty(shape),
+        np.full(start_array.shape + (1,), False),
+    )
+
+
+@dataclass(frozen=True, eq=False)
+class FieldAlignedPositions:
+    """Representation of positions of points spaced along field lines.
+
+    .. warning::
+        Objects of this class should not be constructed directly, as
+        this can put them in an invalid state. Instead, use
+        :func:`~neso_fame.mesh.field_aligned_positions`.
+
+    This takes an array of starting positions on the poloidal plane
+    and then creates 3D coordinates by following the magnetic field
+    from those points. It can be used to hold data describing the
+    shape of elements in a mesh.
+
+    The object can be made to correspond to only a fraction of the
+    data in the x3 direction by dividing it into a certain number of
+    subdivisions and choosing one of these.
+
+    """
+
+    start_points: SliceCoords
+    """The points on the poloidal surface from which field-line
+    tracing begins. The points are logically arranged in an ND array
+    (although some may be masked)."""
+    x3: npt.NDArray
+    """The x3 positions along the field lines at which to find the
+    points."""
+    trace: FieldTrace
+    """The underlying magnetic field to which the geometry is aligned."""
+    alignments: npt.NDArray
+    """The extent to which projections from each of the starting
+    points follows the field line versus stays fixed at the starting
+    poloidal position. A value of 1 corresponds to it completely
+    following the field line while 0 means it doesn't follow it at all
+    (the x1 and x2 coordinates are unchanged as moving in the x3
+    direction). Values in between result in linear interpolation
+    between these two extremes. This array should be of the same or
+    lower dimension as `start_points` and must be broadcast-compatible
+    with it."""
+    subdivision: int
+    """The index of the segment of the data in the x3-direction that
+    this particular object represents."""
+    num_divisions: int
+    """The number of segments this data is divided into along the x3-direction."""
+    _x1: npt.NDArray
+    """The x1 coordinate of the resulting points."""
+    _x2: npt.NDArray
+    """The x2 coordinate of the resulting points."""
+    _computed: npt.NDArray
+    """An array of booleans with the shape of `start_points`, plus an
+    additional axis of length 1, indicating whether the positions
+    along the field line originating at the corresponding start point
+    have been calculated yet. The reason for the additional axis is to
+    ensure that slicing always returns a view of the array, rather
+    than a copy of the scalar."""
+
+    def __getitem__(
+        self, idx: int | slice | tuple[int | slice, ...]
+    ) -> FieldAlignedPositions:
+        """Slice the start-points of the data, returning the specificed subset.
+
+        This returns a view of the data in the data, not a copy. This
+        means that as positions are calculated they will become
+        available to other overlapping slices.
+        """
+        x1, x2, alignments = np.broadcast_arrays(
+            self.start_points.x1, self.start_points.x2, self.alignments
+        )
+        return FieldAlignedPositions(
+            SliceCoords(x1[idx], x2[idx], self.start_points.system),
+            self.x3,
+            self.trace,
+            alignments[idx],
+            self.subdivision,
+            self.num_divisions,
+            self._x1[idx],
+            self._x2[idx],
+            self._computed[idx],
+        )
+
+    # TODO: Add a hash and/or equality operator based on the locations, shape, and size of arrays in memory (plus subdivisions)
+    @cached_property
+    def order(self) -> int:
+        """The order of accuracy for representing curves in the x3-direction."""
+        return (len(self.x3) - 1) // self.num_divisions
+
+    @property
+    def _x3_start(self) -> int:
+        """The index for the start of this subdivision."""
+        return self.subdivision * self.order
+
+    def subdivide(self, divisions: int) -> Iterator[FieldAlignedPositions]:
+        """Split the data into the specified number of pieces in x3."""
+        if divisions <= 1:
+            yield self
+            return
+        if self.order % divisions != 0:
+            raise ValueError(
+                f"Can not subdivide {self.order} points in x3-direction into {divisions} equal parts"
+            )
+        for i in range(divisions):
+            yield FieldAlignedPositions(
+                self.start_points,
+                self.x3,
+                self.trace,
+                self.alignments,
+                self.subdivision * divisions + i,
+                divisions * self.num_divisions,
+                self._x1,
+                self._x2,
+                self._computed,
+            )
+
+    @cached_property
+    def coords(self) -> Coords:
+        """The 3D coordinates obtained by tracing the field lines."""
+        alignments = np.broadcast_arrays(*self.start_points, self.alignments)[2]
+        with np.nditer(self._computed, flags=["multi_index"]) as it:
+            for x in it:
+                if not x:
+                    # self._computed was given an extra axis to ensure
+                    # that when users index it an array will be
+                    # returned. However, that will mess up indexing of
+                    # other things, so need to drop it.
+                    idx = it.multi_index[:-1]
+                    positions, s = self.trace(
+                        self.start_points[idx], self.x3, 1 - alignments[idx]
+                    )
+                    self._x1[idx] = positions.x1
+                    self._x2[idx] = positions.x2
+                    self._computed[idx] = True
+        sl = slice(self._x3_start, self._x3_start + self.order + 1)
+        return Coords(
+            self._x1[..., sl],
+            self._x2[..., sl],
+            self.x3[sl].reshape((1,) * (self._x1.ndim - 1) + (self.order + 1,)),
+            self.start_points.system,
+        )
+
+
 class FieldTrace(Protocol):
     """Representation of a magnetic field, used for tracing field lines.
 
@@ -47,7 +261,7 @@ class FieldTrace(Protocol):
         """Calculate a position on a field line.
 
         Optionally, rather than strictly following the field line, you
-        can weight so it stays closer to teh starting position. This
+        can weight so it stays closer to the starting position. This
         is done using the `start_weight` parameter. A value of 0 means
         that the function exactly follows the field line while a value
         of 1 means the x1 and x2 coordinates will be fixed to those of
