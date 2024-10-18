@@ -762,7 +762,7 @@ def nektar_poloidal_elements(mesh: PrismMesh, order: int) -> NektarElements:
     layer = mesh.reference_layer
     # if issubclass(layer.element_type, Quad):
     #     raise ValueError("Can not create poloidal mesh for 2D mesh")
-    elems = iter(layer)
+    elems = iter(layer.reference_elements)
     elements: frozenset[SD.Geometry2D]
     elements, edges, points = reduce(
         _combine_2d_items,
@@ -777,7 +777,7 @@ def nektar_poloidal_elements(mesh: PrismMesh, order: int) -> NektarElements:
     def type_name(element: SD.Geometry) -> str:
         return element.__class__.__name__
 
-    bounds = [frozenset(map(make_face, x)) for x in layer.boundaries()]
+    bounds = [frozenset(map(make_face, x)) for x in layer.bounds]
     layer_composite = [
         SD.Composite(list(e))
         for _, e in itertools.groupby(sorted(elements, key=type_name), type_name)
