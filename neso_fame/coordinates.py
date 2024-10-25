@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Context, Decimal
 from enum import Enum
 from functools import wraps
+from types import EllipsisType
 from typing import (
     Callable,
     Concatenate,
@@ -117,7 +118,13 @@ class SliceCoord:
 
 
 CoordIndex = int | tuple[int, ...]
-IndexSlice = int | slice | list[int | tuple[int, ...]] | tuple[int | slice, ...]
+IndexSlice = (
+    int
+    | slice
+    | EllipsisType
+    | list[int | tuple[int, ...]]
+    | tuple[int | slice | EllipsisType, ...]
+)
 
 
 @dataclass
@@ -163,12 +170,28 @@ class SliceCoords:
         x1, x2 = np.broadcast_arrays(self.x1, self.x2)
         return SliceCoord(float(x1[idx]), float(x2[idx]), self.system)
 
+    @property
+    def get(self) -> _CoordWrapper[SliceCoords]:
+        """A view of this data which can be sliced.
+
+        :method:`~neso_fame.coordinates.SliceCoords.__getitem__` and
+        returns scalar :class:`~neso_fame.coordinates.SliceCoord`
+        objects and will raise an error if the index does not
+        correspond to a scalar value. Indexing the object returned by
+        this property will return a
+        :class:`~neso_fame.coordinates.SliceCoords` object instead,
+        potentially containing an array of coordinates.
+
+        """
+        return _CoordWrapper(self)
+
+    def _get(self, index: IndexSlice) -> SliceCoords:
+        x1, x2 = np.broadcast_arrays(self.x1, self.x2)
+        return SliceCoords(x1[index], x2[index], self.system)
+
     def get_set(self, index: IndexSlice) -> FrozenCoordSet[SliceCoord]:
         """Get a set of individual point objects from the collection."""
-        x1, x2 = np.broadcast_arrays(self.x1, self.x2)
-        return FrozenCoordSet(
-            SliceCoords(x1[index], x2[index], self.system).iter_points()
-        )
+        return FrozenCoordSet(self._get(index).iter_points())
 
     def round_to(self, figures: int = 8) -> SliceCoords:
         """Round coordinate values to the desired number of significant figures."""
@@ -318,12 +341,28 @@ class Coords:
         x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
         return Coord(float(x1[idx]), float(x2[idx]), float(x3[idx]), self.system)
 
+    @property
+    def get(self) -> _CoordWrapper[Coords]:
+        """A view of this data which can be sliced.
+
+        :method:`~neso_fame.coordinates.Coords.__getitem__` and
+        returns scalar :class:`~neso_fame.coordinates.Coord`
+        objects and will raise an error if the index does not
+        correspond to a scalar value. Indexing the object returned by
+        this property will return a
+        :class:`~neso_fame.coordinates.Coords` object instead,
+        potentially containing an array of coordinates.
+
+        """
+        return _CoordWrapper(self)
+
+    def _get(self, index: IndexSlice) -> Coords:
+        x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
+        return Coords(x1[index], x2[index], x3[index], self.system)
+
     def get_set(self, index: IndexSlice) -> FrozenCoordSet[Coord]:
         """Get a set of individual point objects from the collection."""
-        x1, x2, x3 = np.broadcast_arrays(self.x1, self.x2, self.x3)
-        return FrozenCoordSet(
-            Coords(x1[index], x2[index], x3[index], self.system).iter_points()
-        )
+        return FrozenCoordSet(self._get(index).iter_points())
 
     def to_coord(self) -> Coord:
         """Convert the object to a `Coord` object.
@@ -357,7 +396,33 @@ class Coords:
 
 
 C = TypeVar("C", Coord, SliceCoord)
+Cs = TypeVar("Cs", Coords, SliceCoords)
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class _CoordWrapper(Generic[Cs]):
+    """Simple class to allow slicing coordinate objects.
+
+    :method:`~neso_fame.coordinates.SliceCoords.__getitem__` and
+    :method:`~neso_fame.coordinates.Coords.__getitem__` are designed
+    to return scalar :class:`~neso_fame.coordinates.SliceCoord` and
+    :class:`~neso_fame.coordinates.SliceCoord` objects,
+    respectively. This wrapper class will return
+    :class:`~neso_fame.coordinates.SliceCoords` and
+    :class:`~neso_fame.coordinates.SliceCoords` instead.
+
+    Group
+    -----
+    coordinates
+
+    """
+
+    data: Cs
+
+    def __getitem__(self, index: IndexSlice) -> Cs:
+        """Get a slice of the contained data."""
+        return self.data._get(index)
 
 
 class _CoordContainer(Generic[C]):

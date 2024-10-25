@@ -71,7 +71,7 @@ def test_field_aligned_positions(
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     assert data.start_points is starts
@@ -103,7 +103,7 @@ def test_field_aligned_positions_bad_order(
 ) -> None:
     starts, alignments = coords_alignemnts
     with pytest.raises(ValueError, match=r".*order.*"):
-        mesh.field_aligned_positions(
+        mesh.subdividable_field_aligned_positions(
             starts, dx3, field, alignments, order, num_divisions
         )
 
@@ -124,7 +124,7 @@ def test_field_aligned_positions_bad_divisions(
 ) -> None:
     starts, alignments = coords_alignemnts
     with pytest.raises(ValueError, match=r".*num_divisions.*"):
-        mesh.field_aligned_positions(
+        mesh.subdividable_field_aligned_positions(
             starts, dx3, field, alignments, order, num_divisions
         )
 
@@ -147,12 +147,12 @@ def test_field_aligned_positions_bad_alignment_dim(
 ) -> None:
     alignments = np.ones(starts.shape + tuple(extra_dims))
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
-        mesh.field_aligned_positions(
+        mesh.subdividable_field_aligned_positions(
             starts, dx3, field, alignments, order, num_divisions
         )
     alignments = np.ones(tuple(extra_dims) + np.broadcast(*starts).shape)
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
-        mesh.field_aligned_positions(
+        mesh.subdividable_field_aligned_positions(
             starts, dx3, field, alignments, order, num_divisions
         )
 
@@ -180,7 +180,7 @@ def test_field_aligned_positions_bad_alignment_shape(
     num_divisions: int,
 ) -> None:
     with pytest.raises(ValueError, match=r".*broadcast-compatible.*"):
-        mesh.field_aligned_positions(
+        mesh.subdividable_field_aligned_positions(
             starts, dx3, field, alignments, order, num_divisions
         )
 
@@ -198,7 +198,7 @@ def test_field_aligned_positions_subdivide(
     division_sizes: list[int],
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, int(np.prod(division_sizes)), 1
     )
     base = 0
@@ -237,7 +237,7 @@ def test_field_aligned_positions_subdivide_self(
     m: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     divisions = list(data.subdivide(m))
@@ -271,7 +271,7 @@ def test_field_aligned_positions_getitem(
     idx: Any,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     result = data[idx]
@@ -313,7 +313,7 @@ def test_field_aligned_positions_coords_shape(
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     coords = data.coords
@@ -343,7 +343,7 @@ def test_field_aligned_positions_coords_fully_aligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, sample_trace, np.asarray(1.0), order, 1
     )
     coords = data.coords
@@ -363,7 +363,7 @@ def test_field_aligned_positions_coords_partially_aligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, sample_trace, np.asarray(0.5), order, 1
     )
     coords = data.coords
@@ -383,7 +383,7 @@ def test_field_aligned_positions_coords_unaligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, sample_trace, np.asarray(0.0), order, 1
     )
     coords = data.coords
@@ -410,7 +410,7 @@ def test_field_aligned_positions_coords_caching(
     starts, alignments = coords_alignemnts
     trace = MagicMock()
     trace.side_effect = field
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, trace, alignments, order, num_divisions
     )
     trace.assert_not_called()
@@ -445,7 +445,7 @@ def test_field_aligned_positions_subdivided_coords(
     starts, alignments = coords_alignemnts
     trace = MagicMock()
     trace.side_effect = field
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, trace, alignments, order, num_divisions
     )
     coords = [d.coords for d in data.subdivide(num_divisions)]
@@ -473,7 +473,9 @@ def test_field_aligned_positions_slice_caching() -> None:
     alignments = np.array([1.0, 1.0, 0.0])
     trace = MagicMock()
     trace.side_effect = sample_trace
-    data = mesh.field_aligned_positions(starts, 2.0, trace, alignments, 4, 1)
+    data = mesh.subdividable_field_aligned_positions(
+        starts, 2.0, trace, alignments, 4, 1
+    )
     near = data[0]
     expected_x1 = np.array(
         [
@@ -611,7 +613,7 @@ def test_curve_control_points_values() -> None:
 
 
 def test_bad_straight_line() -> None:
-    line = mesh.StraightLine(
+    line = mesh.straight_line(
         coordinates.Coord(0.0, 0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
         coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CYLINDRICAL),
     )
@@ -619,17 +621,17 @@ def test_bad_straight_line() -> None:
         _ = line([0.0, 0.5, 1.0])
 
 
-@given(from_type(mesh.StraightLine), floats(0.0, 1.0))
-def test_straight_line_between_termini(line: mesh.StraightLine, s: float) -> None:
+@given(from_type(mesh.straight_line), floats(0.0, 1.0))
+def test_straight_line_between_termini(line: mesh.straight_line, s: float) -> None:
     position = line(s).to_coord()
     for p, n, s in zip(position, line.north, line.south):
         xs = sorted([p, n, s])
         assert p == xs[1]
 
 
-@given(from_type(mesh.StraightLine), integers(-50, 100))
+@given(from_type(mesh.straight_line), integers(-50, 100))
 def test_straight_line_subdivision_len(
-    curve: mesh.StraightLine, divisions: int
+    curve: mesh.straight_line, divisions: int
 ) -> None:
     expected = max(1, divisions)
     divisions_iter = curve.subdivide(divisions)
@@ -639,8 +641,8 @@ def test_straight_line_subdivision_len(
         next(divisions_iter)
 
 
-@given(from_type(mesh.StraightLine), integers(-5, 100))
-def test_striaght_line_subdivision(curve: mesh.StraightLine, divisions: int) -> None:
+@given(from_type(mesh.straight_line), integers(-5, 100))
+def test_striaght_line_subdivision(curve: mesh.straight_line, divisions: int) -> None:
     divisions_iter = curve.subdivide(divisions)
     first = next(divisions_iter)
     coord = first(0.0)
@@ -1019,9 +1021,9 @@ def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
     reverse = draw(lists(booleans(), min_size=len(p.sides), max_size=len(p.sides)))
 
     def reverse_shape(q: mesh.Quad) -> mesh.Quad:
-        if isinstance(q.shape, mesh.StraightLineAcrossField):
+        if isinstance(q.shape, mesh.straight_line_across_field):
             return mesh.Quad(
-                mesh.StraightLineAcrossField(q.shape.south, q.shape.north),
+                mesh.straight_line_across_field(q.shape.south, q.shape.north),
                 q.field,
                 q.dx3,
                 q.subdivision,
@@ -1113,13 +1115,13 @@ def wedge_hex_profile(
         return polar_coords(r0 + (r1 - r0) * xr, theta0 + dtheta * xt)
 
     radials: list[mesh.AcrossFieldCurve] = [
-        mesh.StraightLineAcrossField(
+        mesh.straight_line_across_field(
             *polar_coords(
                 np.array([r0, r1]),
                 np.array(theta0 + dtheta),
             ).iter_points()
         ),
-        mesh.StraightLineAcrossField(
+        mesh.straight_line_across_field(
             *polar_coords(np.array([r0, r1]), np.array(theta0)).iter_points()
         ),
     ]
@@ -1184,20 +1186,20 @@ def make_symmetric_curved_prism(
     vertex = coordinates.SliceCoord(
         centre.x1 + perp[0] * height, centre.x2 + perp[1] * height, north.system
     )
-    expected = mesh.StraightLineAcrossField(centre, vertex)
+    expected = mesh.straight_line_across_field(centre, vertex)
     p = mesh.Prism(
         (
-            mesh.Quad(mesh.StraightLineAcrossField(north, south), tracer, 1),
+            mesh.Quad(mesh.straight_line_across_field(north, south), tracer, 1),
             mesh.Quad(
                 offset_straight_line(
-                    mesh.StraightLineAcrossField(north, vertex), distortion
+                    mesh.straight_line_across_field(north, vertex), distortion
                 ),
                 tracer,
                 1,
             ),
             mesh.Quad(
                 offset_straight_line(
-                    mesh.StraightLineAcrossField(south, vertex), -distortion
+                    mesh.straight_line_across_field(south, vertex), -distortion
                 ),
                 tracer,
                 1,
@@ -1255,7 +1257,7 @@ def test_mesh_layer_elements_no_offset(
 
 
 def get_corners(
-    shape: mesh.Prism | mesh.EndShape | mesh.Quad | mesh.NormalisedCurve,
+    shape: mesh.Prism | mesh.EndShape | mesh.Quad | mesh.Curve,
 ) -> coordinates.Coords:
     if isinstance(shape, (mesh.Prism, mesh.Quad, mesh.EndShape)):
         return shape.corners()
@@ -1444,7 +1446,7 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad] | list[mesh.Prism]) -
 
 @given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(
-    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.NormalisedCurve],
+    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.Curve],
 ) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
@@ -1547,7 +1549,7 @@ cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
 )
 def test_normalise_curved_field_line(
     trace: mesh.FieldTrace,
-    line: mesh.NormalisedCurve,
+    line: mesh.Curve,
     start: coordinates.SliceCoord,
     x3_start: float,
     dx3: float,

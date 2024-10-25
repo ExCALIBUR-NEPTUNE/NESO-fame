@@ -38,6 +38,7 @@ from neso_fame.coordinates import (
 from neso_fame.mesh import (
     B,
     C,
+    Curve,
     E,
     EndShape,
     FieldAlignedCurve,
@@ -45,7 +46,6 @@ from neso_fame.mesh import (
     GenericMesh,
     Mesh,
     MeshLayer,
-    NormalisedCurve,
     Prism,
     PrismMesh,
     PrismMeshLayer,
@@ -53,8 +53,8 @@ from neso_fame.mesh import (
     QuadMesh,
     QuadMeshLayer,
     Segment,
-    StraightLineAcrossField,
     control_points,
+    straight_line_across_field,
 )
 from neso_fame.offset import Offset
 
@@ -114,15 +114,13 @@ def comparable_nektar_point(geom: SD.PointGeom) -> Coord:
     return Coord(coords[0], coords[1], coords[2], CoordinateSystem.CARTESIAN)
 
 
-def comparable_curve(
-    curve: NormalisedCurve, order: int
-) -> ComparableDimensionalGeometry:
+def comparable_curve(curve: Curve, order: int) -> ComparableDimensionalGeometry:
     return SD.Curve.__name__, FrozenCoordSet(
         map(comparable_coord, control_points(curve, order).to_cartesian().iter_points())
     )
 
 
-def comparable_edge(curve: NormalisedCurve) -> ComparableDimensionalGeometry:
+def comparable_edge(curve: Curve) -> ComparableDimensionalGeometry:
     return SD.SegGeom.__name__, FrozenCoordSet(
         map(comparable_coord, control_points(curve, 1).to_cartesian().iter_points())
     )
@@ -408,7 +406,7 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, Segment, NormalisedCurve] | MeshLike[Prism, Quad, EndShape],
+    mesh: MeshLike[Quad, Segment, Curve] | MeshLike[Prism, Quad, EndShape],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -418,7 +416,7 @@ def check_edges(
         else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
-        mesh = cast(MeshLike[Quad, Segment, NormalisedCurve], mesh)
+        mesh = cast(MeshLike[Quad, Segment, Curve], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
@@ -465,10 +463,10 @@ def check_edges(
 
 
 def check_face_composites(
-    expected: Iterable[NormalisedCurve] | Iterable[EndShape], actual: SD.Composite
+    expected: Iterable[Curve] | Iterable[EndShape], actual: SD.Composite
 ) -> None:
     def comparable_item(
-        item: NormalisedCurve | EndShape,
+        item: Curve | EndShape,
     ) -> tuple[str, FrozenCoordSet[Coord]]:
         if isinstance(item, EndShape):
             if len(item.edges) == 4:
@@ -511,7 +509,7 @@ def check_elements(
 @settings(deadline=None)
 @given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, Segment, NormalisedCurve] | MeshLayer[Prism, Quad, EndShape],
+    mesh: MeshLayer[Quad, Segment, Curve] | MeshLayer[Prism, Quad, EndShape],
     order: int,
     layer: int,
     spatial_dim: int,
@@ -912,7 +910,7 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 
 
 QUAD = Quad(
-    StraightLineAcrossField(
+    straight_line_across_field(
         SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
         SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
     ),

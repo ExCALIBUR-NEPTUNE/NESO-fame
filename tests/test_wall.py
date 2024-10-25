@@ -20,7 +20,7 @@ from neso_fame.coordinates import (
     SliceCoords,
 )
 from neso_fame.mesh import (
-    StraightLineAcrossField,
+    straight_line_across_field,
 )
 from neso_fame.wall import (
     WallSegment,
@@ -213,7 +213,7 @@ def test_adjust_wall_resolution_register() -> None:
     _ = adjust_wall_resolution(wall, 1.0, register_segment=register_func)
     expected = [
         call(
-            StraightLineAcrossField(
+            straight_line_across_field(
                 SliceCoord(p1.R, p1.Z, CoordinateSystem.CYLINDRICAL),
                 SliceCoord(p2.R, p2.Z, CoordinateSystem.CYLINDRICAL),
             )

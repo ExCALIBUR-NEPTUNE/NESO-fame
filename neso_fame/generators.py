@@ -39,8 +39,8 @@ from neso_fame.mesh import (
     PrismMesh,
     Quad,
     QuadMesh,
-    StraightLineAcrossField,
     control_points,
+    straight_line_across_field,
 )
 from neso_fame.wall import (
     Connections,
@@ -98,7 +98,7 @@ def _get_vec(
 
 def _constrain_to_plain(
     field: FieldTrace,
-    shape: StraightLineAcrossField,
+    shape: straight_line_across_field,
     north_bound: BoundType,
     south_bound: BoundType,
 ) -> FieldTrace:
@@ -231,7 +231,7 @@ def field_aligned_2d(
         connectivity = _ordered_connectivity(num_nodes)
 
     def make_quad(node1: int, node2: int) -> Quad:
-        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
+        shape = straight_line_across_field(lower_dim_mesh[node1], lower_dim_mesh[node2])
         north_bound = node1 in (0, num_nodes - 1) and conform_to_bounds
         south_bound = node2 in (0, num_nodes - 1) and conform_to_bounds
         return Quad(
@@ -399,7 +399,7 @@ def field_aligned_3d(
 
     @cache
     def make_quad(node1: Index, node2: Index) -> Quad:
-        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
+        shape = straight_line_across_field(lower_dim_mesh[node1], lower_dim_mesh[node2])
         if conform_to_bounds:
             north_bound = boundary_nodes.get(node1, False)
             south_bound = boundary_nodes.get(node2, False)
@@ -834,6 +834,7 @@ def _validate_wall_elements(
     changed to prevent self-intersecting elements.
 
     """
+    # FIXME: My refactor of how I represent meshes will mean I pretty much need to rewrite this.
     # TODO: Should I validate internal elements too? If I flatten one
     # then that could end up makign a further element invalid, which
     # sounds unpleasant to have to deal with...
@@ -852,6 +853,8 @@ def _validate_wall_elements(
         # Try merging with adjacent triangles (which haven't already
         # been merged with another element, which would remove them
         # from new_elements)
+
+        # FIXME: Will need to change how I map faces to elements; just use pairs of points?
         merge_candidates = frozenset(
             item
             for item in itertools.chain.from_iterable(
@@ -1056,6 +1059,7 @@ def hypnotoad_mesh(
         )
         if corners_within_vessel(corners)
     ]
+    # Probably more efficient just to iterate over inner regions
     if mesh_to_core:
         core_elements = list(
             itertools.starmap(
@@ -1069,7 +1073,10 @@ def hypnotoad_mesh(
         inner_bounds = frozenset(factory.innermost_quads())
     if mesh_to_wall:
         # FIXME: Not capturing the curves of the outermost hypnotoad quads now, for some reason.
+
+        # FIXME: Assemble coordinate pairs and mapping between these pairs and the list of Coords defining the curve
         plasma_points = [tuple(p) for p in factory.outermost_vertices()]
+        # FIXME: Assemble list of Coords (one for each wall segment) and also coordinate pairs?
         if wall_resolution is not None:
             target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
             wall: list[Point2D] = adjust_wall_resolution(
@@ -1095,17 +1102,6 @@ def hypnotoad_mesh(
             + list(periodic_pairwise(iter(range(n, n + len(plasma_points)))))
         )
         info.set_holes([tuple(hypnotoad_poloidal_mesh.equilibrium.o_point)])
-        # It may be worth adding the option to start merging quads
-        # with a really weird aspect ratio (i.e, leading away from the
-        # x-point towards the centre). When aspect ratio of two of
-        # them gets too high, create a triangle. Would need to be
-        # careful about direction though. Would this also be useful
-        # around seperatrix? Want some increase resolution there, but
-        # not necessarily too much. Might a mapping between
-        # hypntoad-generate points and FAME elements be useful here?
-        # Or maybe I can extend _element_corners to be able to do
-        # this? Might also be good to reduce perpendicular resolution
-        # in PFR. Try tracing out from x-points? Quite hard to coordinate.
         wall_mesh = triangle.build(
             info, allow_volume_steiner=True, allow_boundary_steiner=False
         )
@@ -1115,6 +1111,7 @@ def hypnotoad_mesh(
             wall_mesh_points[:, 0], wall_mesh_points[:, 1], system
         )
         initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
+        # FIXME: Take coordinate pairs, check if either of them correspond to curves and use those or else just use the pair. If any of the pairs are from the wall, create a boundary item as well.
         initial_wall_elements, initial_outer_bounds = reduce(
             lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
             (

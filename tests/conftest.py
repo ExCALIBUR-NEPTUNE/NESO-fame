@@ -177,12 +177,12 @@ num_divs = shared(integers(1, 10), key=999)
 
 def straight_line_for_system(
     system: coordinates.CoordinateSystem,
-) -> SearchStrategy[mesh.StraightLine]:
+) -> SearchStrategy[mesh.straight_line]:
     coords = builds(
         coordinates.Coord, whole_numbers, whole_numbers, whole_numbers, just(system)
     )
     return builds(
-        mesh.StraightLine,
+        mesh.straight_line,
         coords,
         coords,
         num_divs.flatmap(lambda n: integers(0, n - 1)),
@@ -191,7 +191,7 @@ def straight_line_for_system(
 
 
 register_type_strategy(
-    mesh.StraightLine,
+    mesh.straight_line,
     coordinate_systems.flatmap(straight_line_for_system),
 )
 
@@ -272,7 +272,7 @@ def linear_field_line(
     c: coordinates.CoordinateSystem,
     skew: float,
     centre: Pair,
-) -> mesh.NormalisedCurve:
+) -> mesh.Curve:
     offset = np.sqrt((b1 - centre[0]) ** 2 + (b2 - centre[1]) ** 2)
 
     def linear_func(x: npt.ArrayLike) -> coordinates.Coords:
@@ -309,7 +309,7 @@ def trapezoidal_quad(
         starts[0][0] * starts[1][0] <= 0.0
     ):
         return None
-    shape = mesh.StraightLineAcrossField(
+    shape = mesh.straight_line_across_field(
         coordinates.SliceCoord(starts[0][0], starts[0][1], c),
         coordinates.SliceCoord(starts[1][0], starts[1][1], c),
     )
@@ -341,8 +341,8 @@ def end_quad(
         sorted_corners[2:4], key=operator.itemgetter(0), reverse=True
     )
 
-    def make_line(point1: Pair, point2: Pair) -> mesh.StraightLine:
-        return mesh.StraightLine(
+    def make_line(point1: Pair, point2: Pair) -> mesh.straight_line:
+        return mesh.straight_line(
             coordinates.Coord(point1[0], point1[1], x3, c),
             coordinates.Coord(point2[0], point2[1], x3, c),
         )
@@ -365,8 +365,8 @@ def end_triangle(
     ):
         return None
 
-    def make_line(point1: Pair, point2: Pair) -> mesh.StraightLine:
-        return mesh.StraightLine(
+    def make_line(point1: Pair, point2: Pair) -> mesh.straight_line:
+        return mesh.straight_line(
             coordinates.Coord(point1[0], point1[1], x3, c),
             coordinates.Coord(point2[0], point2[1], x3, c),
         )
@@ -414,7 +414,7 @@ def trapezohedronal_hex(
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.StraightLineAcrossField(
+        shape = mesh.straight_line_across_field(
             coordinates.SliceCoord(point1[0], point1[1], c),
             coordinates.SliceCoord(point2[0], point2[1], c),
         )
@@ -473,7 +473,7 @@ def simple_prism(
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.StraightLineAcrossField(
+        shape = mesh.straight_line_across_field(
             coordinates.SliceCoord(point1[0], point1[1], c),
             coordinates.SliceCoord(point2[0], point2[1], c),
         )
@@ -529,7 +529,7 @@ def cylindrical_field_line(
     x2_slope: float,
     x3_limits: Pair,
     system: coordinates.CoordinateSystem,
-) -> mesh.NormalisedCurve:
+) -> mesh.Curve:
     assert system in CARTESIAN_SYSTEMS
     rad = x1_start - centre
     half_x3_sep = 0.5 * (x3_limits[1] - x3_limits[0])
@@ -561,7 +561,7 @@ def curved_quad(
     offset: float,
 ) -> mesh.Quad:
     trace = cylindrical_field_trace(centre, x2_slope)
-    shape = mesh.StraightLineAcrossField(
+    shape = mesh.straight_line_across_field(
         coordinates.SliceCoord(x1_start[0], x2_centre, system),
         coordinates.SliceCoord(x1_start[1], x2_centre, system),
     )
@@ -598,7 +598,7 @@ def curved_hex(
     trace = cylindrical_field_trace(centre, x2_slope)
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.StraightLineAcrossField(
+        shape = mesh.straight_line_across_field(
             coordinates.SliceCoord(point1[0], point1[1], system),
             coordinates.SliceCoord(point2[0], point2[1], system),
         )
@@ -648,7 +648,7 @@ def curved_prism(
     trace = cylindrical_field_trace(centre, x2_slope)
 
     def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.StraightLineAcrossField(
+        shape = mesh.straight_line_across_field(
             coordinates.SliceCoord(point1[0], point1[1], system),
             coordinates.SliceCoord(point2[0], point2[1], system),
         )
@@ -703,7 +703,7 @@ def make_arc(
 
 
 def offset_straight_line(
-    line: mesh.StraightLineAcrossField, magnitude: float
+    line: mesh.straight_line_across_field, magnitude: float
 ) -> mesh.AcrossFieldCurve:
     if magnitude == 0:
         return line
@@ -789,7 +789,7 @@ def _quad_mesh_elements(
         return None
 
     def make_shape(starts: tuple[Pair, Pair]) -> mesh.AcrossFieldCurve:
-        return mesh.StraightLineAcrossField(
+        return mesh.straight_line_across_field(
             coordinates.SliceCoord(starts[0][0], starts[0][1], c),
             coordinates.SliceCoord(starts[1][0], starts[1][1], c),
         )
@@ -858,7 +858,7 @@ def _hex_mesh_arguments(
         return None
 
     def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
-        return mesh.StraightLineAcrossField(
+        return mesh.straight_line_across_field(
             coordinates.SliceCoord(start[0], start[1], c),
             coordinates.SliceCoord(end[0], end[1], c),
         )
@@ -966,7 +966,7 @@ def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
     point1 = next(iter(s1 - s2))
     point2 = next(iter(s2 - s1))
     return mesh.Quad(
-        mesh.StraightLineAcrossField(point1, point2),
+        mesh.straight_line_across_field(point1, point2),
         q1.field,
         q1.dx3,
         q1.subdivision,
@@ -1114,11 +1114,11 @@ slice_coord_pair = cast(
     frozensets(common_slice_coords, min_size=2, max_size=2).map(tuple),
 )
 register_type_strategy(
-    mesh.StraightLineAcrossField,
-    slice_coord_pair.map(lambda x: mesh.StraightLineAcrossField(*x)),
+    mesh.straight_line_across_field,
+    slice_coord_pair.map(lambda x: mesh.straight_line_across_field(*x)),
 )
 across_field_curves = builds(
-    offset_straight_line, from_type(mesh.StraightLineAcrossField), floats(-0.5, 0.5)
+    offset_straight_line, from_type(mesh.straight_line_across_field), floats(-0.5, 0.5)
 )
 segments: SearchStrategy[mesh.Segment] = one_of(
     (
@@ -1469,13 +1469,17 @@ register_type_strategy(
 
 
 def simple_trace(
-    start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-) -> tuple[coordinates.SliceCoords, npt.NDArray]:
+    start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+) -> tuple[mesh.SliceCoords, npt.NDArray]:
+    """Return the start-position.
+
+    This is a dummy-implementation of a :class:`~neso_fame.mesh.FieldTrace`.
+    """
     return (
-        coordinates.SliceCoords(
+        mesh.SliceCoords(
             np.full_like(x3, start.x1),
             np.full_like(x3, start.x2),
-            coordinates.CoordinateSystem.CARTESIAN,
+            mesh.CoordinateSystem.CARTESIAN,
         ),
         np.asarray(x3),
     )

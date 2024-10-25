@@ -461,6 +461,7 @@ def hypnotoad(
     options = yaml.safe_load(config)
     if options is None:
         options = {}
+    # Multiply the number of elements in each direction by the order
     if not isinstance(options, dict):
         raise RuntimeError("Hypnotoad YAML file must contain a dictionary.")
     print(f"Reading G-EQDSK from {geqdsk} and constructing equilibrium...")
@@ -495,14 +496,12 @@ def hypnotoad(
             raise NotImplementedError(
                 "Currently only Nektar++ format supported for 3D meshes."
             )
-        write_nektar(
-            mesh, order, meshfile, 3, True, periodic, out_format.startswith("z")
-        )
+        write_nektar(mesh, meshfile, 3, True, periodic, out_format.startswith("z"))
     else:
         if out_format in ["nektar", "znektar"]:
-            write_nektar_poloidal(mesh, order, meshfile, out_format.startswith("z"))
+            write_nektar_poloidal(mesh, meshfile, out_format.startswith("z"))
         else:
-            write_meshio_poloidal(mesh, order, meshfile, out_format)
+            write_meshio_poloidal(mesh, meshfile, out_format)
     # with open(meshfile, "a") as f:
     #     # FIXME: How to make these comments work across all formats?
     #     f.write(_mesh_provenance())

@@ -33,7 +33,7 @@ from neso_fame.mesh import (
     FieldTracer,
     Prism,
     Quad,
-    StraightLineAcrossField,
+    straight_line_across_field,
 )
 
 
@@ -483,7 +483,7 @@ class ElementBuilder:
         # aligned but then there would be no guarantee that the centre
         # would remain within the walls.
         q = Quad(
-            StraightLineAcrossField(north, south),
+            straight_line_across_field(north, south),
             self._tracer,
             self._dx3,
             north_start_weight=self._vertex_start_weights.get(north, 1.0),

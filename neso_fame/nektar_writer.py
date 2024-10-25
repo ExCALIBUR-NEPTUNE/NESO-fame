@@ -9,20 +9,21 @@ from typing import Optional, cast
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
-import numpy as np
-import numpy.typing as npt
 
-from neso_fame.coordinates import Coord, Coords, coord_cache
+from neso_fame.coordinates import Coord, coord_cache
 
 from .mesh import (
-    EndShape,
+    Curve,
+    FieldAlignedCurve,
     Mesh,
     MeshLayer,
-    NormalisedCurve,
     Prism,
     PrismMesh,
+    PrismTypes,
     Quad,
+    UnalignedShape,
     control_points,
+    order,
 )
 
 UNSET_ID = -1
@@ -271,7 +272,7 @@ def _nektar_curve(
 
 
 def nektar_curve(
-    curve: NormalisedCurve | Quad, order: int, spatial_dim: int, layer_id: int
+    curve: Curve | FieldAlignedCurve | Quad, spatial_dim: int, layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
     """Return a Nektar++ Curve object and its start and end points.
 
@@ -289,7 +290,7 @@ def nektar_curve(
     """
     points = tuple(
         nektar_point(coord, spatial_dim, layer_id)
-        for coord in control_points(curve, order).iter_points()
+        for coord in control_points(curve).iter_points()
     )
     return _nektar_curve(points, layer_id)
 
@@ -304,7 +305,7 @@ def _nektar_edge(
 
 
 def nektar_edge(
-    curve: NormalisedCurve, order: int, spatial_dim: int, layer_id: int
+    curve: Curve | FieldAlignedCurve, spatial_dim: int, layer_id: int
 ) -> tuple[SD.SegGeom, tuple[SD.PointGeom, SD.PointGeom]]:
     """Return a Nektar++ SegGeom representing the curve to the specified order.
 
@@ -320,11 +321,11 @@ def nektar_edge(
     factory
 
     """
-    if order > 1:
-        nek_curve, termini = nektar_curve(curve, order, spatial_dim, layer_id)
+    if order(curve) > 1:
+        nek_curve, termini = nektar_curve(curve, spatial_dim, layer_id)
     else:
         nek_curve = None
-        end_points = control_points(curve, 1)
+        end_points = control_points(curve)
         termini = (
             nektar_point(end_points[0], spatial_dim, layer_id),
             nektar_point(end_points[1], spatial_dim, layer_id),
@@ -361,9 +362,7 @@ def _nektar_quad(
         return SD.QuadGeom(_face_count, list(edges))
 
 
-def nektar_quad(
-    quad: Quad, order: int, spatial_dim: int, layer_id: int
-) -> Nektar2dGeomElements:
+def nektar_quad(quad: Quad, spatial_dim: int, layer_id: int) -> Nektar2dGeomElements:
     """Return a Nektar++ QuadGeom object and its constituents.
 
     Curved quads will be represented to the given order of
@@ -378,8 +377,8 @@ def nektar_quad(
     factory
 
     """
-    north, north_termini = nektar_edge(quad.north, order, spatial_dim, layer_id)
-    south, south_termini = nektar_edge(quad.south, order, spatial_dim, layer_id)
+    north, north_termini = nektar_edge(quad.north, spatial_dim, layer_id)
+    south, south_termini = nektar_edge(quad.south, spatial_dim, layer_id)
     edges = (
         north,
         # FIXME: Althoug this SHOULD return the same edge object for
@@ -387,21 +386,21 @@ def nektar_quad(
         # calculated twice (albeit in different ways)? Isn't even
         # great as a sanity-check, as it will fail silently. (Need to
         # check implementation)
-        nektar_edge(quad.near, order, spatial_dim, layer_id)[0],
+        nektar_edge(quad.near, spatial_dim, layer_id)[0],
         south,
-        nektar_edge(quad.far, order, spatial_dim, layer_id)[0],
+        nektar_edge(quad.far, spatial_dim, layer_id)[0],
     )
     points = frozenset(north_termini + south_termini)
     # FIXME: Pretty sure I should refactor so I can get curved surfaces for end quads
-    if order > 1:
-        curve, _ = nektar_curve(quad, order, spatial_dim, layer_id)
+    if order(quad) > 1:
+        curve, _ = nektar_curve(quad, spatial_dim, layer_id)
     else:
         curve = None
     nek_quad = _nektar_quad(edges, curve)
     return (frozenset({nek_quad}), frozenset(edges), points)
 
 
-def poloidal_curve(q: Quad) -> NormalisedCurve:
+def poloidal_curve(q: Quad) -> Curve:
     """Get the curve this quad makes where it intersects the poloidal plane.
 
     The result will be suitable for conversion to a Nektar++ edge object.
@@ -411,18 +410,11 @@ def poloidal_curve(q: Quad) -> NormalisedCurve:
     factory
 
     """
-
-    def wrapper(s: npt.ArrayLike) -> Coords:
-        slice_coord = q.shape(s)
-        return Coords(
-            slice_coord.x1, slice_coord.x2, np.zeros_like(s), slice_coord.system
-        )
-
-    return wrapper
+    return Curve(q.nodes.start_points.to_3d_coords(0.0))
 
 
 def nektar_poloidal_face(
-    solid: Prism, order: int, spatial_dim: int, layer_id: int
+    solid: Prism, spatial_dim: int, layer_id: int
 ) -> Nektar2dGeomElements:
     """Return a 2D geometry representing the poloidal cross-section of the element.
 
@@ -438,33 +430,34 @@ def nektar_poloidal_face(
     factory
 
     """
-    if len(solid.sides) == 3:
+    sides = list(solid)
+    if solid.shape == PrismTypes.TRIANGULAR:
         north, north_termini = nektar_edge(
-            poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id
+            poloidal_curve(sides[0]), spatial_dim, layer_id
         )
         east, east_termini = nektar_edge(
-            poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id
+            poloidal_curve(sides[1]), spatial_dim, layer_id
         )
         south, south_termini = nektar_edge(
-            poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id
+            poloidal_curve(sides[2]), spatial_dim, layer_id
         )
         points = frozenset(north_termini + south_termini + east_termini)
         if len(points) != 3:
             raise RuntimeError("Ill-formed triangle; edges do not join into 3 corners")
         edges: tuple[SD.SegGeom, ...] = (north, east, south)
         nek_shape: SD.Geometry2D = _nektar_triangle(edges, None)
-    elif len(solid.sides) == 4:
+    elif solid.shape == PrismTypes.RECTANGULAR:
         north, north_termini = nektar_edge(
-            poloidal_curve(solid.sides[0]), order, spatial_dim, layer_id
+            poloidal_curve(sides[0]), spatial_dim, layer_id
         )
         south, south_termini = nektar_edge(
-            poloidal_curve(solid.sides[1]), order, spatial_dim, layer_id
+            poloidal_curve(sides[1]), spatial_dim, layer_id
         )
         east, east_termini = nektar_edge(
-            poloidal_curve(solid.sides[2]), order, spatial_dim, layer_id
+            poloidal_curve(sides[2]), spatial_dim, layer_id
         )
         west, west_termini = nektar_edge(
-            poloidal_curve(solid.sides[3]), order, spatial_dim, layer_id
+            poloidal_curve(sides[3]), spatial_dim, layer_id
         )
         points = frozenset(north_termini + south_termini + east_termini + west_termini)
         if len(points) != 4:
@@ -472,12 +465,12 @@ def nektar_poloidal_face(
         edges = (north, east, south, west)
         nek_shape = _nektar_quad(edges, None)
     else:
-        raise ValueError(f"Can not handle shape with {len(solid.sides)} sides.")
+        raise ValueError(f"Can not handle unknown shape {solid.shape}.")
     return frozenset({nek_shape}), frozenset(edges), points
 
 
 def nektar_end_shape(
-    shape: EndShape, order: int, spatial_dim: int, layer_id: int
+    shape: UnalignedShape, spatial_dim: int, layer_id: int
 ) -> Nektar2dGeomElements:
     """Return a Nektar++ QuadGeom or TriGeom object and its constituents.
 
@@ -492,32 +485,33 @@ def nektar_end_shape(
     factory
 
     """
-    if len(shape.edges) == 3:
-        north, north_termini = nektar_edge(shape.edges[0], order, spatial_dim, layer_id)
-        east, east_termini = nektar_edge(shape.edges[1], order, spatial_dim, layer_id)
-        south, south_termini = nektar_edge(shape.edges[2], order, spatial_dim, layer_id)
+    sides = list(shape)
+    if shape.shape == PrismTypes.TRIANGULAR:
+        north, north_termini = nektar_edge(sides[0], spatial_dim, layer_id)
+        east, east_termini = nektar_edge(sides[1], spatial_dim, layer_id)
+        south, south_termini = nektar_edge(sides[2], spatial_dim, layer_id)
         points = frozenset(north_termini + south_termini + east_termini)
         if len(points) != 3:
             raise RuntimeError("Ill-formed triangle; edges do not join into 3 corners")
         edges: tuple[SD.SegGeom, ...] = (north, east, south)
         nek_shape: SD.Geometry2D = _nektar_triangle(edges, None)
-    elif len(shape.edges) == 4:
-        north, north_termini = nektar_edge(shape.edges[0], order, spatial_dim, layer_id)
-        south, south_termini = nektar_edge(shape.edges[1], order, spatial_dim, layer_id)
-        east, east_termini = nektar_edge(shape.edges[2], order, spatial_dim, layer_id)
-        west, west_termini = nektar_edge(shape.edges[3], order, spatial_dim, layer_id)
+    elif shape.shape == PrismTypes.RECTANGULAR:
+        north, north_termini = nektar_edge(sides[0], spatial_dim, layer_id)
+        south, south_termini = nektar_edge(sides[1], spatial_dim, layer_id)
+        east, east_termini = nektar_edge(sides[2], spatial_dim, layer_id)
+        west, west_termini = nektar_edge(sides[3], spatial_dim, layer_id)
         points = frozenset(north_termini + south_termini + east_termini + west_termini)
         if len(points) != 4:
             raise RuntimeError("Ill-formed quad; edges do not join into 4 corners")
         edges = (north, east, south, west)
         nek_shape = _nektar_quad(edges, None)
     else:
-        raise ValueError(f"Can not handle shape with {len(shape.edges)} sides.")
+        raise ValueError(f"Can not handle unkown shape {shape.shape} sides.")
     return frozenset({nek_shape}), frozenset(edges), points
 
 
 def _nektar_hexahedron(
-    solid: Prism, order: int, spatial_dim: int, layer_id: int
+    solid: Prism, spatial_dim: int, layer_id: int
 ) -> Nektar3dGeomElements:
     """Return a Nektar++ HexGeom object and its components.
 
@@ -539,13 +533,14 @@ def _nektar_hexahedron(
     # Be careful with order of faces; needs to be bottom, vertical
     # faces, then top (although actual oreintation in space is
     # irrelevant)
+    sides = list(solid)
     ordered_sides = [
-        nektar_end_shape(solid.near, order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[3], order, spatial_dim, layer_id),
-        nektar_end_shape(solid.far, order, spatial_dim, layer_id),
+        nektar_end_shape(solid.near, spatial_dim, layer_id),
+        nektar_quad(sides[0], spatial_dim, layer_id),
+        nektar_quad(sides[2], spatial_dim, layer_id),
+        nektar_quad(sides[1], spatial_dim, layer_id),
+        nektar_quad(sides[3], spatial_dim, layer_id),
+        nektar_end_shape(solid.far, spatial_dim, layer_id),
     ]
     faces, segments, points = reduce(
         _combine_2d_items_ordered,
@@ -559,7 +554,7 @@ def _nektar_hexahedron(
 
 
 def _nektar_prism(
-    solid: Prism, order: int, spatial_dim: int, layer_id: int
+    solid: Prism, spatial_dim: int, layer_id: int
 ) -> Nektar3dGeomElements:
     """Return a Nektar++ PrismGeom object and its components.
 
@@ -578,12 +573,13 @@ def _nektar_prism(
         frozenset(),
         frozenset(),
     )
+    sides = list(solid)
     ordered_sides = [
-        nektar_quad(solid.sides[0], order, spatial_dim, layer_id),
-        nektar_end_shape(solid.near, order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[1], order, spatial_dim, layer_id),
-        nektar_end_shape(solid.far, order, spatial_dim, layer_id),
-        nektar_quad(solid.sides[2], order, spatial_dim, layer_id),
+        nektar_quad(sides[0], spatial_dim, layer_id),
+        nektar_end_shape(solid.near, spatial_dim, layer_id),
+        nektar_quad(sides[1], spatial_dim, layer_id),
+        nektar_end_shape(solid.far, spatial_dim, layer_id),
+        nektar_quad(sides[2], spatial_dim, layer_id),
     ]
     faces, segments, points = reduce(
         _combine_2d_items_ordered,
@@ -599,7 +595,7 @@ def _nektar_prism(
 # once anyway.
 @cache
 def nektar_3d_element(
-    solid: Prism, order: int, spatial_dim: int, layer_id: int
+    solid: Prism, spatial_dim: int, layer_id: int
 ) -> Nektar3dGeomElements:
     """Return a Nektar++ HexGeom or PrismGeom object and its components.
 
@@ -613,14 +609,12 @@ def nektar_3d_element(
     factory
 
     """
-    if len(solid.sides) == 4:
-        return _nektar_hexahedron(solid, order, spatial_dim, layer_id)
-    elif len(solid.sides) == 3:
-        return _nektar_prism(solid, order, spatial_dim, layer_id)
+    if solid.shape == PrismTypes.RECTANGULAR:
+        return _nektar_hexahedron(solid, spatial_dim, layer_id)
+    elif solid.shape == PrismTypes.TRIANGULAR:
+        return _nektar_prism(solid, spatial_dim, layer_id)
     else:
-        raise ValueError(
-            f"Element with {len(solid.sides)} quadrilateral faces is not recognized."
-        )
+        raise ValueError(f"Unrecognized element shape {solid.shape}.")
 
 
 def _combine_2d_items(
@@ -653,7 +647,7 @@ def _combine_3d_items(
 
 
 def nektar_layer_elements(
-    layer: MeshLayer, order: int, spatial_dim: int, layer_id: int
+    layer: MeshLayer, spatial_dim: int, layer_id: int
 ) -> NektarLayer:
     """Create all Nektar++ objects needed to represent a layer of a mesh.
 
@@ -667,31 +661,29 @@ def nektar_layer_elements(
     if issubclass(layer.element_type, Quad):
         elements, edges, points = reduce(
             _combine_2d_items,
-            (nektar_quad(elem, order, spatial_dim, layer_id) for elem in elems),
+            (nektar_quad(elem, spatial_dim, layer_id) for elem in elems),
         )
 
         def make_face(
-            item: NormalisedCurve | EndShape | Quad,
+            item: Curve | UnalignedShape | Quad,
         ) -> SD.SegGeom | SD.Geometry2D:
-            assert not isinstance(item, (Quad, EndShape))
-            return nektar_edge(item, order, spatial_dim, layer_id)[0]
+            assert not isinstance(item, (Quad, UnalignedShape))
+            return nektar_edge(item, spatial_dim, layer_id)[0]
 
     else:
         elements, faces, edges, points = reduce(
             _combine_3d_items,
-            (nektar_3d_element(elem, order, spatial_dim, layer_id) for elem in elems),
+            (nektar_3d_element(elem, spatial_dim, layer_id) for elem in elems),
         )
 
         def make_face(
-            item: NormalisedCurve | EndShape | Quad,
+            item: Curve | UnalignedShape | Quad,
         ) -> SD.SegGeom | SD.Geometry2D:
-            assert isinstance(item, (Quad, EndShape))
+            assert isinstance(item, (Quad, UnalignedShape))
             if isinstance(item, Quad):
-                return next(iter(nektar_quad(item, order, spatial_dim, layer_id)[0]))
+                return next(iter(nektar_quad(item, spatial_dim, layer_id)[0]))
             else:
-                return next(
-                    iter(nektar_end_shape(item, order, spatial_dim, layer_id)[0])
-                )
+                return next(iter(nektar_end_shape(item, spatial_dim, layer_id)[0]))
 
     def type_name(element: SD.Geometry) -> str:
         return element.__class__.__name__
@@ -732,7 +724,7 @@ def _enumerate_layers(layers: Iterable[MeshLayer]) -> Iterator[tuple[int, MeshLa
         yield i, ly
 
 
-def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
+def nektar_elements(mesh: Mesh, spatial_dim: int) -> NektarElements:
     """Create a collection of Nektar++ objects representing the mesh.
 
     Group
@@ -742,13 +734,13 @@ def nektar_elements(mesh: Mesh, order: int, spatial_dim: int) -> NektarElements:
     print("Converting FAME mesh to NekPy objects")
     return NektarElements(
         [
-            nektar_layer_elements(cast(MeshLayer, layer), order, spatial_dim, i)
+            nektar_layer_elements(cast(MeshLayer, layer), spatial_dim, i)
             for i, layer in _enumerate_layers(mesh.layers())
         ]
     )
 
 
-def nektar_poloidal_elements(mesh: PrismMesh, order: int) -> NektarElements:
+def nektar_poloidal_elements(mesh: PrismMesh) -> NektarElements:
     """Create Nektar++ objects for the intersection of the mesh with the poloidal plane.
 
     This can be useful for visualising the underlying mesh from which
@@ -766,13 +758,13 @@ def nektar_poloidal_elements(mesh: PrismMesh, order: int) -> NektarElements:
     elements: frozenset[SD.Geometry2D]
     elements, edges, points = reduce(
         _combine_2d_items,
-        (nektar_poloidal_face(elem, order, 3, 0) for elem in elems),
+        (nektar_poloidal_face(elem, 3, 0) for elem in elems),
     )
 
     def make_face(
         item: Quad,
     ) -> SD.SegGeom:
-        return nektar_edge(poloidal_curve(item), order, 3, 0)[0]
+        return nektar_edge(poloidal_curve(item), 3, 0)[0]
 
     def type_name(element: SD.Geometry) -> str:
         return element.__class__.__name__
@@ -991,7 +983,6 @@ def nektar_mesh(
 
 def write_nektar(
     mesh: Mesh,
-    order: int,
     filename: str,
     spatial_dim: int = 3,
     write_movement: bool = True,
@@ -1004,8 +995,6 @@ def write_nektar(
     ----------
     mesh
         The mesh to be converted to Nektar++ format.
-    order
-        The order to use when representing the elements of the mesh.
     filename
         The name of the file to write the mesh to. Should use the
         ``.xml`` extension.
@@ -1032,7 +1021,7 @@ def write_nektar(
             f"Spatial dimension ({spatial_dim}) must be at least equal to mesh "
             f"dimension ({mesh_dim})"
         )
-    nek_elements = nektar_elements(mesh, order, spatial_dim)
+    nek_elements = nektar_elements(mesh, spatial_dim)
     nek_mesh = nektar_mesh(
         nek_elements,
         mesh_dim,
@@ -1047,7 +1036,6 @@ def write_nektar(
 
 def write_poloidal_mesh(
     mesh: PrismMesh,
-    order: int,
     filename: str,
     compressed: bool = True,
 ) -> None:
@@ -1059,8 +1047,6 @@ def write_poloidal_mesh(
     ----------
     mesh
         The mesh to be converted to Nektar++ format.
-    order
-        The order to use when representing the elements of the mesh.
     filename
         The name of the file to write the mesh to. Should use the
         ``.xml`` extension.
@@ -1072,7 +1058,7 @@ def write_poloidal_mesh(
     public nektar
 
     """
-    nek_elements = nektar_poloidal_elements(mesh, order)
+    nek_elements = nektar_poloidal_elements(mesh)
     # FIXME: Because poloidal mesh is projected onto X-Z plane,
     # outputting with spatial dimension == 2 does not work. However,
     # using spatial dimension == 3 means we can't check for Jacobians

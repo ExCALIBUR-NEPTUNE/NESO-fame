@@ -36,7 +36,7 @@ from neso_fame.element_builder import ElementBuilder
 from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
     FieldTracer,
-    StraightLineAcrossField,
+    straight_line_across_field,
 )
 
 from .conftest import simple_trace
@@ -560,7 +560,7 @@ def test_make_wall_quad(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
-    shape = StraightLineAcrossField(*points)
+    shape = straight_line_across_field(*points)
     q1 = builder.make_wall_quad_for_prism(shape)
     assert q1.shape is shape
     p1, p2 = shape([1.0, 0.0]).iter_points()
@@ -584,7 +584,7 @@ def test_make_wall_quad_caching(
 ) -> None:
     trace = FieldTracer(simple_trace, interp_resolution)
     builder = ElementBuilder(mesh, trace, dx3, EMPTY_MAP)
-    shape = StraightLineAcrossField(*points)
+    shape = straight_line_across_field(*points)
     q1 = builder.make_wall_quad_for_prism(shape)
     q2 = builder.make_wall_quad_for_prism(shape)
     assert q1 is q2
@@ -754,11 +754,11 @@ BUILDER_UNFINISHED = ElementBuilder(
 with (
     patch(
         "neso_fame.element_builder.flux_surface_edge",
-        lambda _, north, south: StraightLineAcrossField(north, south),
+        lambda _, north, south: straight_line_across_field(north, south),
     ),
     patch(
         "neso_fame.element_builder.perpendicular_edge",
-        lambda _, north, south: StraightLineAcrossField(north, south),
+        lambda _, north, south: straight_line_across_field(north, south),
     ),
 ):
     # Create a square mesh with a hole in the middle
@@ -927,11 +927,11 @@ def test_unfinished_vertices_between_different_fragments(
 
 @patch(
     "neso_fame.element_builder.flux_surface_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
+    lambda _, north, south: straight_line_across_field(north, south),
 )
 @patch(
     "neso_fame.element_builder.perpendicular_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
+    lambda _, north, south: straight_line_across_field(north, south),
 )
 def test_complex_outermost_vertices() -> None:
     # Leave out a few elements to test a more complex shape of the outermost edges

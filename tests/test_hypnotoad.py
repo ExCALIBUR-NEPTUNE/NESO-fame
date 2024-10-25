@@ -49,7 +49,7 @@ from neso_fame.hypnotoad_interface import (
 from neso_fame.mesh import (
     FieldTracer,
     Quad,
-    StraightLineAcrossField,
+    straight_line_across_field,
 )
 
 from .conftest import simple_trace, whole_numbers
@@ -1058,7 +1058,7 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
+            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
     for points in get_region_flux_surface_boundary_points(region):
@@ -1076,7 +1076,7 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), dx3
+            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), dx3
         )
 
     for points in get_region_perpendicular_boundary_points(region):
@@ -1175,7 +1175,7 @@ def test_region_bounds(
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            StraightLineAcrossField(north, south), FieldTracer(simple_trace, 2), 1.0
+            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), 1.0
         )
 
     mesh = to_mesh(mesh_args)

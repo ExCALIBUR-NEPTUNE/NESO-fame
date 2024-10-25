@@ -8,7 +8,7 @@ import yaml
 from click.testing import CliRunner
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
 
-from neso_fame.mesh import StraightLineAcrossField
+from neso_fame.mesh import straight_line_across_field
 from neso_fame.scripts import hypnotoad, simple
 from tests.conftest import simple_trace
 from tests.test_hypnotoad import CONNECTED_DOUBLE_NULL, LOWER_SINGLE_NULL, eqdsk_data
@@ -435,11 +435,11 @@ def test_tokamak_field() -> None:
 )
 @patch(
     "neso_fame.element_builder.flux_surface_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
+    lambda _, north, south: straight_line_across_field(north, south),
 )
 @patch(
     "neso_fame.element_builder.perpendicular_edge",
-    lambda _, north, south: StraightLineAcrossField(north, south),
+    lambda _, north, south: straight_line_across_field(north, south),
 )
 @pytest.mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
 @pytest.mark.filterwarnings("ignore:invalid value encountered in divide")

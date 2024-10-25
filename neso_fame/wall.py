@@ -25,7 +25,7 @@ from neso_fame.coordinates import (
 from neso_fame.mesh import (
     AcrossFieldCurve,
     Quad,
-    StraightLineAcrossField,
+    straight_line_across_field,
 )
 
 
@@ -204,18 +204,17 @@ def _make_element_shape(
     Z_interp: Interpolator,
     start: float,
     end: float,
+    order: int,
     system: CoordinateSystem,
 ) -> AcrossFieldCurve:
-    def shape(s: npt.ArrayLike) -> SliceCoords:
-        s_prime = start + (end - start) * np.asarray(s)
-        return SliceCoords(R_interp(s_prime), Z_interp(s_prime), system)
-
-    return shape
+    s = np.linspace(start, end, order + 1)
+    return AcrossFieldCurve(SliceCoords(R_interp(s), Z_interp(s), system))
 
 
 def _interpolate_wall(
     points: Sequence[Point2D],
     n: int,
+    order: int,
     register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
     system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
 ) -> list[Point2D]:
@@ -233,14 +232,17 @@ def _interpolate_wall(
     Zs = Z_interp(s)
     if kind != "linear":
         shapes = (
-            _make_element_shape(R_interp, Z_interp, segment[0], segment[1], system)
+            _make_element_shape(
+                R_interp, Z_interp, segment[0], segment[1], order, system
+            )
             for segment in itertools.pairwise(s)
         )
     else:
         shapes = (
-            StraightLineAcrossField(
+            straight_line_across_field(
                 SliceCoord(float(R0), float(Z0), system),
                 SliceCoord(float(R1), float(Z1), system),
+                order,
             )
             for (R0, Z0), (R1, Z1) in itertools.pairwise(np.nditer([Rs, Zs]))
         )
@@ -310,6 +312,7 @@ def _small_portion_length(
 def adjust_wall_resolution(
     points: Sequence[Point2D],
     target_size: float,
+    order: int,
     min_size_factor: float = 1e-1,
     angle_threshold: float = np.pi / 8,
     register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
@@ -329,6 +332,8 @@ def adjust_wall_resolution(
     target_size
         The desired size of segments on the wall. Note that in the result
         the segments can be up to 1.5 times larger than this.
+    order
+        The order of accuracy with which to represent segments.
     min_size_factor
         The minimum size for a segment, as a fraction of the target size. If
         a segment is smaller than this it will be combined with an adjacent
@@ -402,9 +407,10 @@ def adjust_wall_resolution(
 
     # Interpolate each portion to divide it into segments as close to
     # the target size as possible
+    # FIXME: Will want this just to return 1D array of Coords
     return reduce(
         lambda x, y: x + y,
-        (_interpolate_wall(p, n, register_segment, system) for p, n in portions),
+        (_interpolate_wall(p, n, order, register_segment, system) for p, n in portions),
     )
 
 
