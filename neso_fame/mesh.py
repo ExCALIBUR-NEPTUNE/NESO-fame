@@ -405,6 +405,7 @@ elements
 .. rubric:: Alias
 """
 
+# FIXME: Rename to PoloidalCurve
 AcrossFieldCurve = NewType("AcrossFieldCurve", SliceCoords)
 """A 1D set of points tracing a curve in the poloidal plane.
 
@@ -505,9 +506,7 @@ def _invalid_trace(
     )
 
 
-def straight_line(
-    north: Coord, south: Coord, order: int, subdivision: int = 0, num_divisions: int = 1
-) -> FieldAlignedCurve:
+def straight_line(north: Coord, south: Coord, order: int) -> FieldAlignedCurve:
     """Create a straight line that connects two points in 3D space.
 
     Group
@@ -529,8 +528,8 @@ def straight_line(
             np.linspace(north.x3, south.x3, order + 1),
             _invalid_trace,  # This will never be used, so pass a dummy implementation.
             np.array(0.0),
-            subdivision,
-            num_divisions,
+            0,
+            1,
             np.linspace(north.x1, south.x1, order + 1),
             np.linspace(north.x2, south.x2, order + 1),
             np.array(True),
@@ -646,9 +645,23 @@ class UnalignedShape(LazilyOffsetable):
     def __iter__(self) -> Iterator[Curve]:
         """Iterate over the edges of the polygon."""
         yield Curve(self.nodes.get[0, :])
-        yield Curve(self.nodes.get[-1, :])
+        if self.shape == PrismTypes.RECTANGULAR:
+            yield Curve(self.nodes.get[-1, :])
         yield Curve(self.nodes.get[:, 0])
-        yield Curve(self.nodes.get[:, -1])
+        if self.shape == PrismTypes.RECTANGULAR:
+            yield Curve(self.nodes.get[:, -1])
+        else:
+            x1, x2, x3 = np.broadcast_arrays(
+                self.nodes.x1, self.nodes.x2, self.nodes.x3
+            )
+            yield Curve(
+                Coords(
+                    np.flipud(x1).diagonal(),
+                    np.flipud(x2).diagonal(),
+                    np.flipud(x3).diagonal(),
+                    self.nodes.system,
+                )
+            )
 
     def corners(self) -> Iterator[Coord]:
         """Return the points corresponding to the vertices of the polygon."""
@@ -749,14 +762,14 @@ class Prism(LazilyOffsetable):
 
     def make_flat_faces(self) -> Prism:
         """Create a new prism where sides don't curve in the poloidal plane."""
-        s = np.linspace(0.0, 1.0, len(self.nodes.start_points))
+        s = np.linspace(0.0, 1.0, self.nodes.start_points.shape[0])
         s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
         if self.shape == PrismTypes.TRIANGULAR:
             north = self.nodes.start_points[0, 0]
             east = self.nodes.start_points[0, -1]
             south = self.nodes.start_points[-1, 0]
             ns = (1.0 - s1) * (1.0 - s2)
-            es = (1.0 - s1) * s2
+            es = s1 * (1.0 - s2)
             ss = s2
             starts = SliceCoords(
                 north.x1 * ns + east.x1 * es + south.x1 * ss,
@@ -769,9 +782,9 @@ class Prism(LazilyOffsetable):
             south = self.nodes.start_points[-1, -1]
             west = self.nodes.start_points[-1, 0]
             ns = (1.0 - s1) * (1.0 - s2)
-            es = (1.0 - s1) * s2
+            es = s1 * (1.0 - s2)
             ss = s1 * s2
-            ws = s1 * (1.0 - s2)
+            ws = (1.0 - s1) * s2
             starts = SliceCoords(
                 north.x1 * ns + east.x1 * es + south.x1 * ss + west.x1 * ws,
                 north.x2 * ns + east.x2 * es + south.x2 * ss + west.x2 * ws,

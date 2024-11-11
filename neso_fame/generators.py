@@ -32,7 +32,6 @@ from neso_fame.hypnotoad_interface import (
 from neso_fame.mesh import (
     FieldAlignedCurve,
     FieldTrace,
-    FieldTracer,
     GenericMesh,
     MeshLayer,
     Prism,
@@ -55,6 +54,7 @@ from neso_fame.wall import (
 )
 
 Connectivity = Sequence[tuple[int, int]]
+FieldTracer = None  # Placeholder during refactoring
 
 
 def _ordered_connectivity(size: int) -> Connectivity:

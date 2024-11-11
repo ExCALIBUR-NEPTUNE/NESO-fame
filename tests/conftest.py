@@ -1,8 +1,7 @@
 import itertools
 import operator
 from collections.abc import Sequence
-from functools import reduce
-from operator import attrgetter, methodcaller
+from functools import cache
 from typing import Any, Optional, TypeVar, cast
 
 import numpy as np
@@ -60,6 +59,7 @@ WHOLE_NUM_MAX = 1000
 whole_numbers = integers(-WHOLE_NUM_MAX, WHOLE_NUM_MAX).map(float)
 nonnegative_numbers = integers(1, WHOLE_NUM_MAX).map(float)
 non_zero = whole_numbers.filter(bool)
+orders = integers(1, 5)
 
 # Large triangles can confuse Nektar++ due to numerical error
 # exceeding some (very small) tolerances. Use smaller numbers for
@@ -157,7 +157,9 @@ register_type_strategy(
 )
 
 
-def compatible_alignments(coords: mesh.SliceCoords) -> SearchStrategy[npt.NDArray]:
+def compatible_alignments(
+    coords: coordinates.SliceCoords,
+) -> SearchStrategy[npt.NDArray]:
     shape = np.broadcast(*coords).shape
     return arrays(
         float,
@@ -177,7 +179,7 @@ num_divs = shared(integers(1, 10), key=999)
 
 def straight_line_for_system(
     system: coordinates.CoordinateSystem,
-) -> SearchStrategy[mesh.straight_line]:
+) -> SearchStrategy[mesh.FieldAlignedCurve]:
     coords = builds(
         coordinates.Coord, whole_numbers, whole_numbers, whole_numbers, just(system)
     )
@@ -185,15 +187,8 @@ def straight_line_for_system(
         mesh.straight_line,
         coords,
         coords,
-        num_divs.flatmap(lambda n: integers(0, n - 1)),
-        num_divs,
     )
 
-
-register_type_strategy(
-    mesh.straight_line,
-    coordinate_systems.flatmap(straight_line_for_system),
-)
 
 CARTESIAN_SYSTEMS = {
     coordinates.CoordinateSystem.CARTESIAN,
@@ -263,6 +258,7 @@ def unbroadcastable_shape(draw: Any, shape: Sequence[int]) -> tuple[int, ...]:
 
 
 def linear_field_line(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
@@ -284,17 +280,17 @@ def linear_field_line(
             c,
         )
 
-    return linear_func
+    return mesh.Curve(linear_func(np.linspace(0.0, 1.0, order + 1)))
 
 
 def trapezoidal_quad(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair],
     c: coordinates.CoordinateSystem,
     skew: float,
-    resolution: int,
     division: int,
     num_divisions: int,
     north_start_weight: float,
@@ -312,71 +308,101 @@ def trapezoidal_quad(
     shape = mesh.straight_line_across_field(
         coordinates.SliceCoord(starts[0][0], starts[0][1], c),
         coordinates.SliceCoord(starts[1][0], starts[1][1], c),
+        order,
     )
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
     return Offset(
         mesh.Quad(
-            shape,
-            mesh.FieldTracer(trace, resolution),
-            a3,
-            division,
-            num_divisions,
-            north_start_weight,
-            south_start_weight,
+            mesh.field_aligned_positions(
+                shape,
+                a3,
+                trace,
+                np.linspace(north_start_weight, south_start_weight, order + 1),
+                order,
+                division,
+                num_divisions,
+            )
         ),
         offset,
     )
 
 
+@cache
+def quad_weights(
+    order: int,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    s = np.linspace(0.0, 1.0, order + 1)
+    s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
+    return (1.0 - s1) * (1.0 - s2), (1.0 - s1) * s2, s1 * s2, s1 * (1.0 - s2)
+
+
+def corners_to_poloidal_quad(
+    order: int, corners: tuple[Pair, Pair, Pair, Pair], c: coordinates.CoordinateSystem
+) -> coordinates.SliceCoords:
+    sorted_corners = sorted(corners, key=operator.itemgetter(1))
+    north, east, south, west = sorted(
+        sorted_corners[0:2], key=operator.itemgetter(0)
+    ) + sorted(sorted_corners[2:4], key=operator.itemgetter(0), reverse=True)
+    ns, es, ss, ws = quad_weights(order)
+    return coordinates.SliceCoords(
+        north[0] * ns + east[0] * es + south[0] * ss + west[0] * ws,
+        north[1] * ns + east[1] * es + south[1] * ss + west[1] * ws,
+        c,
+    )
+
+
+@cache
+def tri_weights(order: int) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    s = np.linspace(0.0, 1.0, order + 1)
+    s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
+    return (1.0 - s1) * (1.0 - s2), s1 * (1.0 - s2), s2
+
+
+def corners_to_poloidal_tri(
+    order: int, corners: tuple[Pair, Pair, Pair], c: coordinates.CoordinateSystem
+) -> coordinates.SliceCoords:
+    north, east, south = corners
+    ns, es, ss = tri_weights(order)
+    return coordinates.SliceCoords(
+        north[0] * ns + east[0] * es + south[0] * ss,
+        north[1] * ns + east[1] * es + south[1] * ss,
+        c,
+    )
+
+
 def end_quad(
-    corners: tuple[Pair, Pair, Pair, Pair], c: coordinates.CoordinateSystem, x3: float
-) -> Optional[mesh.EndShape]:
+    order: int,
+    corners: tuple[Pair, Pair, Pair, Pair],
+    c: coordinates.CoordinateSystem,
+    x3: float,
+) -> Optional[mesh.UnalignedShape]:
     if c == coordinates.CoordinateSystem.CYLINDRICAL and (
         0.0 in [c[0] for c in corners]
     ):
         return None
-
-    sorted_corners = sorted(corners, key=operator.itemgetter(1))
-    sorted_corners = sorted(sorted_corners[0:2], key=operator.itemgetter(0)) + sorted(
-        sorted_corners[2:4], key=operator.itemgetter(0), reverse=True
-    )
-
-    def make_line(point1: Pair, point2: Pair) -> mesh.straight_line:
-        return mesh.straight_line(
-            coordinates.Coord(point1[0], point1[1], x3, c),
-            coordinates.Coord(point2[0], point2[1], x3, c),
-        )
-
-    return mesh.EndShape(
-        (
-            make_line(sorted_corners[0], sorted_corners[1]),
-            make_line(sorted_corners[2], sorted_corners[3]),
-            make_line(sorted_corners[1], sorted_corners[2]),
-            make_line(sorted_corners[3], sorted_corners[0]),
-        )
+    return mesh.UnalignedShape(
+        mesh.PrismTypes.RECTANGULAR,
+        corners_to_poloidal_quad(
+            order,
+            corners,
+            c,
+        ).to_3d_coords(x3),
     )
 
 
 def end_triangle(
-    corners: tuple[Pair, Pair, Pair], c: coordinates.CoordinateSystem, x3: float
-) -> Optional[mesh.EndShape]:
+    order: int,
+    corners: tuple[Pair, Pair, Pair],
+    c: coordinates.CoordinateSystem,
+    x3: float,
+) -> Optional[mesh.UnalignedShape]:
     if c == coordinates.CoordinateSystem.CYLINDRICAL and (
         0.0 in [c[0] for c in corners]
     ):
         return None
-
-    def make_line(point1: Pair, point2: Pair) -> mesh.straight_line:
-        return mesh.straight_line(
-            coordinates.Coord(point1[0], point1[1], x3, c),
-            coordinates.Coord(point2[0], point2[1], x3, c),
-        )
-
-    return mesh.EndShape(
-        (
-            make_line(corners[0], corners[1]),
-            make_line(corners[1], corners[2]),
-            make_line(corners[2], corners[0]),
-        )
+    return mesh.UnalignedShape(
+        mesh.PrismTypes.TRIANGULAR,
+        corners_to_poloidal_tri(order, corners, c).to_3d_coords(x3),
     )
 
 
@@ -387,13 +413,13 @@ def _get_start_weight(fixed: bool) -> float:
 
 
 def trapezohedronal_hex(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair, Pair, Pair],
     c: coordinates.CoordinateSystem,
     skew: float,
-    resolution: int,
     division: int,
     num_divisions: int,
     offset: float,
@@ -403,60 +429,39 @@ def trapezohedronal_hex(
         sum(map(operator.itemgetter(0), starts)),
         sum(map(operator.itemgetter(1), starts)),
     )
-    sorted_starts = sorted(starts, key=operator.itemgetter(1))
-    sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(0)) + sorted(
-        sorted_starts[2:4], key=operator.itemgetter(0), reverse=True
-    )
     if c == coordinates.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((p[0] for p in starts), 2)
     ):
         return None
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
+    ns, es, ss, ws = quad_weights(order)
+    fn, fe, fs, fw = map(_get_start_weight, fixed_edges)
 
-    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.straight_line_across_field(
-            coordinates.SliceCoord(point1[0], point1[1], c),
-            coordinates.SliceCoord(point2[0], point2[1], c),
-        )
-        return Offset(
-            mesh.Quad(
-                shape,
-                mesh.FieldTracer(trace, resolution),
+    return Offset(
+        mesh.Prism(
+            mesh.PrismTypes.RECTANGULAR,
+            mesh.field_aligned_positions(
+                corners_to_poloidal_quad(order, starts, c),
                 a3,
+                trace,
+                0.25 * (fn * ns + fs * ss + fe * es + fw * ws),
+                order,
                 division,
                 num_divisions,
-                _get_start_weight(fixed1),
-                _get_start_weight(fixed2),
             ),
-            offset,
-        )
-
-    return mesh.Prism(
-        (
-            make_quad(
-                sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]
-            ),
-            make_quad(
-                sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]
-            ),
-            make_quad(
-                sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]
-            ),
-            make_quad(
-                sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]
-            ),
-        )
+        ),
+        offset,
     )
 
 
 def simple_prism(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
     starts: tuple[Pair, Pair, Pair],
     c: coordinates.CoordinateSystem,
     skew: float,
-    resolution: int,
     division: int,
     num_divisions: int,
     offset: float,
@@ -471,31 +476,23 @@ def simple_prism(
     ):
         return None
     trace = linear_field_trace(a1, a2, a3, c, skew, centre)
+    ns, es, ss = tri_weights(order)
+    fn, fe, fs = map(_get_start_weight, fixed_edges)
 
-    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.straight_line_across_field(
-            coordinates.SliceCoord(point1[0], point1[1], c),
-            coordinates.SliceCoord(point2[0], point2[1], c),
-        )
-        return Offset(
-            mesh.Quad(
-                shape,
-                mesh.FieldTracer(trace, resolution),
+    return Offset(
+        mesh.Prism(
+            mesh.PrismTypes.TRIANGULAR,
+            mesh.field_aligned_positions(
+                corners_to_poloidal_tri(order, starts, c),
                 a3,
+                trace,
+                (fn * ns + fs * ss + fe * es) / 3,
+                order,
                 division,
                 num_divisions,
-                _get_start_weight(fixed1),
-                _get_start_weight(fixed2),
             ),
-            offset,
-        )
-
-    return mesh.Prism(
-        (
-            make_quad(starts[0], starts[1], fixed_edges[0], fixed_edges[1]),
-            make_quad(starts[2], starts[0], fixed_edges[2], fixed_edges[0]),
-            make_quad(starts[1], starts[2], fixed_edges[1], fixed_edges[2]),
-        )
+        ),
+        offset,
     )
 
 
@@ -523,6 +520,7 @@ def cylindrical_field_trace(centre: float, x2_slope: float) -> mesh.FieldTrace:
 
 
 def cylindrical_field_line(
+    order: int,
     centre: float,
     x1_start: float,
     x2_centre: float,
@@ -543,17 +541,17 @@ def cylindrical_field_line(
         x3 = x3_centre + rad * np.sin(theta)
         return coordinates.Coords(x1, x2, x3, system)
 
-    return cylindrical_func
+    return mesh.Curve(cylindrical_func(np.linspace(0.0, 1.0, order + 1)))
 
 
 def curved_quad(
+    order: int,
     centre: float,
     x1_start: Pair,
     x2_centre: float,
     x2_slope: float,
     dx3: float,
     system: coordinates.CoordinateSystem,
-    resolution: int,
     division: int,
     num_divisions: int,
     north_start_weight: float,
@@ -564,123 +562,100 @@ def curved_quad(
     shape = mesh.straight_line_across_field(
         coordinates.SliceCoord(x1_start[0], x2_centre, system),
         coordinates.SliceCoord(x1_start[1], x2_centre, system),
+        order,
     )
     return Offset(
         mesh.Quad(
-            shape,
-            mesh.FieldTracer(trace, resolution),
-            dx3,
-            division,
-            num_divisions,
-            north_start_weight,
-            south_start_weight,
+            mesh.field_aligned_positions(
+                shape,
+                dx3,
+                trace,
+                np.linspace(north_start_weight, south_start_weight, order + 1),
+                order,
+                division,
+                num_divisions,
+            )
         ),
         offset,
     )
 
 
 def curved_hex(
+    order: int,
     centre: float,
     starts: tuple[Pair, Pair, Pair, Pair],
     x2_slope: float,
     dx3: float,
     system: coordinates.CoordinateSystem,
-    resolution: int,
     division: int,
     num_divisions: int,
     offset: float,
     fixed_edges: tuple[bool, bool, bool, bool],
 ) -> mesh.Prism:
-    sorted_starts = sorted(starts, key=operator.itemgetter(0))
-    sorted_starts = sorted(sorted_starts[0:2], key=operator.itemgetter(1)) + sorted(
-        sorted_starts[2:4], key=operator.itemgetter(1), reverse=True
-    )
     trace = cylindrical_field_trace(centre, x2_slope)
+    ns, es, ss, ws = quad_weights(order)
+    fn, fe, fs, fw = map(_get_start_weight, fixed_edges)
 
-    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.straight_line_across_field(
-            coordinates.SliceCoord(point1[0], point1[1], system),
-            coordinates.SliceCoord(point2[0], point2[1], system),
-        )
-        return Offset(
-            mesh.Quad(
-                shape,
-                mesh.FieldTracer(trace, resolution),
+    return Offset(
+        mesh.Prism(
+            mesh.PrismTypes.RECTANGULAR,
+            mesh.field_aligned_positions(
+                corners_to_poloidal_quad(order, starts, system),
                 dx3,
+                trace,
+                0.25 * (fn * ns + fs * ss + fe * es + fw * ws),
+                order,
                 division,
                 num_divisions,
-                _get_start_weight(fixed1),
-                _get_start_weight(fixed2),
             ),
-            offset,
-        )
-
-    return mesh.Prism(
-        (
-            make_quad(
-                sorted_starts[0], sorted_starts[1], fixed_edges[0], fixed_edges[1]
-            ),
-            make_quad(
-                sorted_starts[2], sorted_starts[3], fixed_edges[2], fixed_edges[3]
-            ),
-            make_quad(
-                sorted_starts[1], sorted_starts[2], fixed_edges[1], fixed_edges[2]
-            ),
-            make_quad(
-                sorted_starts[3], sorted_starts[0], fixed_edges[3], fixed_edges[0]
-            ),
-        )
+        ),
+        offset,
     )
 
 
 def curved_prism(
+    order: int,
     centre: float,
     starts: tuple[Pair, Pair, Pair],
     x2_slope: float,
     dx3: float,
     system: coordinates.CoordinateSystem,
-    resolution: int,
     division: int,
     num_divisions: int,
     offset: float,
     fixed_edges: tuple[bool, bool, bool],
 ) -> mesh.Prism:
     trace = cylindrical_field_trace(centre, x2_slope)
+    ns, es, ss = tri_weights(order)
+    fn, fe, fs = map(_get_start_weight, fixed_edges)
 
-    def make_quad(point1: Pair, point2: Pair, fixed1: bool, fixed2: bool) -> mesh.Quad:
-        shape = mesh.straight_line_across_field(
-            coordinates.SliceCoord(point1[0], point1[1], system),
-            coordinates.SliceCoord(point2[0], point2[1], system),
-        )
-        return Offset(
-            mesh.Quad(
-                shape,
-                mesh.FieldTracer(trace, resolution),
+    return Offset(
+        mesh.Prism(
+            mesh.PrismTypes.TRIANGULAR,
+            mesh.field_aligned_positions(
+                corners_to_poloidal_tri(order, starts, system),
                 dx3,
+                trace,
+                (fn * ns + fs * ss + fe * es) / 3,
+                order,
                 division,
                 num_divisions,
-                _get_start_weight(fixed1),
-                _get_start_weight(fixed2),
             ),
-            offset,
-        )
-
-    return mesh.Prism(
-        (
-            make_quad(starts[0], starts[1], fixed_edges[0], fixed_edges[1]),
-            make_quad(starts[2], starts[0], fixed_edges[2], fixed_edges[0]),
-            make_quad(starts[1], starts[2], fixed_edges[1], fixed_edges[2]),
-        )
+        ),
+        offset,
     )
 
 
 def make_arc(
-    north: coordinates.SliceCoords, south: coordinates.SliceCoords, angle: float
+    order: int,
+    north: coordinates.SliceCoord,
+    south: coordinates.SliceCoord,
+    angle: float,
 ) -> mesh.AcrossFieldCurve:
-    x1_1 = float(north.x1)
-    x2_1 = float(north.x2)
-    x1_2 = float(south.x1)
-    x2_2 = float(south.x2)
+    x1_1 = north.x1
+    x2_1 = north.x2
+    x1_2 = south.x1
+    x2_2 = south.x2
     dx1 = x1_1 - x1_2
     dx2 = x2_1 - x2_2
     denom = 2 * dx1 * np.cos(angle) + 2 * dx2 * np.sin(angle)
@@ -699,120 +674,139 @@ def make_arc(
             north.system,
         )
 
-    return curve
+    return mesh.AcrossFieldCurve(curve(np.linspace(0.0, 1.0, order + 1)))
 
 
-def offset_straight_line(
-    line: mesh.straight_line_across_field, magnitude: float
-) -> mesh.AcrossFieldCurve:
+def offset_line(line: mesh.AcrossFieldCurve, magnitude: float) -> mesh.AcrossFieldCurve:
     if magnitude == 0:
         return line
-    dx1 = line.north.x1 - line.south.x1
-    dx2 = line.north.x2 - line.south.x2
+    north = line[0]
+    south = line[-1]
+    dx1 = north.x1 - south.x1
+    dx2 = north.x2 - south.x2
     norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
     perp = [dx2 / norm, -dx1 / norm]
-
-    def result(s: npt.ArrayLike) -> coordinates.SliceCoords:
-        s = np.asarray(s)
-        linear = line(s)
-        t = 4 * magnitude * s * (1 - s)
-        return coordinates.SliceCoords(
-            linear.x1 + t * perp[0], linear.x2 + t * perp[1], linear.system
+    s = np.linspace(0.0, 1.0, len(line))
+    t = 4 * magnitude * s * (1 - s)
+    return mesh.AcrossFieldCurve(
+        coordinates.SliceCoords(
+            line.x1 + t * perp[0], line.x2 + t * perp[1], line.system
         )
+    )
 
-    return result
 
-
-def higher_dim_quad(q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
+def higher_dim_quad(order: int, q: mesh.Quad, angle: float) -> Optional[mesh.Quad]:
     # This assumes that dx3/ds is an even function about the starting
     # x3 point from which the bounding field lines were projected
     try:
-        curve = make_arc(q.shape(0.0), q.shape(1.0), angle)
+        curve = make_arc(
+            order, q.nodes.start_points[0], q.nodes.start_points[-1], angle
+        )
     except ValueError:
         return None
     x3 = q.x3_offset
     q = q.get_underlying_object()
     return Offset(
         mesh.Quad(
-            curve,
-            q.field,
-            q.dx3,
-            q.subdivision,
-            q.num_divisions,
-            q.north_start_weight,
-            q.south_start_weight,
+            mesh.field_aligned_positions(
+                curve,
+                q.nodes.x3[-1] - q.nodes.x3[0],
+                q.nodes.trace,
+                q.nodes.alignments,
+                order,
+                q.nodes.subdivision,
+                q.nodes.num_divisions,
+            ),
         ),
         x3,
     )
 
 
-def higher_dim_hex(h: mesh.Prism, magnitudes: list[float]) -> Optional[mesh.Prism]:
-    try:
-        new_quads = tuple(
-            Offset(
-                mesh.Quad(
-                    offset_straight_line(q.shape, m),
-                    q.field,
-                    q.dx3,
-                    q.subdivision,
-                    q.num_divisions,
-                ),
-                x3,
-            )
-            for q, x3, m in zip(
-                map(methodcaller("get_underlying_object"), h),
-                map(attrgetter("x3_offset"), h),
-                itertools.chain(magnitudes, itertools.repeat(0)),
-            )
-        )
-    except ValueError:
-        return None
-    return mesh.Prism(new_quads)
+def _offset(
+    x1: npt.NDArray,
+    x2: npt.NDArray,
+    north: tuple[int, int],
+    south: tuple[int, int],
+    weights: npt.NDArray,
+    magnitude: float,
+) -> None:
+    dx1 = x1[north] - x1[south]
+    dx2 = x2[north] - x2[south]
+    norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
+    perp = [dx2 / norm, -dx1 / norm]
+    s = np.linspace(0.0, 1.0, len(weights)).reshape(weights.shape)
+    t = 4 * magnitude * s * (1 - s)
+    x1 += t * perp[0]
+    x2 += t * perp[1]
+
+
+def higher_dim_hex(h: mesh.Prism, magnitudes: list[float]) -> mesh.Prism:
+    order = h.nodes.start_points.shape[0]
+    s = np.linspace(0.0, 1.0, order + 1)
+    s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
+    x1, x2 = h.nodes.start_points
+    if h.shape == mesh.PrismTypes.RECTANGULAR:
+        _offset(x1, x2, (0, 0), (0, -1), 1 - s2, magnitudes[0])
+        _offset(x1, x2, (-1, 0), (-1, -1), s2, magnitudes[1])
+        _offset(x1, x2, (0, 0), (-1, 0), 1 - s1, magnitudes[2])
+        _offset(x1, x2, (0, -1), (-1, -1), s1, magnitudes[3])
+    else:
+        # This doesn't seem to match what I used to do with
+        # _poloidal_map_tri, but that looks like it was wrong.
+        _offset(x1, x2, (0, 0), (-1, 0), 1 - s1, magnitudes[0])
+        _offset(x1, x2, (0, -1), (0, -1), s1, magnitudes[1])
+    return mesh.Prism(
+        h.shape,
+        mesh.field_aligned_positions(
+            mesh.SliceCoords(x1, x2, h.nodes.start_points.system),
+            h.nodes.x3[-1] - h.nodes.x3[0],
+            h.nodes.trace,
+            h.nodes.alignments,
+            order,
+            h.nodes.subdivision,
+            h.nodes.num_divisions,
+        ),
+    )
 
 
 def _quad_mesh_elements(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
     limits: tuple[Pair, Pair],
     num_quads: int,
     c: coordinates.CoordinateSystem,
-    resolution: int,
     left_fixed: bool,
     right_fixed: bool,
 ) -> Optional[list[mesh.Quad]]:
-    trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
+    trace = linear_field_trace(a1, a2, a3, c, 0, (0, 0))
     if (
         c == coordinates.CoordinateSystem.CYLINDRICAL
         and limits[0][0] * limits[1][0] <= 0
     ):
         return None
 
-    def make_shape(starts: tuple[Pair, Pair]) -> mesh.AcrossFieldCurve:
-        return mesh.straight_line_across_field(
-            coordinates.SliceCoord(starts[0][0], starts[0][1], c),
-            coordinates.SliceCoord(starts[1][0], starts[1][1], c),
-        )
-
-    points = np.linspace(limits[0], limits[1], num_quads + 1)
-    fixed = [left_fixed] + [False] * (num_quads - 1) + [right_fixed]
+    points = np.linspace(limits[0], limits[1], num_quads * order + 1)
+    positions = mesh.field_aligned_positions(
+        coordinates.SliceCoords(points[:, 0], points[:, 1], c),
+        a3,
+        trace,
+        np.array(
+            [0.0 if left_fixed else 1.0]
+            + [1.0] * (num_quads * order - 1)
+            + [0.0 if right_fixed else 1.0]
+        ),
+        order,
+    )
 
     return [
-        mesh.Quad(
-            shape,
-            trace,
-            a3,
-            north_start_weight=north_weight,
-            south_start_weight=south_weight,
-        )
-        for shape, (north_weight, south_weight) in zip(
-            map(make_shape, itertools.pairwise(points)),
-            itertools.pairwise(map(_get_start_weight, fixed)),
-        )
+        mesh.Quad(positions[i * order : (i + 1) * order + 1]) for i in range(num_quads)
     ]
 
 
 def _hex_mesh_arguments(
+    order: int,
     a1: float,
     a2: float,
     a3: float,
@@ -820,7 +814,6 @@ def _hex_mesh_arguments(
     num_hexes_x1: int,
     num_hexes_x2: int,
     c: coordinates.CoordinateSystem,
-    resolution: int,
     fixed_bounds: bool,
 ) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits)
@@ -851,139 +844,66 @@ def _hex_mesh_arguments(
     if J00 != J10 or J00 != J01 or J00 != J11:
         return None
 
-    trace = mesh.FieldTracer(linear_field_trace(a1, a2, a3, c, 0, (0, 0)), resolution)
+    trace = linear_field_trace(a1, a2, a3, c, 0, (0, 0))
     if c == coordinates.CoordinateSystem.CYLINDRICAL and any(
         a * b <= 0.0 for a, b in itertools.combinations((lim[0] for lim in limits), 2)
     ):
         return None
 
-    def make_line(start: Pair, end: Pair) -> mesh.AcrossFieldCurve:
-        return mesh.straight_line_across_field(
-            coordinates.SliceCoord(start[0], start[1], c),
-            coordinates.SliceCoord(end[0], end[1], c),
-        )
-
-    def get_start_weight(
-        quad_is_bound: bool,
-        edge_is_bound: bool,
-    ) -> float:
-        if not fixed_bounds:
-            return 0.0
-        if quad_is_bound:
-            return 1.0
-        return _get_start_weight(edge_is_bound)
-
-    def make_element_and_bounds(
-        pairs: list[Pair], is_bound: list[bool]
-    ) -> tuple[mesh.Prism, list[frozenset[mesh.Quad]]]:
-        edges = (
-            mesh.Quad(
-                make_line(pairs[0], pairs[1]),
-                trace,
-                a3,
-                north_start_weight=get_start_weight(is_bound[0], is_bound[2]),
-                south_start_weight=get_start_weight(is_bound[0], is_bound[3]),
-            ),
-            mesh.Quad(
-                make_line(pairs[2], pairs[3]),
-                trace,
-                a3,
-                north_start_weight=get_start_weight(is_bound[1], is_bound[2]),
-                south_start_weight=get_start_weight(is_bound[1], is_bound[3]),
-            ),
-            mesh.Quad(
-                make_line(pairs[0], pairs[2]),
-                trace,
-                a3,
-                north_start_weight=get_start_weight(is_bound[2], is_bound[0]),
-                south_start_weight=get_start_weight(is_bound[2], is_bound[1]),
-            ),
-            mesh.Quad(
-                make_line(pairs[1], pairs[3]),
-                trace,
-                a3,
-                north_start_weight=get_start_weight(is_bound[3], is_bound[0]),
-                south_start_weight=get_start_weight(is_bound[3], is_bound[1]),
-            ),
-        )
-        return mesh.Prism(edges), [
-            frozenset({e}) if b else frozenset() for e, b in zip(edges, is_bound)
-        ]
-
-    def fold(
-        x: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]],
-        y: tuple[mesh.Prism, list[frozenset[mesh.Quad]]],
-    ) -> tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]:
-        hexes, bounds = x
-        hexes.append(y[0])
-        new_bounds = [b | y_comp for b, y_comp in zip(bounds, y[1])]
-        return hexes, new_bounds
-
-    lower_points = np.linspace(sorted_starts[0], sorted_starts[1], num_hexes_x2 + 1)
-    upper_points = np.linspace(sorted_starts[3], sorted_starts[2], num_hexes_x2 + 1)
-    points = np.linspace(lower_points, upper_points, num_hexes_x1 + 1)
-    initial: tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]] = (
-        [],
-        [frozenset()] * 4,
+    lower_points = np.linspace(
+        sorted_starts[0], sorted_starts[1], num_hexes_x2 * order + 1
     )
-    result = reduce(
-        fold,
-        (
-            make_element_and_bounds(
-                [
-                    points[i, j],
-                    points[i + 1, j],
-                    points[i, j + 1],
-                    points[i + 1, j + 1],
-                ],
-                [j == 0, j == num_hexes_x2 - 1, i == 0, i == num_hexes_x1 - 1],
-            )
+    upper_points = np.linspace(
+        sorted_starts[3], sorted_starts[2], num_hexes_x2 * order + 1
+    )
+    points = np.linspace(lower_points, upper_points, num_hexes_x1 * order + 1)
+    alignments = np.ones(points.shape[:-1])
+    if fixed_bounds:
+        alignments[0, :] = 0.0
+        alignments[-1, :] = 0.0
+        alignments[:, 0] = 0.0
+        alignments[:, -1] = 0.0
+    positions = mesh.field_aligned_positions(
+        coordinates.SliceCoords(points[..., 0], points[..., 1], c),
+        a3,
+        trace,
+        alignments,
+        order,
+    )
+    elements = [
+        mesh.Prism(
+            mesh.PrismTypes.RECTANGULAR,
+            positions[i * order : (i + 1) * order + 1, j * order : (j + 1) * order + 1],
+        )
+        for i, j in itertools.product(range(num_hexes_x1), range(num_hexes_x2))
+    ]
+    bounds = [
+        frozenset(
+            mesh.Quad(positions[i * order : (i + 1) * order + 1, 0])
             for i in range(num_hexes_x1)
-            for j in range(num_hexes_x2)
         ),
-        initial,
-    )
-    return result
-
-
-def get_connecting_quad(q1: mesh.Quad, q2: mesh.Quad) -> mesh.Quad:
-    v1 = coordinates.CoordMap(
-        {
-            q1.shape(0.0).to_coord(): q1.north_start_weight,
-            q1.shape(1.0).to_coord(): q1.south_start_weight,
-        }
-    )
-    v2 = coordinates.CoordMap(
-        {
-            q2.shape(0.0).to_coord(): q2.north_start_weight,
-            q2.shape(1.0).to_coord(): q2.south_start_weight,
-        }
-    )
-    weights = coordinates.MutableCoordMap(v1)
-    weights.update(v2)
-    s1 = coordinates.FrozenCoordSet(v1)
-    s2 = coordinates.FrozenCoordSet(v2)
-    point1 = next(iter(s1 - s2))
-    point2 = next(iter(s2 - s1))
-    return mesh.Quad(
-        mesh.straight_line_across_field(point1, point2),
-        q1.field,
-        q1.dx3,
-        q1.subdivision,
-        q1.num_divisions,
-        weights[point1],
-        weights[point2],
-    )
+        frozenset(
+            mesh.Quad(positions[i * order : (i + 1) * order + 1, -1])
+            for i in range(num_hexes_x1)
+        ),
+        frozenset(
+            mesh.Quad(positions[0, i * order : (i + 1) * order + 1])
+            for i in range(num_hexes_x2)
+        ),
+        frozenset(
+            mesh.Quad(positions[-1, i * order : (i + 1) * order + 1])
+            for i in range(num_hexes_x2)
+        ),
+    ]
+    return elements, bounds
 
 
 def maybe_divide_hex(hexa: mesh.Prism, divide: bool) -> tuple[mesh.Prism, ...]:
     if divide:
-        sides = hexa.sides
-        assert len(sides) == 4
-        new_quad = get_connecting_quad(sides[3], sides[0])
+        assert hexa.shape == mesh.PrismTypes.RECTANGULAR
         return (
-            mesh.Prism((sides[0], new_quad, sides[3])),
-            mesh.Prism((sides[2], new_quad, sides[1])),
+            mesh.Prism(mesh.PrismTypes.TRIANGULAR, hexa.nodes),
+            mesh.Prism(mesh.PrismTypes.TRIANGULAR, hexa.nodes[::-1, ::-1]),
         )
     return (hexa,)
 
@@ -1012,7 +932,7 @@ def _hex_and_tri_prism_arguments(
 
 def get_quad_boundaries(
     mesh_sequence: list[mesh.Quad],
-) -> list[frozenset[mesh.Segment]]:
+) -> list[frozenset[mesh.FieldAlignedCurve]]:
     return [frozenset({mesh_sequence[0].north}), frozenset({mesh_sequence[-1].south})]
 
 
@@ -1044,7 +964,7 @@ def straight_field_line_for_system(
     )
     return builds(
         mesh.FieldAlignedCurve,
-        builds(mesh.FieldTracer, trace, integers(2, 10)),
+        trace,
         slice_coord_for_system(system),
         non_zero,
         _divisions,
@@ -1071,7 +991,7 @@ def curved_field_line_for_system(
 
     return builds(
         mesh.FieldAlignedCurve,
-        builds(mesh.FieldTracer, trace, integers(100, 200)),
+        trace,
         builds(
             coordinates.SliceCoord,
             builds(operator.add, _centre, _rad),
@@ -1110,21 +1030,19 @@ register_type_strategy(
 )
 common_slice_coords = shared_coordinate_systems.flatmap(slice_coord_for_system)
 slice_coord_pair = cast(
-    SearchStrategy[tuple[mesh.SliceCoord, mesh.SliceCoord]],
+    SearchStrategy[tuple[coordinates.SliceCoord, coordinates.SliceCoord]],
     frozensets(common_slice_coords, min_size=2, max_size=2).map(tuple),
 )
-register_type_strategy(
+shared_coord_pair = shared(slice_coord_pair, key=204)
+
+straight_lines_across_field = builds(
     mesh.straight_line_across_field,
-    slice_coord_pair.map(lambda x: mesh.straight_line_across_field(*x)),
+    shared_coord_pair.map(lambda x: x[0]),
+    shared_coord_pair.map(lambda x: x[1]),
+    orders,
 )
 across_field_curves = builds(
-    offset_straight_line, from_type(mesh.straight_line_across_field), floats(-0.5, 0.5)
-)
-segments: SearchStrategy[mesh.Segment] = one_of(
-    (
-        shared_coordinate_systems.flatmap(straight_line_for_system),
-        shared_coordinate_systems.flatmap(field_aligned_curve_for_system),
-    )
+    offset_line, straight_lines_across_field, floats(-0.5, 0.5)
 )
 
 
@@ -1192,6 +1110,7 @@ linear_quad = cast(
     SearchStrategy[mesh.Quad],
     builds(
         trapezoidal_quad,
+        integers(1, 5),
         whole_numbers,
         whole_numbers,
         non_zero,
@@ -1203,7 +1122,6 @@ linear_quad = cast(
         integers(-2 * WHOLE_NUM_MAX, 2 * WHOLE_NUM_MAX).map(
             lambda x: x / WHOLE_NUM_MAX
         ),
-        integers(3, 5),
         _divisions,
         _num_divisions,
         floats(0.0, 1.0),
@@ -1214,7 +1132,7 @@ linear_quad = cast(
     .filter(
         lambda x: len(
             coordinates.FrozenCoordSet(
-                cast(mesh.Quad, x).corners().to_cartesian().iter_points()
+                c.to_cartesian() for c in cast(mesh.Quad, x).corners()
             )
         )
         == 4
@@ -1224,13 +1142,13 @@ linear_hex = cast(
     SearchStrategy[mesh.Prism],
     builds(
         trapezohedronal_hex,
+        integers(1, 5),
         whole_numbers,
         whole_numbers,
         non_zero,
         whole_numbers.flatmap(hex_starts),
         coordinate_systems3d,
         floats(-2.0, 2.0),
-        integers(2, 5),
         _divisions,
         _num_divisions,
         whole_numbers,
@@ -1241,6 +1159,7 @@ linear_prism = cast(
     SearchStrategy[mesh.Prism],
     builds(
         simple_prism,
+        integers(1, 5),
         small_whole_numbers,
         small_whole_numbers,
         small_non_zero,
@@ -1249,7 +1168,6 @@ linear_prism = cast(
         ).map(lambda x: x[:3]),
         coordinate_systems3d,
         floats(-2.0, 2.0),
-        integers(2, 5),
         _divisions,
         _num_divisions,
         whole_numbers,
@@ -1263,6 +1181,7 @@ _x1_start_south = tuples(_x1_start, _rad, floats(0.01, 10.0)).map(
 # FIXME: Not controlling x3 limits adequately
 nonlinear_quad = builds(
     curved_quad,
+    integers(2, 8),
     _centre,
     tuples(_x1_start, _x1_start_south),
     whole_numbers,
@@ -1274,7 +1193,6 @@ nonlinear_quad = builds(
             coordinates.CoordinateSystem.CARTESIAN_ROTATED,
         ]
     ),
-    integers(100, 200),
     _divisions,
     _num_divisions,
     floats(0.0, 1.0),
@@ -1283,6 +1201,7 @@ nonlinear_quad = builds(
 )
 nonlinear_hex = builds(
     curved_hex,
+    integers(2, 8),
     _centre,
     tuples(_x1_start, _rad.map(lambda r: -1 if r < 0 else 1)).flatmap(
         lambda x: hex_starts(*x)
@@ -1295,7 +1214,6 @@ nonlinear_hex = builds(
             coordinates.CoordinateSystem.CARTESIAN_ROTATED,
         ]
     ),
-    integers(100, 200),
     _divisions,
     _num_divisions,
     whole_numbers,
@@ -1303,6 +1221,7 @@ nonlinear_hex = builds(
 )
 nonlinear_prism = builds(
     curved_prism,
+    integers(2, 10),
     _small_centre,
     tuples(_small_x1_start, _small_rad.map(lambda r: -1 if r < 0 else 1))
     .flatmap(lambda x: hex_starts(*x, absmax=SMALL_WHOLE_NUM_MAX))
@@ -1315,7 +1234,6 @@ nonlinear_prism = builds(
             coordinates.CoordinateSystem.CARTESIAN_ROTATED,
         ]
     ),
-    integers(100, 200),
     _divisions,
     _num_divisions,
     whole_numbers,
@@ -1328,13 +1246,70 @@ quad_in_3d = builds(higher_dim_quad, linear_quad, floats(-np.pi, np.pi)).filter(
 )
 register_type_strategy(mesh.Quad, one_of(flat_quad))  # , quad_in_3d))
 
+
+def subdivideable_quad(n: int) -> SearchStrategy[mesh.Quad]:
+    return cast(
+        SearchStrategy[mesh.Quad],
+        builds(
+            trapezoidal_quad,
+            integers(1, 5).map(lambda x: x * max(1, n)),
+            whole_numbers,
+            whole_numbers,
+            non_zero,
+            tuples(
+                tuples(non_zero, whole_numbers),
+                tuples(non_zero, whole_numbers),
+            ).filter(lambda x: x[0] != x[1]),
+            coordinate_systems,
+            integers(-2 * WHOLE_NUM_MAX, 2 * WHOLE_NUM_MAX).map(
+                lambda x: x / WHOLE_NUM_MAX
+            ),
+            _divisions,
+            _num_divisions,
+            floats(0.0, 1.0),
+            floats(0.0, 1.0),
+            whole_numbers,
+        )
+        .filter(lambda x: x is not None)
+        .filter(
+            lambda x: len(
+                coordinates.FrozenCoordSet(
+                    c.to_cartesian() for c in cast(mesh.Quad, x).corners()
+                )
+            )
+            == 4
+        ),
+    )
+
+
+def subdivideable_hex(n: int) -> SearchStrategy[mesh.Prism]:
+    return cast(
+        SearchStrategy[mesh.Prism],
+        builds(
+            trapezohedronal_hex,
+            integers(1, 5).map(lambda x: x * max(1, n)),
+            whole_numbers,
+            whole_numbers,
+            non_zero,
+            whole_numbers.flatmap(hex_starts),
+            coordinate_systems3d,
+            floats(-2.0, 2.0),
+            just(0),
+            just(1),
+            whole_numbers,
+            fixed_edges,
+        ).filter(lambda x: x is not None),
+    )
+
+
 register_type_strategy(
-    mesh.EndShape,
+    mesh.UnalignedShape,
     one_of(
         cast(
-            SearchStrategy[mesh.EndShape],
+            SearchStrategy[mesh.UnalignedShape],
             builds(
                 end_quad,
+                orders,
                 whole_numbers.flatmap(hex_starts),
                 sampled_from(
                     [
@@ -1347,9 +1322,10 @@ register_type_strategy(
             ).filter(lambda x: x is not None),
         ),
         cast(
-            SearchStrategy[mesh.EndShape],
+            SearchStrategy[mesh.UnalignedShape],
             builds(
                 end_triangle,
+                orders,
                 whole_numbers.flatmap(hex_starts).map(lambda x: x[:3]),
                 sampled_from(
                     [
@@ -1380,88 +1356,146 @@ starts_and_ends = tuples(
     floats(1.0, 1e3),
     floats(0.0, 2 * np.pi),
 ).map(lambda s: (s[0], _get_end_point(*s)))
-quad_mesh_elements = cast(
-    SearchStrategy[list[mesh.Quad]],
-    builds(
-        _quad_mesh_elements,
-        whole_numbers,
-        whole_numbers,
-        non_zero,
-        starts_and_ends,
-        integers(1, 4),
-        coordinate_systems,
-        integers(2, 10),
-        booleans(),
-        booleans(),
-    ).filter(lambda x: x is not None),
-)
-quad_mesh_arguments = quad_mesh_elements.map(lambda x: (x, get_quad_boundaries(x)))
-quad_mesh_layer_no_divisions = quad_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
-shared_quads = shared(quad_mesh_elements)
-quad_mesh_layer = builds(
-    mesh.MeshLayer.QuadMeshLayer,
-    shared_quads,
-    shared_quads.map(get_quad_boundaries),
-    integers(1, 3),
-)
 
-hex_mesh_arguments = cast(
-    SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
-    builds(
-        _hex_mesh_arguments,
-        whole_numbers,
-        whole_numbers,
-        non_zero,
-        whole_numbers.flatmap(hex_starts),
-        integers(1, 3),
-        integers(1, 3),
-        coordinate_systems3d,
-        integers(2, 5),
-        booleans(),
-    ).filter(lambda x: x is not None),
-)
-tri_prism_mesh_arguments = cast(
-    SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
-    builds(
-        _hex_mesh_arguments,
-        small_whole_numbers,
-        small_whole_numbers,
-        small_non_zero,
-        small_whole_numbers.flatmap(
-            lambda x: hex_starts(x, absmax=SMALL_WHOLE_NUM_MAX)
-        ),
-        integers(1, 3),
-        integers(1, 3),
-        coordinate_systems3d,
-        integers(2, 5),
-        booleans(),
+
+def quad_mesh_elements(n: int) -> SearchStrategy[list[mesh.Quad]]:
+    return cast(
+        SearchStrategy[list[mesh.Quad]],
+        builds(
+            _quad_mesh_elements,
+            integers(1, 5).map(lambda x: x * max(1, n)),
+            whole_numbers,
+            whole_numbers,
+            non_zero,
+            starts_and_ends,
+            integers(1, 4),
+            coordinate_systems,
+            booleans(),
+            booleans(),
+        ).filter(lambda x: x is not None),
     )
-    .flatmap(_hex_and_tri_prism_arguments)
-    .filter(lambda x: x is not None),
+
+
+def quad_mesh_arguments(
+    n: int,
+) -> SearchStrategy[tuple[list[mesh.Quad], list[frozenset[mesh.FieldAlignedCurve]]]]:
+    return quad_mesh_elements(n).map(lambda x: (x, get_quad_boundaries(x)))
+
+
+quad_mesh_layer_no_divisions = quad_mesh_arguments(1).map(lambda x: mesh.MeshLayer(*x))
+
+
+def quad_mesh_layer(n: int) -> SearchStrategy[mesh.QuadMeshLayer]:
+    shared_quads = shared(quad_mesh_elements(n))
+    return builds(
+        mesh.MeshLayer.QuadMeshLayer,
+        shared_quads,
+        shared_quads.map(get_quad_boundaries),
+        just(n),
+    )
+
+
+def hex_mesh_arguments(
+    n: int,
+) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    return cast(
+        SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
+        builds(
+            _hex_mesh_arguments,
+            integers(1, 5).map(lambda x: x * max(1, n)),
+            whole_numbers,
+            whole_numbers,
+            non_zero,
+            whole_numbers.flatmap(hex_starts),
+            integers(1, 3),
+            integers(1, 3),
+            coordinate_systems3d,
+            booleans(),
+        ).filter(lambda x: x is not None),
+    )
+
+
+def tri_prism_mesh_arguments(
+    n: int,
+) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    return cast(
+        SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
+        builds(
+            _hex_mesh_arguments,
+            integers(1, 5).map(lambda x: x * max(1, n)),
+            small_whole_numbers,
+            small_whole_numbers,
+            small_non_zero,
+            small_whole_numbers.flatmap(
+                lambda x: hex_starts(x, absmax=SMALL_WHOLE_NUM_MAX)
+            ),
+            integers(1, 3),
+            integers(1, 3),
+            coordinate_systems3d,
+            booleans(),
+        )
+        .flatmap(_hex_and_tri_prism_arguments)
+        .filter(lambda x: x is not None),
+    )
+
+
+def prism_mesh_arguments(
+    n: int,
+) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    return one_of(hex_mesh_arguments(n), tri_prism_mesh_arguments(n))
+
+
+prism_mesh_layer_no_divisions = prism_mesh_arguments(1).map(
+    lambda x: mesh.MeshLayer(*x)
 )
-prism_mesh_arguments = one_of(hex_mesh_arguments, tri_prism_mesh_arguments)
 
-prism_mesh_layer_no_divisions = prism_mesh_arguments.map(lambda x: mesh.MeshLayer(*x))
-shared_prism_mesh_args = shared(prism_mesh_arguments)
-prism_mesh_layer = builds(
-    mesh.MeshLayer.PrismMeshLayer,
-    shared_prism_mesh_args.map(lambda x: x[0]),
-    shared_prism_mesh_args.map(lambda x: x[1]),
-    integers(1, 3),
-).filter(  # Check that all prisms have unique corners
-    lambda m: all(len(e.corners()) == 2 * len(e.sides) for e in m)
+
+def prism_mesh_layer(n: int) -> SearchStrategy[mesh.PrismMeshLayer]:
+    shared_prism_mesh_args = shared(prism_mesh_arguments(n))
+    return builds(
+        mesh.MeshLayer.PrismMeshLayer,
+        shared_prism_mesh_args.map(lambda x: x[0]),
+        shared_prism_mesh_args.map(lambda x: x[1]),
+        just(n),
+    ).filter(  # Check that all prisms have unique corners
+        lambda m: all(
+            (
+                (n := len(frozenset(e.corners()))) == 8
+                and e.shape == mesh.PrismTypes.RECTANGULAR
+            )
+            or (n == 6 and e.shape == mesh.PrismTypes.TRIANGULAR)
+            for e in m
+        )
+    )
+
+
+def subdivideable_mesh_arguments(
+    n: int,
+) -> SearchStrategy[
+    tuple[
+        list[mesh.Prism | mesh.Quad],
+        list[frozenset[mesh.Quad | mesh.FieldAlignedCurve]],
+    ]
+]:
+    return one_of(quad_mesh_arguments(n), prism_mesh_arguments(n))
+
+
+mesh_arguments = integers(1, 5).flatmap(subdivideable_mesh_arguments)
+
+register_type_strategy(
+    mesh.MeshLayer,
+    one_of(
+        integers(1, 5).flatmap(quad_mesh_layer),
+        integers(1, 5).flatmap(prism_mesh_layer),
+    ),
 )
-
-mesh_arguments = one_of(quad_mesh_arguments, prism_mesh_arguments)
-
-register_type_strategy(mesh.MeshLayer, one_of(quad_mesh_layer, prism_mesh_layer))
 
 x3_offsets = builds(np.linspace, whole_numbers, non_zero, integers(2, 4))
 quad_meshes: SearchStrategy[mesh.QuadMesh] = builds(
-    mesh.GenericMesh, quad_mesh_layer, x3_offsets
+    mesh.GenericMesh, integers(1, 5).flatmap(quad_mesh_layer), x3_offsets
 )
 prism_meshes: SearchStrategy[mesh.PrismMesh] = builds(
-    mesh.GenericMesh, prism_mesh_layer, x3_offsets
+    mesh.GenericMesh, integers(1, 5).flatmap(prism_mesh_layer), x3_offsets
 )
 register_type_strategy(
     mesh.GenericMesh, builds(mesh.GenericMesh, from_type(mesh.MeshLayer), x3_offsets)
@@ -1469,17 +1503,17 @@ register_type_strategy(
 
 
 def simple_trace(
-    start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-) -> tuple[mesh.SliceCoords, npt.NDArray]:
+    start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+) -> tuple[coordinates.SliceCoords, npt.NDArray]:
     """Return the start-position.
 
     This is a dummy-implementation of a :class:`~neso_fame.mesh.FieldTrace`.
     """
     return (
-        mesh.SliceCoords(
+        coordinates.SliceCoords(
             np.full_like(x3, start.x1),
             np.full_like(x3, start.x2),
-            mesh.CoordinateSystem.CARTESIAN,
+            coordinates.CoordinateSystem.CARTESIAN,
         ),
         np.asarray(x3),
     )

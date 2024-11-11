@@ -26,11 +26,10 @@ from neso_fame.coordinates import (
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     flux_surface_edge,
-    perpendicular_edge,
 )
 from neso_fame.mesh import (
     AcrossFieldCurve,
-    FieldTracer,
+    FieldTrace,
     Prism,
     Quad,
     straight_line_across_field,
@@ -290,7 +289,7 @@ class ElementBuilder:
     def __init__(
         self,
         hypnotoad_poloidal_mesh: HypnoMesh,
-        tracer: FieldTracer,
+        tracer: FieldTrace,
         dx3: float,
         vertex_start_weights: CoordMap[SliceCoord, float],
         system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
@@ -360,11 +359,8 @@ class ElementBuilder:
     @coord_cache()
     def _perpendicular_quad(self, north: SliceCoord, south: SliceCoord) -> Quad:
         """Create a quad between two points, perpendicular to flux surfaces."""
-        try:
-            shape = perpendicular_edge(self._equilibrium, north, south)
-        except RuntimeError:
-            # This is to account for when we're joining two narrow quads together
-            shape = perpendicular_edge(self._equilibrium, north, south, True)
+        # Placeholder to avoid referencing something that doesn't exist
+        shape = None
         return Quad(
             shape,
             self._tracer,
