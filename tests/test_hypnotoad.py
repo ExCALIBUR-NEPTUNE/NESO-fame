@@ -44,10 +44,8 @@ from neso_fame.hypnotoad_interface import (
     get_mesh_boundaries,
     get_region_flux_surface_boundary_points,
     get_region_perpendicular_boundary_points,
-    perpendicular_edge,
 )
 from neso_fame.mesh import (
-    FieldTracer,
     Quad,
     straight_line_across_field,
 )
@@ -684,47 +682,6 @@ def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
 psis = integers(-99, 400).map(lambda x: (x + 100) / 100)
 
 
-@settings(deadline=None)
-@given(
-    fake_equilibria,
-    floats(0.0, 2 * np.pi),
-    lists(psis, min_size=2, max_size=2, unique=True),
-    arrays(
-        np.float64,
-        array_shapes(max_side=3),
-        # The scipy integration routines don't behave well if we have
-        # numbers that differ by around machine-epsilon, so we enforce
-        # larger differences between values
-        elements=integers(-500, 500).map(lambda x: (x + 500) / 1000),
-        fill=nothing(),
-    ),
-)
-def test_perpendicular_edges(
-    eq: FakeEquilibrium, angle: float, termini_psi: list[float], positions: npt.NDArray
-) -> None:
-    R_start, Z_start = map(float, eq.to_RZ(termini_psi[0], angle))
-    curve_of_psi = eq.perpendicular_curve(R_start, Z_start)
-    R_end, Z_end = map(float, curve_of_psi(termini_psi[1]))
-    start = SliceCoord(R_start, Z_start, CoordinateSystem.CYLINDRICAL)
-    end = SliceCoord(R_end, Z_end, CoordinateSystem.CYLINDRICAL)
-    edge = perpendicular_edge(cast(Equilibrium, eq), start, end)
-    # Check starts and ends of the curve are at the right locations
-    assert edge(0.0).to_coord() == start
-    assert edge(1.0).to_coord() == end
-    actual = edge(positions)
-    actual_psis = eq.psi_func(actual.x1, actual.x2, grid=False)
-    # Check positions of points on line correspond to our
-    # semi-analytic expression
-    expected_R, expected_Z = curve_of_psi(actual_psis)
-    np.testing.assert_allclose(actual.x1, expected_R, 1e-8, 1e-8)
-    np.testing.assert_allclose(actual.x2, expected_Z, 1e-8, 1e-8)
-
-    # Check positions along curve are proportional to psi
-    normed_psi = (actual_psis - termini_psi[0]) / (termini_psi[1] - termini_psi[0])
-    for act, exp in np.nditer([normed_psi, positions]):
-        np.testing.assert_allclose(act, exp, 1.5e-7, 1.5e-7)
-
-
 @settings(deadline=None, report_multiple_bugs=False)
 @given(
     fake_equilibria,
@@ -972,45 +929,6 @@ def test_flux_surface_realistic_topology(
     np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-5, 1e-5)
 
 
-@settings(deadline=None)
-@mark.filterwarnings("ignore:divide by zero encountered in double_scalars")
-@given(
-    shared_mesh_regions,
-    shared_mesh_regions.flatmap(perpendicular_termini),
-    one_of(
-        floats(0.0, 1.0),
-        arrays(
-            np.float64,
-            array_shapes(max_side=3),
-            # The scipy integration routines don't behave well if we have
-            # numbers that differ by around machine-epsilon, so we enforce
-            # larger differences between values
-            elements=integers(-50, 50).map(lambda x: (x + 50) / 100),
-            fill=nothing(),
-        ),
-    ),
-)
-def test_perpendicular_edges_realistic_topology(
-    region: MeshRegion,
-    start_end_points: tuple[SliceCoord, SliceCoord],
-    positions: npt.NDArray,
-) -> None:
-    eq: TokamakEquilibrium = region.meshParent.equilibrium
-    start, end = start_end_points
-    psi_start = eq.psi(start.x1, start.x2)
-    psi_end = eq.psi(end.x1, end.x2)
-    assert psi_start != psi_end
-    curve = perpendicular_edge(eq, start, end)
-    # Check termini of curve
-    assert curve(0.0).to_coord() == start
-    assert curve(1.0).to_coord() == end
-    actual = curve(positions)
-    # Check all have psi values between those of start and end points
-    actual_psi = eq.psi(actual.x1, actual.x2)
-    assert np.all(actual_psi <= max(psi_start, psi_end) + 1e-8)
-    assert np.all(actual_psi >= min(psi_start, psi_end) - 1e-8)
-
-
 def check_coordinate_pairs_connected(
     coord_pairs: Iterable[tuple[SliceCoord, SliceCoord]], periodic: bool
 ) -> None:
@@ -1058,7 +976,7 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), dx3
+            straight_line_across_field(north, south), simple_trace, dx3
         )
 
     for points in get_region_flux_surface_boundary_points(region):
@@ -1076,7 +994,7 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), dx3
+            straight_line_across_field(north, south), simple_trace, dx3
         )
 
     for points in get_region_perpendicular_boundary_points(region):
@@ -1175,7 +1093,7 @@ def test_region_bounds(
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
         return Quad(
-            straight_line_across_field(north, south), FieldTracer(simple_trace, 2), 1.0
+            straight_line_across_field(north, south), simple_trace, 1.0
         )
 
     mesh = to_mesh(mesh_args)

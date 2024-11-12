@@ -40,9 +40,8 @@ from neso_fame.mesh import (
     C,
     Curve,
     E,
-    EndShape,
+    UnalignedShape,
     FieldAlignedCurve,
-    FieldTracer,
     GenericMesh,
     Mesh,
     MeshLayer,
@@ -52,8 +51,8 @@ from neso_fame.mesh import (
     Quad,
     QuadMesh,
     QuadMeshLayer,
-    Segment,
     control_points,
+    field_aligned_positions,
     straight_line_across_field,
 )
 from neso_fame.offset import Offset
@@ -235,11 +234,8 @@ def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
 def test_circular_nektar_curve() -> None:
     curve = Offset(
         FieldAlignedCurve(
-            FieldTracer(
-                linear_field_trace(
+            linear_field_trace(
                     0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
-                ),
-                4,
             ),
             SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
             np.pi,
@@ -344,8 +340,8 @@ def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
     assert corners == FrozenCoordSet(map(comparable_coord, poloidal_corners(solid)))
 
 
-@given(from_type(EndShape), integers(1, 12), integers())
-def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
+@given(from_type(UnalignedShape), integers(1, 12), integers())
+def test_nektar_end_shape(shape: UnalignedShape, order: int, layer: int) -> None:
     shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
     corners = comparable_point_set(points)
     n = len(shape.edges)
@@ -406,7 +402,7 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, Segment, Curve] | MeshLike[Prism, Quad, EndShape],
+    mesh: MeshLike[Quad, FieldAlignedCurve, Curve] | MeshLike[Prism, Quad, UnalignedShape],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -416,7 +412,7 @@ def check_edges(
         else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
-        mesh = cast(MeshLike[Quad, Segment, Curve], mesh)
+        mesh = cast(MeshLike[Quad, FieldAlignedCurve, Curve], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
@@ -427,7 +423,7 @@ def check_edges(
         expected_near_faces = frozenset(comparable_edge(q.near) for q in mesh)
         expected_far_faces = frozenset(comparable_edge(q.far) for q in mesh)
     else:
-        mesh = cast(MeshLike[Prism, Quad, EndShape], mesh)
+        mesh = cast(MeshLike[Prism, Quad, UnalignedShape], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
@@ -463,12 +459,12 @@ def check_edges(
 
 
 def check_face_composites(
-    expected: Iterable[Curve] | Iterable[EndShape], actual: SD.Composite
+    expected: Iterable[Curve] | Iterable[UnalignedShape], actual: SD.Composite
 ) -> None:
     def comparable_item(
-        item: Curve | EndShape,
+        item: Curve | UnalignedShape,
     ) -> tuple[str, FrozenCoordSet[Coord]]:
-        if isinstance(item, EndShape):
+        if isinstance(item, UnalignedShape):
             if len(item.edges) == 4:
                 name = SD.QuadGeom.__name__
             elif len(item.edges) == 3:
@@ -509,7 +505,7 @@ def check_elements(
 @settings(deadline=None)
 @given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, Segment, Curve] | MeshLayer[Prism, Quad, EndShape],
+    mesh: MeshLayer[Quad, FieldAlignedCurve, Curve] | MeshLayer[Prism, Quad, UnalignedShape],
     order: int,
     layer: int,
     spatial_dim: int,
@@ -910,16 +906,17 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 
 
 QUAD = Quad(
-    straight_line_across_field(
-        SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
-        SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-    ),
-    FieldTracer(
-        simple_trace,
-        2,
-    ),
-    1.0,
-)
+    field_aligned_positions(
+        straight_line_across_field(
+            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
+            1
+        ),
+        1.0,
+    simple_trace,
+    np.array(1.0),
+        1,
+))
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),
     np.array([0.5]),

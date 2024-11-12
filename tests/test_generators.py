@@ -20,10 +20,8 @@ from neso_fame.element_builder import ElementBuilder
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     FieldAlignedCurve,
-    FieldTracer,
     Prism,
     Quad,
-    Segment,
     control_points,
 )
 from neso_fame.nektar_writer import nektar_3d_element
@@ -854,7 +852,7 @@ def test_validate_wall_elements() -> None:
     wall_vertices = frozenset({(c00, c20), (c20, c21)})
     builder = ElementBuilder(
         MagicMock(),
-        FieldTracer(simple_trace, 2),
+        simple_trace,
         0.1,
         CoordMap.empty_slicecoord(float),
         CoordinateSystem.CARTESIAN,
@@ -949,20 +947,15 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
 
     o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
 
-    def get_axis_edge(prism: Prism) -> Segment:
-        curves = frozenset(q.north for q in prism.sides) | frozenset(
-            q.south for q in prism.sides
+    def get_axis_edge(prism: Prism) -> FieldAlignedCurve:
+        curves = frozenset(q.north for q in prism) | frozenset(
+            q.south for q in prism
         )
         assert len(curves) == 3
         axis_curve = [
             c
             for c in curves
-            if (
-                c.start
-                if isinstance(c, FieldAlignedCurve)
-                else c(0.0).to_coord().to_slice_coord()
-            )
-            == o_point
+            if c.start_points.to_coord() == o_point
         ]
         assert len(axis_curve) == 1
         acurve = axis_curve[0]
