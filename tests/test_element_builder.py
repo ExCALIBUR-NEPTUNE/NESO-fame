@@ -35,7 +35,6 @@ from neso_fame.coordinates import (
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.generators import _get_element_corners
 from neso_fame.mesh import (
-    FieldTrace,
     straight_line_across_field,
 )
 
@@ -748,9 +747,7 @@ MOCK_MESH = MagicMock()
 MOCK_MESH.equilibrium.o_point = Point2D(1.0, 0.0)
 
 BUILDER = ElementBuilder(MOCK_MESH, simple_trace, 0.1, EMPTY_MAP)
-BUILDER_UNFINISHED = ElementBuilder(
-    MOCK_MESH, simple_trace, 0.1, EMPTY_MAP
-)
+BUILDER_UNFINISHED = ElementBuilder(MOCK_MESH, simple_trace, 0.1, EMPTY_MAP)
 # with (
 #     patch(
 #         "neso_fame.element_builder.flux_surface_edge",

@@ -17,10 +17,9 @@ from typing import (
     overload,
 )
 
-from _pytest.compat import assert_never
-
 import numpy as np
 import numpy.typing as npt
+from _pytest.compat import assert_never
 from typing_extensions import Self
 
 from neso_fame.coordinates import (

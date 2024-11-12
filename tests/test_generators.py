@@ -948,15 +948,9 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
     o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
 
     def get_axis_edge(prism: Prism) -> FieldAlignedCurve:
-        curves = frozenset(q.north for q in prism) | frozenset(
-            q.south for q in prism
-        )
+        curves = frozenset(q.north for q in prism) | frozenset(q.south for q in prism)
         assert len(curves) == 3
-        axis_curve = [
-            c
-            for c in curves
-            if c.start_points.to_coord() == o_point
-        ]
+        axis_curve = [c for c in curves if c.start_points.to_coord() == o_point]
         assert len(axis_curve) == 1
         acurve = axis_curve[0]
         return acurve

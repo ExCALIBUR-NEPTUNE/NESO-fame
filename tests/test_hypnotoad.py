@@ -23,7 +23,6 @@ from hypothesis.strategies import (
     floats,
     integers,
     just,
-    lists,
     nothing,
     one_of,
     sampled_from,
@@ -975,9 +974,7 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            straight_line_across_field(north, south), simple_trace, dx3
-        )
+        return Quad(straight_line_across_field(north, south), simple_trace, dx3)
 
     for points in get_region_flux_surface_boundary_points(region):
         check_flux_surface_bound(
@@ -993,9 +990,7 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            straight_line_across_field(north, south), simple_trace, dx3
-        )
+        return Quad(straight_line_across_field(north, south), simple_trace, dx3)
 
     for points in get_region_perpendicular_boundary_points(region):
         check_perpendicular_bounds(
@@ -1092,9 +1087,7 @@ def test_region_bounds(
 )
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            straight_line_across_field(north, south), simple_trace, 1.0
-        )
+        return Quad(straight_line_across_field(north, south), simple_trace, 1.0)
 
     mesh = to_mesh(mesh_args)
     eq = mesh.equilibrium

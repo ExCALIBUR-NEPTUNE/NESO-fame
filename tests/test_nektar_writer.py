@@ -40,7 +40,6 @@ from neso_fame.mesh import (
     C,
     Curve,
     E,
-    UnalignedShape,
     FieldAlignedCurve,
     GenericMesh,
     Mesh,
@@ -51,6 +50,7 @@ from neso_fame.mesh import (
     Quad,
     QuadMesh,
     QuadMeshLayer,
+    UnalignedShape,
     control_points,
     field_aligned_positions,
     straight_line_across_field,
@@ -235,7 +235,7 @@ def test_circular_nektar_curve() -> None:
     curve = Offset(
         FieldAlignedCurve(
             linear_field_trace(
-                    0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
+                0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
             ),
             SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
             np.pi,
@@ -402,7 +402,8 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, FieldAlignedCurve, Curve] | MeshLike[Prism, Quad, UnalignedShape],
+    mesh: MeshLike[Quad, FieldAlignedCurve, Curve]
+    | MeshLike[Prism, Quad, UnalignedShape],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -505,7 +506,8 @@ def check_elements(
 @settings(deadline=None)
 @given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, FieldAlignedCurve, Curve] | MeshLayer[Prism, Quad, UnalignedShape],
+    mesh: MeshLayer[Quad, FieldAlignedCurve, Curve]
+    | MeshLayer[Prism, Quad, UnalignedShape],
     order: int,
     layer: int,
     spatial_dim: int,
@@ -910,13 +912,14 @@ QUAD = Quad(
         straight_line_across_field(
             SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
             SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-            1
+            1,
         ),
         1.0,
-    simple_trace,
-    np.array(1.0),
+        simple_trace,
+        np.array(1.0),
         1,
-))
+    )
+)
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),
     np.array([0.5]),

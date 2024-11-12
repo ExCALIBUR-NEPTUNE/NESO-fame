@@ -120,6 +120,7 @@ def slice_coord_for_system(
         just(system),
     )
 
+
 def coord_for_system(
     system: coordinates.CoordinateSystem,
 ) -> SearchStrategy[coordinates.SliceCoord]:
@@ -140,7 +141,11 @@ def coord_for_system(
 register_type_strategy(
     coordinates.SliceCoords,
     builds(
-        lambda xs, c: coordinates.SliceCoords(np.abs(xs[0]) if c == coordinates.CoordinateSystem.CYLINDRICAL else xs[0], xs[1], c),
+        lambda xs, c: coordinates.SliceCoords(
+            np.abs(xs[0]) if c == coordinates.CoordinateSystem.CYLINDRICAL else xs[0],
+            xs[1],
+            c,
+        ),
         mutually_broadcastable_arrays(2),
         sampled_from(coordinates.CoordinateSystem),
     ),
