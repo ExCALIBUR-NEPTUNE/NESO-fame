@@ -120,11 +120,27 @@ def slice_coord_for_system(
         just(system),
     )
 
+def coord_for_system(
+    system: coordinates.CoordinateSystem,
+) -> SearchStrategy[coordinates.SliceCoord]:
+    x1 = (
+        non_zero
+        if system == coordinates.CoordinateSystem.CYLINDRICAL
+        else whole_numbers
+    )
+    return builds(
+        coordinates.Coord,
+        x1,
+        whole_numbers,
+        whole_numbers,
+        just(system),
+    )
+
 
 register_type_strategy(
     coordinates.SliceCoords,
     builds(
-        lambda xs, c: coordinates.SliceCoords(xs[0], xs[1], c),
+        lambda xs, c: coordinates.SliceCoords(np.abs(xs[0]) if c == coordinates.CoordinateSystem.CYLINDRICAL else xs[0], xs[1], c),
         mutually_broadcastable_arrays(2),
         sampled_from(coordinates.CoordinateSystem),
     ),
@@ -946,33 +962,6 @@ def _get_end_point(
     )
 
 
-def straight_field_line_for_system(
-    system: coordinates.CoordinateSystem,
-) -> SearchStrategy[mesh.FieldAlignedCurve]:
-    a1 = shared(whole_numbers, key=541)
-    a2 = shared(whole_numbers, key=542)
-    a3 = shared(non_zero, key=543)
-
-    trace = builds(
-        linear_field_trace,
-        a1,
-        a2,
-        a3,
-        just(system),
-        just(0.0),
-        just((0.0, 0.0)),
-    )
-    return builds(
-        mesh.FieldAlignedCurve,
-        trace,
-        slice_coord_for_system(system),
-        non_zero,
-        _divisions,
-        _num_divisions,
-        floats(0.0, 1.0),
-    )
-
-
 _centre = shared(whole_numbers, key=1)
 _rad = shared(non_zero, key=2)
 _dx3 = builds(operator.mul, _rad, floats(0.01, 1.99))
@@ -983,51 +972,8 @@ _small_rad = shared(small_non_zero, key=42)
 _small_dx3 = builds(operator.mul, _small_rad, floats(0.01, 1.99))
 _small_x1_start = tuples(_small_centre, _small_rad).map(lambda x: x[0] + x[1])
 
-
-def curved_field_line_for_system(
-    system: coordinates.CoordinateSystem,
-) -> SearchStrategy[mesh.FieldAlignedCurve]:
-    trace = builds(cylindrical_field_trace, _centre, whole_numbers)
-
-    return builds(
-        mesh.FieldAlignedCurve,
-        trace,
-        builds(
-            coordinates.SliceCoord,
-            builds(operator.add, _centre, _rad),
-            whole_numbers,
-            just(system),
-        ),
-        _rad.map(abs).flatmap(lambda r: floats(0.01 * r, 1.99 * r)),  # type: ignore
-        _divisions,
-        _num_divisions,
-        floats(0.0, 1.0),
-    )
-
-
-def field_aligned_curve_for_system(
-    system: coordinates.CoordinateSystem,
-) -> SearchStrategy[mesh.FieldAlignedCurve]:
-    if system in CARTESIAN_SYSTEMS:
-        return one_of(
-            (
-                straight_field_line_for_system(system),
-                curved_field_line_for_system(system),
-            )
-        )
-    else:
-        return straight_field_line_for_system(system)
-
-
 shared_coordinate_systems = shared(sampled_from(coordinates.CoordinateSystem), key=22)
-straight_field_line = coordinate_systems.flatmap(straight_field_line_for_system)
-curved_field_line = sampled_from(list(CARTESIAN_SYSTEMS)).flatmap(
-    curved_field_line_for_system
-)
-register_type_strategy(
-    mesh.FieldAlignedCurve,
-    one_of(straight_field_line, curved_field_line),
-)
+
 common_slice_coords = shared_coordinate_systems.flatmap(slice_coord_for_system)
 slice_coord_pair = cast(
     SearchStrategy[tuple[coordinates.SliceCoord, coordinates.SliceCoord]],
@@ -1044,6 +990,8 @@ straight_lines_across_field = builds(
 across_field_curves = builds(
     offset_line, straight_lines_across_field, floats(-0.5, 0.5)
 )
+
+common_coords = shared_coordinate_systems.flatmap(coord_for_system)
 
 
 T = TypeVar("T")
@@ -1248,6 +1196,7 @@ register_type_strategy(mesh.Quad, one_of(flat_quad))  # , quad_in_3d))
 
 
 def subdivideable_quad(n: int) -> SearchStrategy[mesh.Quad]:
+    """Build quad which can be subdivided into n layers"""
     return cast(
         SearchStrategy[mesh.Quad],
         builds(
@@ -1283,6 +1232,7 @@ def subdivideable_quad(n: int) -> SearchStrategy[mesh.Quad]:
 
 
 def subdivideable_hex(n: int) -> SearchStrategy[mesh.Prism]:
+    """Build hex which can be subdivided into n layers"""
     return cast(
         SearchStrategy[mesh.Prism],
         builds(
@@ -1359,6 +1309,7 @@ starts_and_ends = tuples(
 
 
 def quad_mesh_elements(n: int) -> SearchStrategy[list[mesh.Quad]]:
+    """Build quad mesh elements with n layers"""
     return cast(
         SearchStrategy[list[mesh.Quad]],
         builds(
@@ -1379,6 +1330,7 @@ def quad_mesh_elements(n: int) -> SearchStrategy[list[mesh.Quad]]:
 def quad_mesh_arguments(
     n: int,
 ) -> SearchStrategy[tuple[list[mesh.Quad], list[frozenset[mesh.FieldAlignedCurve]]]]:
+    """Build quad mesh arguments with n layers"""
     return quad_mesh_elements(n).map(lambda x: (x, get_quad_boundaries(x)))
 
 
@@ -1386,6 +1338,7 @@ quad_mesh_layer_no_divisions = quad_mesh_arguments(1).map(lambda x: mesh.MeshLay
 
 
 def quad_mesh_layer(n: int) -> SearchStrategy[mesh.QuadMeshLayer]:
+    """Build quad mesh layer which can be subdivided into n layers"""
     shared_quads = shared(quad_mesh_elements(n))
     return builds(
         mesh.MeshLayer.QuadMeshLayer,
@@ -1398,6 +1351,7 @@ def quad_mesh_layer(n: int) -> SearchStrategy[mesh.QuadMeshLayer]:
 def hex_mesh_arguments(
     n: int,
 ) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    """Build hex mesh arguments which can be subdivided into n layers"""
     return cast(
         SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
         builds(
@@ -1418,6 +1372,7 @@ def hex_mesh_arguments(
 def tri_prism_mesh_arguments(
     n: int,
 ) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    """Build triangular prism mesh layer arguments which can be subdivided into n layers"""
     return cast(
         SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
         builds(
@@ -1442,6 +1397,7 @@ def tri_prism_mesh_arguments(
 def prism_mesh_arguments(
     n: int,
 ) -> SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
+    """Build prism mesh arguments which can be subdivided into n layers"""
     return one_of(hex_mesh_arguments(n), tri_prism_mesh_arguments(n))
 
 
@@ -1451,6 +1407,7 @@ prism_mesh_layer_no_divisions = prism_mesh_arguments(1).map(
 
 
 def prism_mesh_layer(n: int) -> SearchStrategy[mesh.PrismMeshLayer]:
+    """Build prism mesh layer which can be subdivided into n layers"""
     shared_prism_mesh_args = shared(prism_mesh_arguments(n))
     return builds(
         mesh.MeshLayer.PrismMeshLayer,
@@ -1477,6 +1434,7 @@ def subdivideable_mesh_arguments(
         list[frozenset[mesh.Quad | mesh.FieldAlignedCurve]],
     ]
 ]:
+    """Build mesh arguments which can be subdivided into n layers"""
     return one_of(quad_mesh_arguments(n), prism_mesh_arguments(n))
 
 

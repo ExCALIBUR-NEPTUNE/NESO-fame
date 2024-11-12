@@ -19,6 +19,7 @@ from hypothesis.strategies import (
     sampled_from,
     shared,
     slices,
+    tuples
 )
 
 from neso_fame import coordinates, mesh
@@ -30,6 +31,7 @@ from .conftest import (
     _hex_mesh_arguments,
     _quad_mesh_elements,
     compatible_coords_and_alignments,
+    corners_to_poloidal_quad,
     flat_sided_hex,
     linear_traces,
     mesh_arguments,
@@ -37,13 +39,19 @@ from .conftest import (
     orders,
     prism_mesh_layer_no_divisions,
     quad_mesh_layer_no_divisions,
+    shared_coordinate_systems,
     subdivideable_hex,
     subdivideable_mesh_arguments,
     subdivideable_quad,
     unbroadcastable_shape,
     whole_numbers,
+    common_slice_coords,
+    common_coords,
 )
 
+
+divisions = shared(integers(-5, 10), key=5545)
+pos_divisions = shared(integers(1, 10), key=5546)
 
 @given(
     compatible_coords_and_alignments,
@@ -52,7 +60,7 @@ from .conftest import (
     integers(1, 10),
     integers(1, 5),
 )
-def test_field_aligned_positions(
+def test_subdivideable_field_aligned_positions(
     coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
@@ -70,10 +78,41 @@ def test_field_aligned_positions(
     assert alignments is data.alignments
     assert data.subdivision == 0
     assert data.num_divisions == 1
+    np.broadcast(*data.start_points, alignments, data._computed[..., 0])
+    assert data._x1.shape[-1] == len(data.x3)
+    assert data._x2.shape[-1] == len(data.x3)
+
+
+@given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x-1)),
+    pos_divisions,
+)
+def test_field_aligned_positions(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert data.start_points is starts
+    assert np.isclose(data.x3[-1] * 2, dx3)
+    assert data.x3.shape == (order * num_divisions + 1,)
+    assert field is data.trace
+    assert alignments is data.alignments
+    assert data.subdivision == subdivision
+    assert data.num_divisions == num_divisions
     np.broadcast(*data.start_points, data._computed[..., 0])
-    expected_shape = data.start_points.shape + data.x3.shape
-    assert data._x1.shape == expected_shape
-    assert data._x2.shape == expected_shape
+    assert data._x1.shape[-1] == len(data.x3)
+    assert data._x2.shape[-1] == len(data.x3)
 
 
 @given(
@@ -81,19 +120,21 @@ def test_field_aligned_positions(
     linear_traces,
     floats(0.1, 10.0),
     integers(-10, 0),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
 )
 def test_field_aligned_positions_bad_order(
     coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
     with pytest.raises(ValueError, match=r".*order.*"):
-        mesh.subdividable_field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+        mesh.field_aligned_positions(
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
@@ -112,9 +153,9 @@ def test_field_aligned_positions_bad_divisions(
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    with pytest.raises(ValueError):
-        mesh.subdividable_field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+    with pytest.raises(ValueError, match=r'.*num_divisions.*'):
+        mesh.field_aligned_positions(
+            starts, dx3, field, alignments, order, 0, num_divisions
         )
 
 
@@ -123,7 +164,8 @@ def test_field_aligned_positions_bad_divisions(
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
     lists(integers(1, 10), min_size=1, max_size=5),
 )
 def test_field_aligned_positions_bad_alignment_dim(
@@ -131,18 +173,19 @@ def test_field_aligned_positions_bad_alignment_dim(
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
     extra_dims: list[int],
 ) -> None:
     alignments = np.ones(starts.shape + tuple(extra_dims))
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
-        mesh.subdividable_field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+        mesh.field_aligned_positions(
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
     alignments = np.ones(tuple(extra_dims) + np.broadcast(*starts).shape)
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
-        mesh.subdividable_field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+        mesh.field_aligned_positions(
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
@@ -160,7 +203,8 @@ shared_slice_coords = shared(
     floats(0.1, 10.0),
     shared_slice_coords.flatmap(lambda x: unbroadcastable_shape(x.shape)).map(np.ones),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
 )
 def test_field_aligned_positions_bad_alignment_shape(
     starts: coordinates.SliceCoords,
@@ -168,11 +212,12 @@ def test_field_aligned_positions_bad_alignment_shape(
     dx3: float,
     alignments: npt.NDArray,
     order: int,
+    subdivision: int,
     num_divisions: int,
 ) -> None:
     with pytest.raises(ValueError, match=r".*broadcast-compatible.*"):
-        mesh.subdividable_field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+        mesh.field_aligned_positions(
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
@@ -210,6 +255,18 @@ def test_field_aligned_positions_subdivide(
         data = array
         base += m
 
+def test_field_aligned_positions_bad_subdivide() -> None:
+    starts = coordinates.SliceCoords(
+        np.array([0.0, 0.25, 0.5, 0.75, 1.0]),
+        np.array([-1.0, -0.5, 0.0, 0.5, 1.0]),
+        coordinates.CoordinateSystem.CARTESIAN,
+    )
+    alignments = np.array([1.0, 1.0, 1.0, 1.0, 0.0])
+    data = mesh.field_aligned_positions(
+        starts, 2.0, sample_trace, alignments, 4, 0, 1
+    )
+    with pytest.raises(ValueError, match=r"Can not subdivide.*"):
+        next(data.subdivide(3))
 
 @given(
     compatible_coords_and_alignments,
@@ -238,13 +295,61 @@ def test_field_aligned_positions_subdivide_self(
 
 shared_coords_alignments = shared(compatible_coords_and_alignments, key=22222)
 
+@given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
+)
+def test_field_aligned_positions_poloidal_shape(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert len(data.poloidal_shape) == len(starts.shape)
+    assert data.poloidal_shape == tuple(map(max, itertools.zip_longest(starts.shape[::-1], alignments.shape[::-1], fillvalue=0)))[::-1]
+
+
+@settings(report_multiple_bugs=False)
+@given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
+)
+def test_field_aligned_positions_shape(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert data.shape == data.coords.shape
+
 
 @given(
     shared_coords_alignments,
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
     shared_coords_alignments.flatmap(
         lambda x: basic_indices(x[0].shape)
         if len(x[0].shape) > 2
@@ -258,21 +363,22 @@ def test_field_aligned_positions_getitem(
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
     idx: Any,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.subdividable_field_aligned_positions(
-        starts, dx3, field, alignments, order, num_divisions
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
     )
     result = data[idx]
     assert result.start_points is not data.start_points
     assert result.start_points.x1.base is data.start_points.x1 or not isinstance(
         result.start_points.x1, np.ndarray
-    )
+    ) or not isinstance(data.start_points.x1, np.ndarray)
     assert result.start_points.x2.base is data.start_points.x2 or not isinstance(
         result.start_points.x1, np.ndarray
-    )
+    ) or not isinstance(data.start_points.x2, np.ndarray)
     assert result.x3 is data.x3
     assert result.trace is data.trace
     assert result.alignments is not data.alignments
@@ -294,7 +400,7 @@ def test_field_aligned_positions_getitem(
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions,
 )
 def test_field_aligned_positions_coords_shape(
     coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
@@ -308,9 +414,9 @@ def test_field_aligned_positions_coords_shape(
         starts, dx3, field, alignments, order, num_divisions
     )
     coords = data.coords
-    assert coords.shape == starts.shape + (order * num_divisions + 1,)
+    assert coords.shape == data.poloidal_shape + (order * num_divisions + 1,)
     for div in data.subdivide(num_divisions):
-        assert div.coords.shape == starts.shape + (order + 1,)
+        assert div.coords.shape == data.poloidal_shape + (order + 1,)
 
 
 def sample_trace(
@@ -334,8 +440,8 @@ def test_field_aligned_positions_coords_fully_aligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.subdividable_field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(1.0), order, 1
+    data = mesh.field_aligned_positions(
+        starts, dx3, sample_trace, np.asarray(1.0), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -354,8 +460,8 @@ def test_field_aligned_positions_coords_partially_aligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.subdividable_field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(0.5), order, 1
+    data = mesh.field_aligned_positions(
+        starts, dx3, sample_trace, np.asarray(0.5), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -374,8 +480,8 @@ def test_field_aligned_positions_coords_unaligned(
     dx3: float,
     order: int,
 ) -> None:
-    data = mesh.subdividable_field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(0.0), order, 1
+    data = mesh.field_aligned_positions(
+        starts, dx3, sample_trace, np.asarray(0.0), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -389,7 +495,7 @@ def test_field_aligned_positions_coords_unaligned(
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions,
 )
 def test_field_aligned_positions_coords_caching(
     coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
@@ -444,6 +550,8 @@ def test_field_aligned_positions_subdivided_coords(
     x1 = np.concatenate(
         [c.x1[..., 1:] if i != 0 else c.x1 for i, c in enumerate(coords)], axis=-1
     )
+    if np.any(x1 != data.coords.x1):
+        breakpoint()
     assert np.all(x1 == data.coords.x1)
     x2 = np.concatenate(
         [c.x2[..., 1:] if i != 0 else c.x2 for i, c in enumerate(coords)], axis=-1
@@ -464,8 +572,8 @@ def test_field_aligned_positions_slice_caching() -> None:
     alignments = np.array([1.0, 1.0, 0.0])
     trace = MagicMock()
     trace.side_effect = sample_trace
-    data = mesh.subdividable_field_aligned_positions(
-        starts, 2.0, trace, alignments, 4, 1
+    data = mesh.field_aligned_positions(
+        starts, 2.0, trace, alignments, 4
     )
     near = data[0]
     expected_x1 = np.array(
@@ -511,6 +619,25 @@ def example_trace(
     )
 
 
+def test_straight_line_across_field() -> None:
+    line = mesh.control_points(mesh.straight_line_across_field(
+            mesh.SliceCoord(1., 1., coordinates.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(2., 0., coordinates.CoordinateSystem.CARTESIAN),
+            4
+    ))
+    np.testing.assert_allclose(line.x1, np.linspace(1, 2, 5), 1e-10, 1e-10)
+    np.testing.assert_allclose(line.x2, np.linspace(1, 0, 5), 1e-10, 1e-10)
+
+
+def test_straight_line_across_field_mismatched_coords() -> None:
+    with pytest.raises(ValueError):
+        mesh.straight_line_across_field(
+            mesh.SliceCoord(1., 1., coordinates.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(1., 1., coordinates.CoordinateSystem.CYLINDRICAL),
+            3
+        )
+
+
 def test_bad_straight_line() -> None:
     with pytest.raises(ValueError):
         mesh.straight_line(
@@ -518,9 +645,6 @@ def test_bad_straight_line() -> None:
             coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CYLINDRICAL),
             4,
         )
-
-
-# TODO: write test for straight_line_across_field
 
 line_termini = sampled_from(coordinates.CoordinateSystem).flatmap(
     lambda c: lists(
@@ -536,7 +660,7 @@ def test_straight_line_between_termini(
     termini: list[coordinates.Coord], order: int, i: int, j: int
 ) -> None:
     line = mesh.straight_line(termini[0], termini[1], order)
-    positions = line.coords
+    positions = mesh.control_points(line)
     for position in positions.iter_points():
         for p, n, s in zip(position, termini[0], termini[1]):
             xs = sorted([p, n, s])
@@ -623,9 +747,6 @@ def test_quad_offset(q: mesh.Quad, x: float) -> None:
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
     np.testing.assert_allclose(actual.x3, expected.x3, atol=1e-12)
     assert actual.system == expected.system
-
-
-divisions = shared(integers(-5, 10), key=5545)
 
 
 @given(divisions.flatmap(subdivideable_quad), divisions)
@@ -854,7 +975,7 @@ def test_mesh_layer_elements_with_offset(
         assert actual_elems == expected_elems
 
 
-@settings(deadline=None, report_multiple_bugs=False)
+@settings(deadline=None)
 @given(divisions.flatmap(subdivideable_mesh_arguments), divisions)
 def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
@@ -909,6 +1030,7 @@ def evaluate_element(
             yield coords[-1, -1]
 
 
+@settings(deadline=None)
 @given(divisions.flatmap(subdivideable_mesh_arguments), whole_numbers, divisions)
 def test_mesh_layer_near_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
@@ -927,6 +1049,7 @@ def test_mesh_layer_near_faces(
     assert expected == actual
 
 
+@settings(deadline=None)
 @given(divisions.flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5))
 def test_mesh_layer_far_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
@@ -1043,3 +1166,39 @@ def test_mesh_len(m: mesh.GenericMesh) -> None:
         next(mesh_iter)
     with pytest.raises(StopIteration):
         next(mesh_iter)
+
+
+shared_orders = shared(integers(1, 10), key=123456)
+coords = builds(
+        coordinates.Coord, whole_numbers, whole_numbers, whole_numbers, just(coordinates.CoordinateSystem.CARTESIAN))
+lines_across_field = builds(
+            mesh.straight_line_across_field,
+            common_slice_coords,
+            common_slice_coords,
+            shared_orders
+        )
+geometries = one_of(
+    (
+        lines_across_field,
+        builds(mesh.straight_line, common_coords, common_coords, shared_orders),
+        builds(mesh.field_aligned_positions, lines_across_field, floats(1e-3, 1e3), linear_traces, floats(0., 1.0).map(np.array), shared_orders, pos_divisions.flatmap(lambda x: integers(0, x-1)), pos_divisions).map(mesh.Quad),
+        builds(
+            mesh.Prism,
+            sampled_from(tuple(mesh.PrismTypes)[::-1]),
+            builds(mesh.field_aligned_positions,
+                   builds(corners_to_poloidal_quad, shared_orders, lists(common_slice_coords.map(tuple), min_size=4, max_size=4).map(tuple), shared_coordinate_systems),
+                   floats(1e-3, 1e3),
+                   linear_traces,
+                   floats(0., 1.).map(np.array),
+                   shared_orders,
+                   pos_divisions.flatmap(lambda x: integers(0, x-1)),
+                   pos_divisions,
+            )
+        )
+    )
+)
+
+@given(shared_orders, geometries)
+def test_order(n: int, geom: mesh.AcrossFieldCurve | mesh.Curve | mesh.Quad | mesh.Prism):
+    assert n == mesh.order(geom)
+

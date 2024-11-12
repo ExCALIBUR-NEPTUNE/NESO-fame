@@ -17,6 +17,8 @@ from typing import (
     overload,
 )
 
+from _pytest.compat import assert_never
+
 import numpy as np
 import numpy.typing as npt
 from typing_extensions import Self
@@ -138,7 +140,7 @@ def field_aligned_positions(
             "`alignments` can not be of higher dimension than `start_points`"
         )
     try:
-        np.broadcast(start_points.x1, start_points.x2, alignments)
+        shape_array = np.broadcast(start_points.x1, start_points.x2, alignments)
     except ValueError:
         raise ValueError(
             "`alignments` must be broadcast-compatible with `start_points`"
@@ -149,7 +151,7 @@ def field_aligned_positions(
         raise ValueError("`num_divisions` must be strictly positive")
     n = num_divisions * order + 1
     x3 = np.linspace(-dx3 / 2, dx3 / 2, n)
-    shape = start_array.shape + (n,)
+    shape = shape_array.shape + (n,)
     return FieldAlignedPositions(
         start_points,
         x3,
@@ -253,7 +255,7 @@ class FieldAlignedPositions(LazilyOffsetable):
     @property
     def shape(self) -> tuple[int, ...]:
         """The logical shape of the 3D coordinates obtained by tracing field lines."""
-        return self.poloidal_shape + self.x3.shape
+        return self.poloidal_shape + ((len(self.x3) - 1) // self.num_divisions + 1,)
 
     # TODO: Add a hash and/or equality operator based on the locations, shape, and size of arrays in memory (plus subdivisions)
     @cached_property
@@ -713,9 +715,7 @@ class Prism(LazilyOffsetable):
             yield Quad(self.nodes[:, 0])
             yield Quad(self.nodes[:, -1])
         else:
-            raise NotImplementedError(
-                f"Do not know how to get sides of prism of type {self.shape}"
-            )
+            assert_never(self.shape)
 
     @cached_property
     def near(self) -> UnalignedShape:
@@ -755,11 +755,6 @@ class Prism(LazilyOffsetable):
             for data in self.nodes.subdivide(num_divisions):
                 yield Prism(self.shape, data)
 
-    @property
-    def poloidal_points(self) -> SliceCoords:
-        r"""Get the control points for the poloidal (x3) cross-section of this prism."""
-        return self.nodes.start_points
-
     def make_flat_faces(self) -> Prism:
         """Create a new prism where sides don't curve in the poloidal plane."""
         s = np.linspace(0.0, 1.0, self.nodes.start_points.shape[0])
@@ -791,9 +786,7 @@ class Prism(LazilyOffsetable):
                 self.nodes.start_points.system,
             )
         else:
-            raise NotImplementedError(
-                f"Do no know how to flatten prism of type {self.shape}"
-            )
+            assert_never(self.shape)
         return Prism(
             self.shape,
             field_aligned_positions(
