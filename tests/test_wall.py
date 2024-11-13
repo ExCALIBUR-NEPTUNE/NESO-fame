@@ -1,6 +1,5 @@
 import itertools
 import operator
-from unittest.mock import MagicMock, call
 
 import numpy as np
 from hypnotoad import Point2D  # type: ignore
@@ -20,7 +19,7 @@ from neso_fame.coordinates import (
     SliceCoords,
 )
 from neso_fame.mesh import (
-    straight_line_across_field,
+    AcrossFieldCurve,
 )
 from neso_fame.wall import (
     WallSegment,
@@ -143,39 +142,77 @@ def test_minimum_distance_beyond_segment(
     )
 
 
-@given(polygons, radii, min_sizes, floats(0.0, np.pi / 3))
+@given(
+    polygons,
+    radii,
+    min_sizes,
+    integers(0, 2).map(lambda x: x * np.pi / 36),
+    integers(1, 5),
+)
 def test_adjust_wall_resolution_distances(
-    wall: list[Point2D], new_resolution: float, min_factor: float, angle: float
+    wall: list[Point2D],
+    new_resolution: float,
+    min_factor: float,
+    angle: float,
+    order: int,
 ) -> None:
-    new_wall = adjust_wall_resolution(wall, new_resolution, min_factor, angle)
     min_dist_sq = (min_factor * new_resolution) ** 2
     max_dist_sq = (1.5 * new_resolution) ** 2
-    for start, end in periodic_pairwise(new_wall):
-        dist_sq = (end.R - start.R) ** 2 + (end.Z - start.Z) ** 2
+    for segment in adjust_wall_resolution(
+        wall, new_resolution, order, min_factor, angle
+    ):
+        start = segment[0]
+        end = segment[-1]
+        dist_sq = (end.x1 - start.x1) ** 2 + (end.x2 - start.x2) ** 2
         assert dist_sq <= max_dist_sq
         assert dist_sq >= min_dist_sq
 
 
-@given(polygons, radii, integers(5, 1000).map(lambda m: 2 * np.pi / (m + 0.5)))
+@given(
+    polygons,
+    radii,
+    min_sizes,
+    integers(0, 18).map(lambda x: x * np.pi / 36),
+    integers(1, 5),
+)
+def test_adjust_wall_resolution_continuous(
+    wall: list[Point2D],
+    new_resolution: float,
+    min_factor: float,
+    angle: float,
+    order: int,
+) -> None:
+    for left, right in periodic_pairwise(
+        adjust_wall_resolution(wall, new_resolution, order, min_factor, angle)
+    ):
+        assert left[-1] == right[0]
+
+
+@given(
+    polygons,
+    radii,
+    integers(5, 1000).map(lambda m: 2 * np.pi / (m + 0.5)),
+    integers(1, 5),
+)
 def test_adjust_wall_resolution_angles(
-    wall: list[Point2D], new_resolution: float, angle: float
+    wall: list[Point2D], new_resolution: float, angle: float, order: int
 ) -> None:
     # Don't eliminate small edges here, as it makes it really
     # confusing when we can expect a sharp angle to be preserved.
-    new_wall = adjust_wall_resolution(wall, new_resolution, 0, angle)
+    new_wall = list(adjust_wall_resolution(wall, new_resolution, order, 0, angle))
 
-    def sharp_corner(start: Point2D, mid: Point2D, end: Point2D) -> bool:
-        line1 = [mid.R - start.R, mid.Z - start.Z]
-        line2 = [end.R - mid.R, end.Z - mid.Z]
+    def sharp_corner(left: AcrossFieldCurve, right: AcrossFieldCurve) -> bool:
+        line1 = [left[-1].x1 - left[0].x1, left[-1].x2 - left[0].x2]
+        line2 = [right[-1].x1 - right[0].x1, right[-1].x2 - right[0].x2]
         mag1 = np.sqrt(np.dot(line1, line1))
         mag2 = np.sqrt(np.dot(line2, line2))
         ang = np.arccos(np.clip(np.dot(line1, line2) / mag1 / mag2, -1.0, 1.0))
         return bool(ang >= angle)
 
     corners = [
-        tuple(mid)
-        for (start, mid), (_, end) in periodic_pairwise(periodic_pairwise(new_wall))
-        if sharp_corner(start, mid, end)
+        tuple(right[0])
+        for left, right in periodic_pairwise(new_wall)
+        if sharp_corner(left, right)
     ]
     comparable_wall = [tuple(p) for p in wall]
     # This test doesn't work when we are splitting a "smooth" portion
@@ -200,43 +237,6 @@ def test_adjust_wall_resolution_angles(
         assert (
             len(corners) < m
         )  # Angles won't all be equal due to inaccuracy in interpolation
-
-
-def test_adjust_wall_resolution_register() -> None:
-    register_func = MagicMock()
-    wall = [
-        Point2D(0.5, -0.5),
-        Point2D(0.5, 0.5),
-        Point2D(-0.5, 0.5),
-        Point2D(-0.5, -0.5),
-    ]
-    _ = adjust_wall_resolution(wall, 1.0, register_segment=register_func)
-    expected = [
-        call(
-            straight_line_across_field(
-                SliceCoord(p1.R, p1.Z, CoordinateSystem.CYLINDRICAL),
-                SliceCoord(p2.R, p2.Z, CoordinateSystem.CYLINDRICAL),
-            )
-        )
-        for p1, p2 in periodic_pairwise(wall)
-    ]
-    register_func.assert_has_calls(expected, any_order=True)
-
-
-def test_adjust_wall_resolution_register_higher_order() -> None:
-    register_func = MagicMock()
-    wall = [
-        Point2D(0.5, -0.5),
-        Point2D(0.51, 0.0),
-        Point2D(0.5, 0.5),
-        Point2D(0.0, 0.51),
-        Point2D(-0.5, 0.5),
-        Point2D(-0.51, 0.0),
-        Point2D(-0.5, -0.5),
-        Point2D(0.0, -0.51),
-    ]
-    _ = adjust_wall_resolution(wall, 1.0, register_segment=register_func)
-    assert register_func.call_count == 4
 
 
 @given(polygons, points_inside)

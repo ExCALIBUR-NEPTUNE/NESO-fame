@@ -24,7 +24,6 @@ from neso_fame.coordinates import (
 )
 from neso_fame.mesh import (
     AcrossFieldCurve,
-    Quad,
     straight_line_across_field,
 )
 
@@ -145,15 +144,13 @@ def _split_at_discontinuities(
     )
     points_iter = iter(points[1:])
     points_with_angles = zip(points_iter, angles)
-    boundary_point: Point2D = points[0]
+    boundary_point: None | Point2D = points[0]
     finished = False
 
     def sub_iter(
         points_and_angles: Iterator[tuple[Point2D, float]],
     ) -> Iterator[Point2D]:
         nonlocal boundary_point, finished
-        if boundary_point is not None:
-            yield boundary_point
         a = -1.0
         while a < angle_threshold:
             try:
@@ -161,6 +158,9 @@ def _split_at_discontinuities(
             except StopIteration:
                 finished = True
                 return
+            if boundary_point is not None:
+                yield boundary_point
+                boundary_point = None
             yield p
         boundary_point = p
 
@@ -168,7 +168,7 @@ def _split_at_discontinuities(
     # it can be continuous with any sequence there
     tail = list(sub_iter(points_with_angles))
     if finished:
-        yield iter(points)
+        yield itertools.chain(points, [points[0]])
         return
     restarted_points_iter = zip(
         itertools.chain(points_iter, tail),
@@ -215,9 +215,8 @@ def _interpolate_wall(
     points: Sequence[Point2D],
     n: int,
     order: int,
-    register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
     system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
-) -> list[Point2D]:
+) -> Iterator[AcrossFieldCurve]:
     coords = np.array([tuple(p) for p in points])
     distances = np.cumsum(
         np.concatenate(([0.0], np.linalg.norm(coords[1:, :] - coords[:-1, :], axis=1)))
@@ -231,14 +230,14 @@ def _interpolate_wall(
     Rs = R_interp(s)
     Zs = Z_interp(s)
     if kind != "linear":
-        shapes = (
+        return (
             _make_element_shape(
                 R_interp, Z_interp, segment[0], segment[1], order, system
             )
             for segment in itertools.pairwise(s)
         )
     else:
-        shapes = (
+        return (
             straight_line_across_field(
                 SliceCoord(float(R0), float(Z0), system),
                 SliceCoord(float(R1), float(Z1), system),
@@ -246,10 +245,6 @@ def _interpolate_wall(
             )
             for (R0, Z0), (R1, Z1) in itertools.pairwise(np.nditer([Rs, Zs]))
         )
-    if register_segment is not None:
-        for shape in shapes:
-            _ = register_segment(shape)
-    return [Point2D(float(R), float(Z)) for R, Z in np.nditer([Rs[:-1], Zs[:-1]])]
 
 
 def _reorder_portions(
@@ -315,9 +310,8 @@ def adjust_wall_resolution(
     order: int,
     min_size_factor: float = 1e-1,
     angle_threshold: float = np.pi / 8,
-    register_segment: Optional[Callable[[AcrossFieldCurve], Quad]] = None,
     system: CoordinateSystem = CoordinateSystem.CYLINDRICAL,
-) -> list[Point2D]:
+) -> Iterator[AcrossFieldCurve]:
     """Interpolate the points in the tokamak wall to the desired resolution.
 
     This will adjust the spacing of the points so that each segment
@@ -341,12 +335,6 @@ def adjust_wall_resolution(
     angle_threshold
         The minimum angle between two segments for which to preserve the
         sharp corner.
-    register_segment
-        A function which can produce quad elements for a segment of the
-        wall. These segments won't be used in this method, but it is assumed
-        that the callback will register or cache them for use when constructing
-        prisms in future. This is useful because it allows this method to pass
-        in higher-order curvature information.
     system
         The coordinate system to use.
 
@@ -364,8 +352,13 @@ def adjust_wall_resolution(
         map(list, _split_at_discontinuities(points, angle_threshold))
     )
 
-    # Get the length of each of these portions
-    portion_sizes = map(_segment_length, continuous_portions)
+    # Get the length of each of these portions (last portion may be
+    # 0-length, so filter that out)
+    portions_and_sizes = (
+        (portion, n)
+        for portion in continuous_portions
+        if (n := _segment_length(portion)) > 0
+    )
 
     def is_small(x: tuple[list[Point2D], float]) -> bool:
         return x[1] < target_size * min_size_factor
@@ -375,7 +368,7 @@ def adjust_wall_resolution(
         itertools.chain.from_iterable(
             _combine_small_portions(portions) if small else portions
             for small, portions in itertools.groupby(
-                _reorder_portions(zip(continuous_portions, portion_sizes), is_small),
+                _reorder_portions(portions_and_sizes, is_small),
                 is_small,
             )
         )
@@ -407,10 +400,8 @@ def adjust_wall_resolution(
 
     # Interpolate each portion to divide it into segments as close to
     # the target size as possible
-    # FIXME: Will want this just to return 1D array of Coords
-    return reduce(
-        lambda x, y: x + y,
-        (_interpolate_wall(p, n, order, register_segment, system) for p, n in portions),
+    return itertools.chain.from_iterable(
+        _interpolate_wall(p, n, order, system) for p, n in portions
     )
 
 
@@ -646,5 +637,8 @@ def periodic_pairwise(iterable: Iterable[T]) -> Iterable[tuple[T, T]]:
 
     """
     iterator = iter(iterable)
-    first = [next(iterator)]
+    try:
+        first = [next(iterator)]
+    except StopIteration:
+        raise ValueError("Iterator must not be empty.")
     return itertools.pairwise(itertools.chain(first, iterator, first))
