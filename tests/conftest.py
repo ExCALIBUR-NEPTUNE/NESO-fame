@@ -123,7 +123,7 @@ def slice_coord_for_system(
 
 def coord_for_system(
     system: coordinates.CoordinateSystem,
-) -> SearchStrategy[coordinates.SliceCoord]:
+) -> SearchStrategy[coordinates.Coord]:
     x1 = (
         non_zero
         if system == coordinates.CoordinateSystem.CYLINDRICAL
@@ -302,6 +302,35 @@ def linear_field_line(
         )
 
     return mesh.Curve(linear_func(np.linspace(0.0, 1.0, order + 1)))
+
+
+def linear_field_aligned_curve(
+    order: int,
+    a1: float,
+    a2: float,
+    a3: float,
+    start: Pair,
+    c: coordinates.CoordinateSystem,
+    skew: float,
+    division: int,
+    num_divisions: int,
+    start_weight: float,
+    offset: float,
+) -> mesh.FieldAlignedCurve:
+    return Offset(
+        mesh.FieldAlignedCurve(
+            mesh.field_aligned_positions(
+                mesh.SliceCoords(np.array(start[0]), np.array(start[1]), c),
+                a3,
+                linear_field_trace(a1, a2, a3, c, skew, start),
+                np.array(start_weight),
+                order,
+                division,
+                num_divisions,
+            )
+        ),
+        offset,
+    )
 
 
 def trapezoidal_quad(
@@ -1059,6 +1088,21 @@ def hex_starts(
 _num_divisions = shared(integers(1, 5), key=171)
 _divisions = _num_divisions.flatmap(lambda x: integers(0, x - 1))
 fixed_edges = tuples(booleans(), booleans(), booleans(), booleans())
+simple_field_aligned_curve = builds(
+    linear_field_aligned_curve,
+    integers(1, 5),
+    whole_numbers,
+    whole_numbers,
+    non_zero,
+    tuples(non_zero, whole_numbers),
+    coordinate_systems,
+    integers(-2 * WHOLE_NUM_MAX, 2 * WHOLE_NUM_MAX).map(lambda x: x / WHOLE_NUM_MAX),
+    _divisions,
+    _num_divisions,
+    floats(0.0, 1.0),
+    whole_numbers,
+)
+
 linear_quad = cast(
     SearchStrategy[mesh.Quad],
     builds(
