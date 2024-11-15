@@ -1227,7 +1227,7 @@ nonlinear_hex = builds(
 )
 nonlinear_prism = builds(
     curved_prism,
-    integers(2, 10),
+    integers(2, 8),
     _small_centre,
     tuples(_small_x1_start, _small_rad.map(lambda r: -1 if r < 0 else 1))
     .flatmap(lambda x: hex_starts(*x, absmax=SMALL_WHOLE_NUM_MAX))

@@ -11,7 +11,6 @@ from hypothesis import given, settings
 from hypothesis.strategies import (
     from_type,
     frozensets,
-    integers,
     lists,
     one_of,
     sampled_from,
@@ -31,12 +30,16 @@ from neso_fame.mesh import (
     FieldAlignedCurve,
     Prism,
     PrismMesh,
+    PrismTypes,
+    control_points,
+    order,
 )
 from tests.test_nektar_writer import poloidal_corners
 
 from .conftest import (
     across_field_curves,
     prism_meshes,
+    simple_field_aligned_curve,
 )
 
 element_types = sampled_from(
@@ -99,42 +102,42 @@ def test_point_caching(
 
 
 @given(
-    one_of((from_type(FieldAlignedCurve), across_field_curves)),
-    integers(1, 9),
+    one_of((simple_field_aligned_curve, across_field_curves)),
     cellsets,
 )
 def test_line(
-    curve: FieldAlignedCurve | AcrossFieldCurve, order: int, layer: frozenset[str]
+    curve: FieldAlignedCurve | AcrossFieldCurve, layer: frozenset[str]
 ) -> None:
     mesh_data = meshio_writer.MeshioData()
-    mesh_data.line(curve, order, layer)
+    mesh_data.line(curve, layer)
     meshio = mesh_data.meshio()
     cells = meshio.cells_dict
     assert len(cells) == 1
-    shape = line_name(order)
+    n = order(curve)
+    shape = line_name(n)
     assert shape in cells
     line_points = cells[shape][0]
-    assert len(line_points) == order + 1
-    assert_points_eq(meshio.points[line_points[0]], curve(0.0).to_coord())
-    assert_points_eq(meshio.points[line_points[1]], curve(1.0).to_coord())
-    for i in range(1, order):
-        assert_points_eq(
-            meshio.points[line_points[i + 1]], curve((i) / (order)).to_coord()
-        )
+    assert len(line_points) == n + 1
+    points = control_points(curve)
+    assert_points_eq(meshio.points[line_points[0]], points[0])
+    assert_points_eq(meshio.points[line_points[1]], points[-1])
+    for i in range(1, n):
+        assert_points_eq(meshio.points[line_points[i + 1]], points[i])
 
 
-@given(from_type(Prism), integers(1, 9), cellsets)
-def test_poloidal_face(solid: Prism, order: int, layer: frozenset[str]) -> None:
+@given(from_type(Prism), cellsets)
+def test_poloidal_face(solid: Prism, layer: frozenset[str]) -> None:
     mesh_data = meshio_writer.MeshioData()
-    mesh_data.poloidal_face(solid, order, layer)
+    mesh_data.poloidal_face(solid, layer)
     meshio = mesh_data.meshio()
     cells = meshio.cells_dict
     assert len(cells) == 1
-    if len(solid.sides) == 3:
-        shape = triangle_name(order)
+    n = order(solid)
+    if solid.shape == PrismTypes.TRIANGULAR:
+        shape = triangle_name(n)
         n = 3
     else:
-        shape = quad_name(order)
+        shape = quad_name(n)
         n = 4
     assert shape in cells
     corners = cells[shape][0][:n]
@@ -146,14 +149,15 @@ def test_poloidal_face(solid: Prism, order: int, layer: frozenset[str]) -> None:
     assert actual == expected
 
 
-@settings(deadline=None)
-@given(prism_meshes, integers(1, 4))
-def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
-    meshio = meshio_writer.meshio_poloidal_elements(mesh, order)
+@settings(deadline=None, report_multiple_bugs=False)
+@given(prism_meshes)
+def test_poloidal_elements(mesh: PrismMesh) -> None:
+    meshio = meshio_writer.meshio_poloidal_elements(mesh)
     cells = meshio.cells_dict
-    lines = line_name(order)
-    quads = quad_name(order)
-    tris = triangle_name(order)
+    n = order(next(iter(mesh)))
+    lines = line_name(n)
+    quads = quad_name(n)
+    tris = triangle_name(n)
     empty = np.empty((0, 4))
     quad_elems = cells.get(quads, empty)
     triangle_elems = cells.get(tris, empty)
@@ -178,7 +182,10 @@ def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
     assert expected_elements == actual_elements
     expected_bounds = frozenset(
         FrozenCoordSet(
-            b.shape([0.0, 1.0]).to_3d_coords(0.0).to_cartesian().iter_points()
+            [
+                b.nodes.start_points[0].to_3d_coord(0.0).to_cartesian(),
+                b.nodes.start_points[-1].to_3d_coord(0.0).to_cartesian(),
+            ]
         )
         for b in itertools.chain.from_iterable(mesh.reference_layer.boundaries())
     )
@@ -193,16 +200,17 @@ def test_poloidal_elements(mesh: PrismMesh, order: int) -> None:
 
 
 @settings(deadline=None)
-@given(prism_meshes, integers(1, 4))
-def test_write_poloidal_elements(mesh: PrismMesh, order: int) -> None:
+@given(prism_meshes)
+def test_write_poloidal_elements(mesh: PrismMesh) -> None:
     with TemporaryDirectory() as tmp_path:
         msh_file = pathlib.Path(tmp_path) / "output.msh"
-        meshio_writer.write_poloidal_mesh(mesh, order, str(msh_file), "gmsh")
+        meshio_writer.write_poloidal_mesh(mesh, str(msh_file), "gmsh")
         data = meshio.read(msh_file, "gmsh")
     cells = data.cells_dict
-    q = quad_name(order)
-    t = triangle_name(order)
-    s = line_name(order)
+    n = order(next(iter(mesh)))
+    q = quad_name(n)
+    t = triangle_name(n)
+    s = line_name(n)
     assert q in cells or t in cells
     assert s in cells
     assert sum(len(b) for b in mesh.reference_layer.bounds) == cells[s].shape[0]

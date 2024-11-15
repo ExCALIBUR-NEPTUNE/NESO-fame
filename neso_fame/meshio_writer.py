@@ -1,6 +1,6 @@
 """Routines to output meshes using the meshio library."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from functools import cache
 from typing import DefaultDict, TypedDict, TypeVar, cast, overload
 
@@ -119,29 +119,6 @@ _ELEMENT_DIMS = {
     )
     for k, v in d.items()
 }
-
-
-@cache
-def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1, x2 = np.meshgrid(
-        np.linspace(0.0, 1.0, order + 1),
-        np.linspace(0.0, 1.0, order + 1),
-        indexing="ij",
-        sparse=True,
-    )
-    return x1, x2
-
-
-@cache
-def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1sq, x2 = _quad_control_points(order)
-    x1 = np.empty(np.broadcast(x1sq, x2).shape)
-    x1[:, :-1] = x1sq / (1 - x2[:, :-1])
-    # Handle NaNs at top of triangle
-    x1[0, -1] = 1
-    x1[1:, -1] = 1.1
-    x1_m = np.ma.masked_greater(x1, 1.0)
-    return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
 
 
 @overload
@@ -465,12 +442,6 @@ def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
     )
 
 
-def _sort_cellset(
-    cellset: DefaultDict[str, list[int]], cells_order: Sequence[str]
-) -> list[npt.ArrayLike]:
-    return [cellset[cell_type] for cell_type in cells_order]
-
-
 class MeshioData:
     """Manages data for assembling a mesh in the MeshIO format.
 
@@ -644,11 +615,16 @@ def meshio_poloidal_elements(mesh: PrismMesh) -> meshio.Mesh:
         raise ValueError("Can not create poloidal mesh for 2D mesh")
     result = MeshioData()
     for element in layer.reference_elements:
+        # Need to subdivide the elements, or else will not get the
+        # right order of representation
         result.poloidal_face(element)
     for i, bound in enumerate(layer.bounds):
         sets = frozenset({f"Boundary {i}"})
         for quad in bound:
-            result.line(AcrossFieldCurve(quad.nodes.start_points), sets)
+            result.line(
+                AcrossFieldCurve(quad.nodes.start_points),
+                sets,
+            )
     return result.meshio()
 
 

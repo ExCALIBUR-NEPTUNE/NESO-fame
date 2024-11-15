@@ -440,9 +440,7 @@ def order(element: AcrossFieldCurve | Curve | FieldAlignedCurve | Quad | Prism) 
     """Get the order of accuracy used to represent the element."""
     if isinstance(element, (SliceCoords, Coords)):
         return len(element) - 1
-    if isinstance(element, FieldAlignedPositions):
-        return element.order
-    return element.nodes.order
+    return element.order
 
 
 @overload
@@ -581,6 +579,12 @@ class Quad(LazilyOffsetable):
     def far(self) -> Curve:
         """Cross-field edge of the quadrilateral with the largest x3-value."""
         return Curve(self.nodes.coords.get[:, -1])
+
+    @property
+    def order(self) -> int:
+        """The order of accuracy for representing curves in the x3-direction."""
+        assert len(self.nodes.start_points.shape) == 1
+        return self.nodes.start_points.shape[0] - 1
 
     def corners(self) -> Iterator[Coord]:
         """Return the points corresponding to the corners of the quadrilateral."""
@@ -725,6 +729,14 @@ class Prism(LazilyOffsetable):
     def far(self) -> UnalignedShape:
         """The face of the prism in the x3 plane with the largest x3 value."""
         return UnalignedShape(self.shape, self.nodes.coords.get[..., -1])
+
+    @property
+    def order(self) -> int:
+        """The order of accuracy for representing curves in the x3-direction."""
+        shape = self.nodes.start_points.shape
+        assert len(shape) == 2
+        assert shape[0] == shape[1]
+        return shape[0] - 1
 
     def corners(self) -> Iterator[Coord]:
         """Return the points corresponding to the vertices of the hexahedron."""
