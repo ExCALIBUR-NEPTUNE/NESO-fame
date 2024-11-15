@@ -163,7 +163,7 @@ def simple_2d(
         subdivisions=nx1 // layers,
         conform_to_bounds=not align_bounds,
     )
-    write_nektar(m, 1, meshfile, 2, layers > 1 or periodic, periodic, compress)
+    write_nektar(m, meshfile, 2, layers > 1 or periodic, periodic, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())
 
@@ -313,7 +313,7 @@ def simple_3d(
         2,
         nx1 // layers,
     )
-    write_nektar(m, 1, meshfile, 3, layers > 1 or periodic, periodic, compress)
+    write_nektar(m, meshfile, 3, layers > 1 or periodic, periodic, compress)
     with open(meshfile, "a") as f:
         f.write(_mesh_provenance())
 
