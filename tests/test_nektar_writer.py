@@ -121,8 +121,12 @@ def comparable_curve(curve: Curve) -> ComparableDimensionalGeometry:
 
 
 def comparable_edge(curve: Curve | FieldAlignedCurve) -> ComparableDimensionalGeometry:
+    cp = control_points(curve)
     return SD.SegGeom.__name__, FrozenCoordSet(
-        map(comparable_coord, control_points(curve).to_cartesian().iter_points())
+        {
+            comparable_coord(cp[0].to_cartesian()),
+            comparable_coord(cp[-1].to_cartesian()),
+        }
     )
 
 
@@ -263,9 +267,7 @@ def test_nektar_edge_higher_order(curve: FieldAlignedCurve, layer: int) -> None:
     nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 3, layer)
     nek_curve = nek_edge.GetCurve()
     assert_nek_points_eq(nek_edge.GetVertex(0), start)
-    assert_nek_points_eq(nek_curve.points[0], start)
     assert_nek_points_eq(nek_edge.GetVertex(1), end)
-    assert_nek_points_eq(nek_curve.points[-1], end)
     n = elem_order(curve)
     if n > 1:
         assert nek_curve is not None
@@ -273,17 +275,17 @@ def test_nektar_edge_higher_order(curve: FieldAlignedCurve, layer: int) -> None:
         assert_points_eq(start, curve.coords[0])
         assert_points_eq(end, curve.coords[-1])
     else:
-        assert nek_edge.GetCurve() is None
+        assert nek_curve is None
 
 
-@given(from_type(Quad), integers(2, 12), integers(), sampled_from((2, 3)))
-def test_nektar_quad(quad: Quad, order: int, layer: int, spatial_dim: int) -> None:
+@given(from_type(Quad), integers(), sampled_from((2, 3)))
+def test_nektar_quad(quad: Quad, layer: int, spatial_dim: int) -> None:
     quads, segments, points = nektar_writer.nektar_quad(quad, spatial_dim, layer)
     n = elem_order(quad)
     comparable_points = comparable_point_set(points)
     assert len(quads) == 1
     assert len(segments) == 4
-    assert len(points) == (n + 1) * (n + 1)
+    assert len(points) == 4
     nek_quad = next(iter(quads))
     nek_quad_corners = comparable_point_set(
         nek_quad.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)
@@ -292,16 +294,14 @@ def test_nektar_quad(quad: Quad, order: int, layer: int, spatial_dim: int) -> No
         comparable_coord(c.to_cartesian()) for c in quad.corners()
     )
     assert nek_quad_corners == quad_corners
-    assert quad_corners <= comparable_points
+    assert quad_corners == comparable_points
     nek_curve = nek_quad.GetCurve()
     if n > 1:
         assert nek_curve is not None
         assert len(nek_curve.points) == (n + 1) ** 2
         assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(0), nek_curve.points[0])
-        assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[order])
-        assert_nek_points_eq(
-            nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-order - 1]
-        )
+        assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[n])
+        assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-n - 1])
         assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
     else:
         assert nek_curve is None
@@ -467,7 +467,7 @@ def check_face_composites(
             return SD.SegGeom.__name__, FrozenCoordSet(
                 {
                     comparable_coord(item[0].to_cartesian()),
-                    comparable_coord(item[1].to_cartesian()),
+                    comparable_coord(item[-1].to_cartesian()),
                 }
             )
 
@@ -721,11 +721,10 @@ GeomMap = (
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@settings(deadline=None)
+@settings(deadline=None, report_multiple_bugs=False)
 @given(
     from_type(GenericMesh),
     sampled_from([2, 3]),
-    order,
     booleans(),
     booleans(),
     booleans(),
@@ -733,11 +732,11 @@ GeomMap = (
 def test_nektar_mesh(
     mesh: Mesh,
     spatial_dim: int,
-    order: int,
     write_movement: bool,
     periodic: bool,
     compressed: bool,
 ) -> None:
+    # FIXME: Somehow I'm getting a mesh layer that is subdivided without increasing its number of points in the x3-direction accordingly
     num_element_types = (
         len({p.shape for p in mesh.reference_layer})
         if issubclass(mesh.reference_layer.element_type, Prism)

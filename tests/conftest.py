@@ -404,8 +404,13 @@ def corners_to_poloidal_quad(
 @cache
 def tri_weights(order: int) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
     s = np.linspace(0.0, 1.0, order + 1)
-    s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
-    return (1.0 - s1) * (1.0 - s2), s1 * (1.0 - s2), s2
+    s1, s2 = np.meshgrid(s, s, copy=False, sparse=False)
+    x1 = np.empty((order + 1, order + 1))
+    # Need to avoid computing the singularity at the end
+    x1[:-1, :] = s1[:-1, :] / (1 - s2[:-1, :])
+    x1[-1, 0] = 1
+    x1[-1, 1:] = 1.1
+    return (1 - x1) * (1 - s2), x1 * (1 - s2), s2
 
 
 def corners_to_poloidal_tri(
@@ -829,6 +834,7 @@ def _quad_mesh_elements(
     c: coordinates.CoordinateSystem,
     left_fixed: bool,
     right_fixed: bool,
+    layers: int = 1,
 ) -> Optional[list[mesh.Quad]]:
     trace = linear_field_trace(a1, a2, a3, c, 0, (0, 0))
     if (
@@ -838,7 +844,7 @@ def _quad_mesh_elements(
         return None
 
     points = np.linspace(limits[0], limits[1], num_quads * order + 1)
-    positions = mesh.field_aligned_positions(
+    positions = mesh.subdividable_field_aligned_positions(
         coordinates.SliceCoords(points[:, 0], points[:, 1], c),
         a3,
         trace,
@@ -848,6 +854,7 @@ def _quad_mesh_elements(
             + [0.0 if right_fixed else 1.0]
         ),
         order,
+        layers,
     )
 
     return [
@@ -865,6 +872,7 @@ def _hex_mesh_arguments(
     num_hexes_x2: int,
     c: coordinates.CoordinateSystem,
     fixed_bounds: bool,
+    layers: int = 1,
 ) -> Optional[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]]:
     sorted_starts = sorted(limits)
     sorted_starts = sorted(
@@ -913,12 +921,13 @@ def _hex_mesh_arguments(
         alignments[-1, :] = 0.0
         alignments[:, 0] = 0.0
         alignments[:, -1] = 0.0
-    positions = mesh.field_aligned_positions(
+    positions = mesh.subdividable_field_aligned_positions(
         coordinates.SliceCoords(points[..., 0], points[..., 1], c),
         a3,
         trace,
         alignments,
         order,
+        layers,
     )
     elements = [
         mesh.Prism(
@@ -1358,12 +1367,12 @@ starts_and_ends = tuples(
 
 
 def quad_mesh_elements(n: int) -> SearchStrategy[list[mesh.Quad]]:
-    """Build quad mesh elements with n layers"""
+    """Build quad mesh elements subdivideable into n layers"""
     return cast(
         SearchStrategy[list[mesh.Quad]],
         builds(
             _quad_mesh_elements,
-            integers(1, 5).map(lambda x: x * max(1, n)),
+            integers(1, 5),
             whole_numbers,
             whole_numbers,
             non_zero,
@@ -1372,6 +1381,7 @@ def quad_mesh_elements(n: int) -> SearchStrategy[list[mesh.Quad]]:
             coordinate_systems,
             booleans(),
             booleans(),
+            just(n),
         ).filter(lambda x: x is not None),
     )
 
@@ -1405,7 +1415,7 @@ def hex_mesh_arguments(
         SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
         builds(
             _hex_mesh_arguments,
-            integers(1, 5).map(lambda x: x * max(1, n)),
+            integers(1, 5),
             whole_numbers,
             whole_numbers,
             non_zero,
@@ -1414,6 +1424,7 @@ def hex_mesh_arguments(
             integers(1, 3),
             coordinate_systems3d,
             booleans(),
+            just(n),
         ).filter(lambda x: x is not None),
     )
 
@@ -1426,7 +1437,7 @@ def tri_prism_mesh_arguments(
         SearchStrategy[tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]]],
         builds(
             _hex_mesh_arguments,
-            integers(1, 5).map(lambda x: x * max(1, n)),
+            integers(1, 5),
             small_whole_numbers,
             small_whole_numbers,
             small_non_zero,
@@ -1437,6 +1448,7 @@ def tri_prism_mesh_arguments(
             integers(1, 3),
             coordinate_systems3d,
             booleans(),
+            just(n),
         )
         .flatmap(_hex_and_tri_prism_arguments)
         .filter(lambda x: x is not None),
