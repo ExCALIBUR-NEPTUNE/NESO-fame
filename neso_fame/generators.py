@@ -6,7 +6,7 @@ import itertools
 import operator
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from functools import cache, reduce
+from functools import reduce
 from typing import Callable, Optional, TypeVar, cast
 from warnings import warn
 
@@ -30,7 +30,6 @@ from neso_fame.hypnotoad_interface import (
     get_region_perpendicular_boundary_points,
 )
 from neso_fame.mesh import (
-    AcrossFieldCurve,
     FieldAlignedCurve,
     FieldAlignedPositions,
     FieldTrace,
@@ -188,6 +187,7 @@ def field_aligned_2d(
                 dx3,
                 field_line,
                 np.linspace(north_weight, south_weight, order + 1),
+                order,
                 subdivisions,
             )
         )
@@ -239,11 +239,11 @@ def _sort_nodes(
         tmp = order[1]
         order[1] = order[0]
         order[0] = tmp
-    if x1[order[3]] > x1[order[2]]:
+    if x1[order[3]] < x1[order[2]]:
         tmp = order[3]
         order[3] = order[2]
         order[2] = tmp
-    return nodes[order[2]], nodes[order[3]], nodes[order[0]], nodes[order[1]]
+    return nodes[order[0]], nodes[order[1]], nodes[order[2]], nodes[order[3]]
 
 
 def field_aligned_3d(
@@ -319,12 +319,13 @@ def field_aligned_3d(
     for node00, node01, node10, node11 in element_nodes:
         face_locations[frozenset({node00, node01})].append(0)
         face_locations[frozenset({node10, node11})].append(1)
-        face_locations[frozenset({node10, node11})].append(2)
+        face_locations[frozenset({node01, node11})].append(2)
         face_locations[frozenset({node00, node10})].append(3)
     # Find the quads that are on a boundary
     boundary_faces: dict[frozenset[Index], int] = {
         pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1
     }
+    print(boundary_faces)
 
     s = np.linspace(0.0, 1.0, order + 1)
     s1, s2 = np.meshgrid(s, s)
@@ -340,12 +341,13 @@ def field_aligned_3d(
         c10 = lower_dim_mesh[node10]
         c01 = lower_dim_mesh[node01]
         c11 = lower_dim_mesh[node11]
+        print(c00, c10, c01, c11)
         prism = Prism(
             PrismTypes.RECTANGULAR,
             subdividable_field_aligned_positions(
                 SliceCoords(
-                    c00.x1 * w00 + c10.x1 * w10 + c01.x2 * w01 + c11.x1 * w11,
-                    c00.x1 * w00 + c10.x1 * w10 + c01.x2 * w01 + c11.x1 * w11,
+                    c00.x1 * w00 + c10.x1 * w10 + c01.x1 * w01 + c11.x1 * w11,
+                    c00.x2 * w00 + c10.x2 * w10 + c01.x2 * w01 + c11.x2 * w11,
                     c00.system,
                 ),
                 dx3,
