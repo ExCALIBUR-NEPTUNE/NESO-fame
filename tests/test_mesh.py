@@ -991,7 +991,7 @@ def test_mesh_layer_elements_with_offset(
 
 
 @settings(deadline=None)
-@given(divisions.flatmap(subdivideable_mesh_arguments), divisions)
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), divisions)
 def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
@@ -1046,7 +1046,7 @@ def evaluate_element(
 
 
 @settings(deadline=None)
-@given(divisions.flatmap(subdivideable_mesh_arguments), whole_numbers, divisions)
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, divisions)
 def test_mesh_layer_near_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
     offset: float,
@@ -1065,7 +1065,7 @@ def test_mesh_layer_near_faces(
 
 
 @settings(deadline=None)
-@given(divisions.flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5))
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5))
 def test_mesh_layer_far_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
     offset: float,
