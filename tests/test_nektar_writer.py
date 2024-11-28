@@ -15,7 +15,6 @@ from hypothesis import given, settings
 from hypothesis.strategies import (
     booleans,
     builds,
-    floats,
     from_type,
     integers,
     just,
@@ -31,30 +30,33 @@ from neso_fame import nektar_writer
 from neso_fame.coordinates import (
     Coord,
     CoordinateSystem,
-    Coords,
     FrozenCoordSet,
     SliceCoord,
+    SliceCoords,
 )
 from neso_fame.mesh import (
     B,
     C,
+    Curve,
     E,
-    EndShape,
     FieldAlignedCurve,
-    FieldTracer,
     GenericMesh,
     Mesh,
     MeshLayer,
-    NormalisedCurve,
     Prism,
     PrismMesh,
     PrismMeshLayer,
+    PrismTypes,
     Quad,
     QuadMesh,
     QuadMeshLayer,
-    Segment,
-    StraightLineAcrossField,
+    UnalignedShape,
     control_points,
+    field_aligned_positions,
+    straight_line_across_field,
+)
+from neso_fame.mesh import (
+    order as elem_order,
 )
 from neso_fame.offset import Offset
 
@@ -65,6 +67,7 @@ from .conftest import (
     non_nans,
     prism_meshes,
     quad_meshes,
+    simple_field_aligned_curve,
     simple_trace,
 )
 
@@ -84,19 +87,16 @@ def assert_points_eq(actual: SD.PointGeom, expected: Coord) -> None:
 
 
 def poloidal_corners(element: Quad | Prism) -> Iterator[Coord]:
+    coords = element.nodes.start_points
     if isinstance(element, Quad):
-        coords = element.shape([0.0, 1.0])
-        return Coords(
-            coords.x1, coords.x2, np.zeros_like(coords.x1), coords.system
-        ).iter_points()
-    return (
-        c.to_3d_coord(0.0)
-        for c in dict.fromkeys(
-            itertools.chain.from_iterable(
-                side.shape([0.0, 1.0]).iter_points() for side in element.sides
-            )
-        )
-    )
+        yield coords[0].to_3d_coord(0.0)
+        yield coords[-1].to_3d_coord(0.0)
+        return
+    yield coords[0, 0].to_3d_coord(0.0)
+    yield coords[0, -1].to_3d_coord(0.0)
+    yield coords[-1, 0].to_3d_coord(0.0)
+    if element.shape == PrismTypes.RECTANGULAR:
+        yield coords[-1, -1].to_3d_coord(0.0)
 
 
 # FIXME: frozenset[FrozenCoordSet] won't compare properly
@@ -114,49 +114,50 @@ def comparable_nektar_point(geom: SD.PointGeom) -> Coord:
     return Coord(coords[0], coords[1], coords[2], CoordinateSystem.CARTESIAN)
 
 
-def comparable_curve(
-    curve: NormalisedCurve, order: int
-) -> ComparableDimensionalGeometry:
+def comparable_curve(curve: Curve) -> ComparableDimensionalGeometry:
     return SD.Curve.__name__, FrozenCoordSet(
-        map(comparable_coord, control_points(curve, order).to_cartesian().iter_points())
+        map(comparable_coord, control_points(curve).to_cartesian().iter_points())
     )
 
 
-def comparable_edge(curve: NormalisedCurve) -> ComparableDimensionalGeometry:
+def comparable_edge(curve: Curve | FieldAlignedCurve) -> ComparableDimensionalGeometry:
+    cp = control_points(curve)
     return SD.SegGeom.__name__, FrozenCoordSet(
-        map(comparable_coord, control_points(curve, 1).to_cartesian().iter_points())
+        {
+            comparable_coord(cp[0].to_cartesian()),
+            comparable_coord(cp[-1].to_cartesian()),
+        }
     )
 
 
 def comparable_quad(quad: Quad) -> ComparableDimensionalGeometry:
     return SD.QuadGeom.__name__, FrozenCoordSet(
-        map(comparable_coord, quad.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in quad.corners()
     )
 
 
 def comparable_poloidal_element(element: Prism | Quad) -> ComparableDimensionalGeometry:
     if isinstance(element, Prism):
-        if len(element.sides) == 3:
+        if element.shape == PrismTypes.TRIANGULAR:
             type_name = SD.TriGeom.__name__
-        elif len(element.sides) == 4:
+        elif element.shape == PrismTypes.RECTANGULAR:
             type_name = SD.QuadGeom.__name__
         else:
-            raise ValueError("Unrecognised number of sides in prism.")
+            raise ValueError(f"Unrecognised prism type {element.shape}.")
     else:
         type_name = SD.SegGeom.__name__
     return type_name, FrozenCoordSet(map(comparable_coord, poloidal_corners(element)))
 
 
 def comparable_prism(prism: Prism) -> ComparableDimensionalGeometry:
-    n = len(prism.sides)
-    if n == 3:
+    if prism.shape == PrismTypes.TRIANGULAR:
         name = SD.PrismGeom.__name__
-    elif n == 4:
+    elif prism.shape == PrismTypes.RECTANGULAR:
         name = SD.HexGeom.__name__
     else:
-        raise ValueError(f"Unrecognised prism with {n} quad faces.")
+        raise ValueError(f"Unrecognised prism type {prism.shape}.")
     return name, FrozenCoordSet(
-        map(comparable_coord, prism.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in prism.corners()
     )
 
 
@@ -225,30 +226,31 @@ def test_nektar_point_caching(coords: list[Coord], layers: list[int]) -> None:
     assert c1 is not nektar_writer.nektar_point(coords[0], 2, layers[0])
 
 
-@given(from_type(FieldAlignedCurve), integers(1, 10), integers())
-def test_nektar_curve(curve: FieldAlignedCurve, order: int, layer: int) -> None:
-    nek_curve, (start, end) = nektar_writer.nektar_curve(curve, order, 3, layer)
+@given(simple_field_aligned_curve, integers())
+def test_nektar_curve(curve: FieldAlignedCurve, layer: int) -> None:
+    nek_curve, (start, end) = nektar_writer.nektar_curve(curve, 3, layer)
     assert nek_curve.ptype == LU.PointsType.PolyEvenlySpaced
     assert_nek_points_eq(nek_curve.points[0], start)
     assert_nek_points_eq(nek_curve.points[-1], end)
-    assert len(nek_curve.points) == order + 1
+    assert len(nek_curve.points) == elem_order(curve) + 1
 
 
 def test_circular_nektar_curve() -> None:
     curve = Offset(
         FieldAlignedCurve(
-            FieldTracer(
+            field_aligned_positions(
+                SliceCoords(np.array(1.0), np.array(0.0), CoordinateSystem.CYLINDRICAL),
+                np.pi,
                 linear_field_trace(
                     0.0, 0.2, np.pi, CoordinateSystem.CYLINDRICAL, 0, (0, 0)
                 ),
-                4,
-            ),
-            SliceCoord(1.0, 0.0, CoordinateSystem.CYLINDRICAL),
-            np.pi,
+                np.array(1.0),
+                2,
+            )
         ),
         x3_offset=np.pi / 2,
     )
-    nek_curve, _ = nektar_writer.nektar_curve(curve, 2, 3, 0)
+    nek_curve, _ = nektar_writer.nektar_curve(curve, 3, 0)
     assert_points_eq(
         nek_curve.points[0], Coord(1.0, 0.0, -0.1, CoordinateSystem.CARTESIAN)
     )
@@ -260,83 +262,66 @@ def test_circular_nektar_curve() -> None:
     )
 
 
-@given(from_type(FieldAlignedCurve), integers())
-def test_nektar_edge_first_order(curve: FieldAlignedCurve, layer: int) -> None:
-    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 1, 3, layer)
-    assert nek_edge.GetCurve() is None
-    assert_nek_points_eq(nek_edge.GetVertex(0), start)
-    assert_nek_points_eq(nek_edge.GetVertex(1), end)
-    assert_points_eq(start, curve(0.0).to_coord())
-    assert_points_eq(end, curve(1.0).to_coord())
-
-
-@given(from_type(FieldAlignedCurve), integers(2, 12), integers())
-def test_nektar_edge_higher_order(
-    curve: FieldAlignedCurve, order: int, layer: int
-) -> None:
-    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, order, 3, layer)
+@given(simple_field_aligned_curve, integers())
+def test_nektar_edge_higher_order(curve: FieldAlignedCurve, layer: int) -> None:
+    nek_edge, (start, end) = nektar_writer.nektar_edge(curve, 3, layer)
     nek_curve = nek_edge.GetCurve()
-    assert nek_curve is not None
-    assert len(nek_curve.points) == order + 1
     assert_nek_points_eq(nek_edge.GetVertex(0), start)
-    assert_nek_points_eq(nek_curve.points[0], start)
     assert_nek_points_eq(nek_edge.GetVertex(1), end)
-    assert_nek_points_eq(nek_curve.points[-1], end)
-    assert_points_eq(start, curve(0.0).to_coord())
-    assert_points_eq(end, curve(1.0).to_coord())
+    n = elem_order(curve)
+    if n > 1:
+        assert nek_curve is not None
+        assert len(nek_curve.points) == n + 1
+        assert_points_eq(start, curve.coords[0])
+        assert_points_eq(end, curve.coords[-1])
+    else:
+        assert nek_curve is None
 
 
-@given(from_type(Quad), integers(1, 12), integers())
-def test_nektar_quad_flat(quad: Quad, order: int, layer: int) -> None:
-    quads, segments, points = nektar_writer.nektar_quad(quad, order, 2, layer)
-    corners = comparable_point_set(points)
+@given(from_type(Quad), integers(), sampled_from((2, 3)))
+def test_nektar_quad(quad: Quad, layer: int, spatial_dim: int) -> None:
+    quads, segments, points = nektar_writer.nektar_quad(quad, spatial_dim, layer)
+    n = elem_order(quad)
+    comparable_points = comparable_point_set(points)
     assert len(quads) == 1
     assert len(segments) == 4
-    assert len(points) == len(corners)
+    assert len(points) == 4
     nek_quad = next(iter(quads))
     nek_quad_corners = comparable_point_set(
         nek_quad.GetEdge(i).GetVertex(j) for j in range(2) for i in range(4)
     )
     quad_corners = FrozenCoordSet(
-        map(comparable_coord, quad.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in quad.corners()
     )
-    assert corners == nek_quad_corners
-    assert corners == quad_corners
-
-
-@given(from_type(Quad), integers(2, 12), integers(), sampled_from((2, 3)))
-def test_nektar_quad_curved(
-    quad: Quad, order: int, layer: int, spatial_dim: int
-) -> None:
-    quads, _, _ = nektar_writer.nektar_quad(quad, order, spatial_dim, layer)
-    assert len(quads) == 1
-    nek_quad = next(iter(quads))
+    assert nek_quad_corners == quad_corners
+    assert quad_corners == comparable_points
     nek_curve = nek_quad.GetCurve()
-    assert nek_curve is not None
-    assert len(nek_curve.points) == (order + 1) ** 2
-    assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(0), nek_curve.points[0])
-    assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[order])
-    assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-order - 1])
-    assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
+    if n > 1:
+        assert nek_curve is not None
+        assert len(nek_curve.points) == (n + 1) ** 2
+        assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(0), nek_curve.points[0])
+        assert_nek_points_eq(nek_quad.GetEdge(0).GetVertex(1), nek_curve.points[n])
+        assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(0), nek_curve.points[-n - 1])
+        assert_nek_points_eq(nek_quad.GetEdge(2).GetVertex(1), nek_curve.points[-1])
+    else:
+        assert nek_curve is None
 
 
-@given(from_type(Quad), floats(0.0, 1.0))
-def test_poloidal_curve(q: Quad, s: float) -> None:
+@given(from_type(Quad))
+def test_poloidal_curve(q: Quad) -> None:
     curve = nektar_writer.poloidal_curve(q)
-    x1, x2, x3 = curve(s)
-    expected = q.shape(s)
+    x1, x2, x3 = curve
+    expected = q.nodes.start_points
     np.testing.assert_allclose(x1, expected.x1, 1e-8, 1e-8)
     np.testing.assert_allclose(x2, expected.x2, 1e-8, 1e-8)
     np.testing.assert_allclose(x3, 0.0, 1e-8, 1e-8)
 
 
-@given(from_type(Prism), integers(1, 12), integers())
-def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
-    shapes, segments, points = nektar_writer.nektar_poloidal_face(
-        solid, order, 2, layer
-    )
+@given(from_type(Prism), integers())
+def test_nektar_poloidal_face(solid: Prism, layer: int) -> None:
+    shapes, segments, points = nektar_writer.nektar_poloidal_face(solid, 2, layer)
     corners = comparable_point_set(points)
-    n = len(solid.sides)
+    n = 3 if solid.shape == PrismTypes.TRIANGULAR else 4
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
@@ -346,11 +331,11 @@ def test_nektar_poloidal_face(solid: Prism, order: int, layer: int) -> None:
     assert corners == FrozenCoordSet(map(comparable_coord, poloidal_corners(solid)))
 
 
-@given(from_type(EndShape), integers(1, 12), integers())
-def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
-    shapes, segments, points = nektar_writer.nektar_end_shape(shape, order, 2, layer)
+@given(from_type(UnalignedShape), integers())
+def test_nektar_end_shape(shape: UnalignedShape, layer: int) -> None:
+    shapes, segments, points = nektar_writer.nektar_end_shape(shape, 2, layer)
     corners = comparable_point_set(points)
-    n = len(shape.edges)
+    n = 3 if shape.shape == PrismTypes.TRIANGULAR else 4
     assert len(shapes) == 1
     assert len(segments) == n
     nek_shape = next(iter(shapes))
@@ -358,39 +343,38 @@ def test_nektar_end_shape(shape: EndShape, order: int, layer: int) -> None:
         nek_shape.GetEdge(i).GetVertex(j) for j in range(2) for i in range(n)
     )
     assert corners == FrozenCoordSet(
-        map(comparable_coord, shape.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in shape.corners()
     )
 
 
-@given(flat_sided_hex, integers(1, 4), integers())
-def test_nektar_hex(hexa: Prism, order: int, layer: int) -> None:
-    hexes, _, segments, points = nektar_writer.nektar_3d_element(hexa, order, 3, layer)
+@given(flat_sided_hex, integers())
+def test_nektar_hex(hexa: Prism, layer: int) -> None:
+    hexes, _, segments, points = nektar_writer.nektar_3d_element(hexa, 3, layer)
     corners = comparable_point_set(points)
     assert len(hexes) == 1
     assert len(segments) == 12
     assert len(points) == 8
     assert corners == FrozenCoordSet(
-        map(comparable_coord, hexa.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in hexa.corners()
     )
 
 
-@given(flat_sided_prism, integers(1, 4), integers())
-def test_nektar_prism(prism: Prism, order: int, layer: int) -> None:
-    prisms, _, segments, points = nektar_writer.nektar_3d_element(
-        prism, order, 3, layer
-    )
+@given(flat_sided_prism, integers())
+def test_nektar_prism(prism: Prism, layer: int) -> None:
+    prisms, _, segments, points = nektar_writer.nektar_3d_element(prism, 3, layer)
     corners = comparable_point_set(points)
     assert len(prisms) == 1
     assert len(segments) == 9
     assert len(points) == 6
     assert corners == FrozenCoordSet(
-        map(comparable_coord, prism.corners().to_cartesian().iter_points())
+        comparable_coord(c.to_cartesian()) for c in prism.corners()
     )
 
 
 def all_points(elements: Iterable[Quad | Prism]) -> Iterator[Coord]:
-    return itertools.chain.from_iterable(
-        e.corners().to_cartesian().iter_points() for e in elements
+    return (
+        c.to_cartesian()
+        for c in itertools.chain.from_iterable(e.corners() for e in elements)
     )
 
 
@@ -408,7 +392,8 @@ MeshLike = MeshLayer[E, B, C] | GenericMesh[E, B, C]
 
 
 def check_edges(
-    mesh: MeshLike[Quad, Segment, NormalisedCurve] | MeshLike[Prism, Quad, EndShape],
+    mesh: MeshLike[Quad, FieldAlignedCurve, Curve]
+    | MeshLike[Prism, Quad, UnalignedShape],
     elements: Iterable[SD.Geometry2D] | Iterable[SD.Geometry3D],
     edges: Iterable[SD.SegGeom],
 ) -> None:
@@ -418,7 +403,7 @@ def check_edges(
         else cast(GenericMesh, mesh).reference_layer.element_type,
         Quad,
     ):
-        mesh = cast(MeshLike[Quad, Segment, NormalisedCurve], mesh)
+        mesh = cast(MeshLike[Quad, FieldAlignedCurve, Curve], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
@@ -429,17 +414,15 @@ def check_edges(
         expected_near_faces = frozenset(comparable_edge(q.near) for q in mesh)
         expected_far_faces = frozenset(comparable_edge(q.far) for q in mesh)
     else:
-        mesh = cast(MeshLike[Prism, Quad, EndShape], mesh)
+        mesh = cast(MeshLike[Prism, Quad, UnalignedShape], mesh)
         expected_x3_aligned_edges = reduce(
             operator.or_,
             (
                 frozenset(
-                    {
-                        comparable_edge(q.sides[0].north),
-                        comparable_edge(q.sides[0].south),
-                        comparable_edge(q.sides[1].north),
-                        comparable_edge(q.sides[1].south),
-                    }
+                    itertools.chain.from_iterable(
+                        [comparable_edge(side.north), comparable_edge(side.south)]
+                        for side in q
+                    )
                 )
                 for q in mesh
             ),
@@ -465,24 +448,27 @@ def check_edges(
 
 
 def check_face_composites(
-    expected: Iterable[NormalisedCurve] | Iterable[EndShape], actual: SD.Composite
+    expected: Iterable[Curve] | Iterable[UnalignedShape], actual: SD.Composite
 ) -> None:
     def comparable_item(
-        item: NormalisedCurve | EndShape,
+        item: Curve | UnalignedShape,
     ) -> tuple[str, FrozenCoordSet[Coord]]:
-        if isinstance(item, EndShape):
-            if len(item.edges) == 4:
+        if isinstance(item, UnalignedShape):
+            if item.shape == PrismTypes.RECTANGULAR:
                 name = SD.QuadGeom.__name__
-            elif len(item.edges) == 3:
+            elif item.shape == PrismTypes.TRIANGULAR:
                 name = SD.TriGeom.__name__
             else:
-                raise ValueError(f"Unrecognised shape with {len(item.edges)} edges.")
+                raise ValueError(f"Unrecognised shape {item.shape}.")
             return name, FrozenCoordSet(
-                map(comparable_coord, item.corners().to_cartesian().iter_points())
+                comparable_coord(c.to_cartesian()) for c in item.corners()
             )
         else:
             return SD.SegGeom.__name__, FrozenCoordSet(
-                map(comparable_coord, item([0.0, 1.0]).to_cartesian().iter_points())
+                {
+                    comparable_coord(item[0].to_cartesian()),
+                    comparable_coord(item[-1].to_cartesian()),
+                }
             )
 
     expected_faces = frozenset(map(comparable_item, expected))
@@ -509,15 +495,15 @@ def check_elements(
 
 
 @settings(deadline=None)
-@given(from_type(MeshLayer), integers(1, 4), integers(), sampled_from([2, 3]))
+@given(from_type(MeshLayer), integers(), sampled_from([2, 3]))
 def test_nektar_layer_elements(
-    mesh: MeshLayer[Quad, Segment, NormalisedCurve] | MeshLayer[Prism, Quad, EndShape],
-    order: int,
+    mesh: MeshLayer[Quad, FieldAlignedCurve, Curve]
+    | MeshLayer[Prism, Quad, UnalignedShape],
     layer: int,
     spatial_dim: int,
 ) -> None:
     nek_layer = nektar_writer.nektar_layer_elements(
-        mesh, order, spatial_dim if issubclass(mesh.element_type, Quad) else 3, layer
+        mesh, spatial_dim if issubclass(mesh.element_type, Quad) else 3, layer
     )
     if issubclass(mesh.element_type, Quad):
         assert isinstance(nek_layer, nektar_writer.NektarLayer2D)
@@ -538,13 +524,10 @@ def test_nektar_layer_elements(
 
 # Check all elements present when converting a mesh
 @settings(deadline=None)
-@given(from_type(GenericMesh), integers(1, 3), sampled_from([2, 3]))
-def test_nektar_elements(
-    mesh: QuadMesh | PrismMesh, order: int, spatial_dim: int
-) -> None:
+@given(from_type(GenericMesh), sampled_from([2, 3]))
+def test_nektar_elements(mesh: QuadMesh | PrismMesh, spatial_dim: int) -> None:
     nek_mesh = nektar_writer.nektar_elements(
         mesh,
-        order,
         spatial_dim if issubclass(mesh.reference_layer.element_type, Quad) else 3,
     )
     assert len(list(nek_mesh.layers())) == nek_mesh.num_layers()
@@ -567,10 +550,8 @@ def check_poloidal_edges(
     edges: Iterable[SD.SegGeom],
 ) -> None:
     expected_edges = frozenset(
-        comparable_edge(lambda s: side.shape(s).to_3d_coords(0.0))
-        for side in itertools.chain.from_iterable(
-            element.sides for element in mesh.reference_layer
-        )
+        comparable_edge(Curve(side.nodes.start_points.to_3d_coords(0.0)))
+        for side in itertools.chain.from_iterable(mesh.reference_layer)
     )
     element_edges = frozenset(
         itertools.chain.from_iterable(
@@ -584,14 +565,12 @@ def check_poloidal_edges(
 
 
 @settings(deadline=None)
-@given(prism_meshes, integers(1, 3))
+@given(prism_meshes)
 def test_nektar_poloidal_elements(
     mesh: PrismMesh,
-    order: int,
 ) -> None:
     nek_mesh = nektar_writer.nektar_poloidal_elements(
         mesh,
-        order,
     )
     assert len(list(nek_mesh.layers())) == 1
     check_points(
@@ -742,11 +721,10 @@ GeomMap = (
 # TODO: Could I test this with some a NektarElements object produced
 # directly using the constructor and without the constraints of those
 # generated using the nektar_elements() method?
-@settings(deadline=None)
+@settings(deadline=None, report_multiple_bugs=False)
 @given(
     from_type(GenericMesh),
     sampled_from([2, 3]),
-    order,
     booleans(),
     booleans(),
     booleans(),
@@ -754,19 +732,18 @@ GeomMap = (
 def test_nektar_mesh(
     mesh: Mesh,
     spatial_dim: int,
-    order: int,
     write_movement: bool,
     periodic: bool,
     compressed: bool,
 ) -> None:
+    # FIXME: Somehow I'm getting a mesh layer that is subdivided without increasing its number of points in the x3-direction accordingly
     num_element_types = (
-        len({len(p.sides) for p in mesh.reference_layer})
+        len({p.shape for p in mesh.reference_layer})
         if issubclass(mesh.reference_layer.element_type, Prism)
         else 1
     )
     elements = nektar_writer.nektar_elements(
         mesh,
-        order,
         spatial_dim if issubclass(mesh.reference_layer.element_type, Quad) else 3,
     )
     meshgraph = nektar_writer.nektar_mesh(
@@ -822,9 +799,10 @@ def test_nektar_mesh(
         assert actual_comparable == expected_comparable
 
     curved_edges = meshgraph.GetCurvedEdges()
-    check_curved_edges(order, elements, curved_edges, actual_segments)
+    n = elem_order(cast(Quad | Prism, next(iter(mesh))))
+    check_curved_edges(n, elements, curved_edges, actual_segments)
     curved_faces = meshgraph.GetCurvedFaces()
-    check_curved_faces(order, elements, curved_faces, actual_triangles, actual_quads)
+    check_curved_faces(n, elements, curved_faces, actual_triangles, actual_quads)
 
     actual_composites = meshgraph.GetComposites()
     n_layers = len(list(elements.layers()))
@@ -912,15 +890,17 @@ def find_element(parent: ET.Element, tag: str) -> ET.Element:
 
 
 QUAD = Quad(
-    StraightLineAcrossField(
-        SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
-        SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
-    ),
-    FieldTracer(
+    field_aligned_positions(
+        straight_line_across_field(
+            SliceCoord(1.0, 0.0, CoordinateSystem.CARTESIAN),
+            SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN),
+            1,
+        ),
+        1.0,
         simple_trace,
-        2,
-    ),
-    1.0,
+        np.array(1.0),
+        1,
+    )
 )
 SIMPLE_MESH = GenericMesh(
     MeshLayer([QUAD], [frozenset([QUAD.north]), frozenset([QUAD.south])]),
@@ -1027,7 +1007,7 @@ def check_xml_composites(
 def test_write_nektar(tmp_path: pathlib.Path) -> None:
     nektar_writer.reset_id_counts()
     xml_file = tmp_path / "simple_mesh.xml"
-    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
+    nektar_writer.write_nektar(SIMPLE_MESH, str(xml_file), 2, compressed=False)
 
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -1082,13 +1062,11 @@ def test_write_nektar(tmp_path: pathlib.Path) -> None:
 
 
 @settings(deadline=None)
-@given(quad_meshes, integers(2, 4))
-def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
+@given(quad_meshes)
+def test_write_nektar_curves(mesh: QuadMesh) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "simple_mesh.xml"
-        nektar_writer.write_nektar(
-            mesh, order, str(xml_file), 2, False, compressed=False
-        )
+        nektar_writer.write_nektar(mesh, str(xml_file), 2, False, compressed=False)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()
@@ -1119,18 +1097,18 @@ def test_write_nektar_curves(mesh: QuadMesh, order: int) -> None:
 
 def test_compressed_mesh(tmp_path: pathlib.Path) -> None:
     xml_file = tmp_path / "simple_mesh.xml"
-    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(xml_file), 2, compressed=False)
+    nektar_writer.write_nektar(SIMPLE_MESH, str(xml_file), 2, compressed=False)
     compressed_file = tmp_path / "compressed_mesh.xml"
-    nektar_writer.write_nektar(SIMPLE_MESH, 1, str(compressed_file), 2, compressed=True)
+    nektar_writer.write_nektar(SIMPLE_MESH, str(compressed_file), 2, compressed=True)
     assert os.stat(xml_file).st_size > os.stat(compressed_file).st_size
 
 
 @settings(deadline=None)
-@given(prism_meshes, integers(1, 3))
-def test_write_nektar_poloidal(mesh: PrismMesh, order: int) -> None:
+@given(prism_meshes)
+def test_write_nektar_poloidal(mesh: PrismMesh) -> None:
     with TemporaryDirectory() as tmp_path:
         xml_file = pathlib.Path(tmp_path) / "poloidal_mesh.xml"
-        nektar_writer.write_poloidal_mesh(mesh, order, str(xml_file), False)
+        nektar_writer.write_poloidal_mesh(mesh, str(xml_file), False)
         tree = ET.parse(xml_file)
 
     root = tree.getroot()

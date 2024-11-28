@@ -6,7 +6,7 @@ import itertools
 import operator
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from functools import cache, reduce
+from functools import reduce
 from typing import Callable, Optional, TypeVar, cast
 from warnings import warn
 
@@ -31,16 +31,18 @@ from neso_fame.hypnotoad_interface import (
 )
 from neso_fame.mesh import (
     FieldAlignedCurve,
+    FieldAlignedPositions,
     FieldTrace,
-    FieldTracer,
     GenericMesh,
     MeshLayer,
     Prism,
     PrismMesh,
+    PrismTypes,
     Quad,
     QuadMesh,
-    StraightLineAcrossField,
     control_points,
+    straight_line_across_field,
+    subdividable_field_aligned_positions,
 )
 from neso_fame.wall import (
     Connections,
@@ -55,6 +57,7 @@ from neso_fame.wall import (
 )
 
 Connectivity = Sequence[tuple[int, int]]
+FieldTracer = None  # Placeholder during refactoring
 
 
 def _ordered_connectivity(size: int) -> Connectivity:
@@ -96,69 +99,12 @@ def _get_vec(
     return vec, normed_vec
 
 
-def _constrain_to_plain(
-    field: FieldTrace,
-    shape: StraightLineAcrossField,
-    north_bound: BoundType,
-    south_bound: BoundType,
-) -> FieldTrace:
-    north_planar = _is_planar(north_bound)
-    south_planar = _is_planar(south_bound)
-    vec, normed_vec = _get_vec(north_bound, south_bound, north_planar, south_planar)
-
-    assert vec is not None
-    assert normed_vec is not None
-    dx = (shape.south.x1 - shape.north.x1, shape.south.x2 - shape.north.x2)
-
-    def get_position_on_shape(start: SliceCoord) -> float:
-        if abs(dx[0]) > abs(dx[1]):
-            return (start.x1 - shape.north.x1) / (dx[0])
-        else:
-            return (start.x2 - shape.north.x2) / (dx[1])
-
-    def trace(
-        start: SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-    ) -> tuple[SliceCoords, npt.NDArray]:
-        pos_on_shape = get_position_on_shape(start)
-        factor_planar = (
-            0.0
-            if south_planar and north_planar
-            else pos_on_shape
-            if north_planar
-            else 1 - pos_on_shape
-            if south_planar
-            else 1.0
-        )
-        x3_array = np.asarray(x3)
-        initial, _ = field(start, x3, start_weight)
-        projection_factor = (
-            (initial.x1 - start.x1) * vec[0] + (initial.x2 - start.x2) * vec[1]
-        ) / normed_vec
-        position = SliceCoords(
-            initial.x1 * factor_planar
-            + (1 - factor_planar) * (start.x1 + projection_factor * vec[0]),
-            initial.x2 * factor_planar
-            + (1 - factor_planar) * (start.x2 + projection_factor * vec[1]),
-            initial.system,
-        )
-        # FIXME: This assumes the trace is linear; how can I
-        # estimate it for nonlinear ones?
-        distance = np.sign(x3) * np.sqrt(
-            (position.x1 - start.x1) ** 2
-            + (position.x2 - start.x2) ** 2
-            + x3_array * x3_array
-        )
-        return position, distance
-
-    return trace
-
-
 def field_aligned_2d(
     lower_dim_mesh: SliceCoords,
     field_line: FieldTrace,
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     n: int = 10,
-    spatial_interp_resolution: int = 11,
+    order: int = 3,
     connectivity: Optional[Connectivity] = None,
     boundaries: tuple[int, int] = (0, -1),
     subdivisions: int = 1,
@@ -191,9 +137,9 @@ def field_aligned_2d(
         The lower and upper limits of the domain in the x3-direction.
     n
         Number of layers to generate in the x3 direction
-    spatial_interp_resolution
-        Number of points used to interpolate distances along the field
-        line.
+    order
+        The order of accuracy with which to represent field-aligned
+        (and other) edges.
     connectivity
         Defines which points are connected to each other in the
         mesh. Consists of pairs of integers indicating the indices of
@@ -225,21 +171,25 @@ def field_aligned_2d(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    tracer = FieldTracer(field_line, spatial_interp_resolution)
 
     if connectivity is None:
         connectivity = _ordered_connectivity(num_nodes)
 
     def make_quad(node1: int, node2: int) -> Quad:
-        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
-        north_bound = node1 in (0, num_nodes - 1) and conform_to_bounds
-        south_bound = node2 in (0, num_nodes - 1) and conform_to_bounds
+        shape = straight_line_across_field(
+            lower_dim_mesh[node1], lower_dim_mesh[node2], order
+        )
+        north_weight = 0.0 if node1 in (0, num_nodes - 1) and conform_to_bounds else 1.0
+        south_weight = 0.0 if node2 in (0, num_nodes - 1) and conform_to_bounds else 1.0
         return Quad(
-            shape,
-            tracer,
-            dx3,
-            north_start_weight=1 if north_bound else 0,
-            south_start_weight=1 if south_bound else 0,
+            subdividable_field_aligned_positions(
+                shape,
+                dx3,
+                field_line,
+                np.linspace(north_weight, south_weight, order + 1),
+                order,
+                subdivisions,
+            )
         )
 
     quads = list(itertools.starmap(make_quad, connectivity))
@@ -258,19 +208,26 @@ def field_aligned_2d(
 
 
 Index = TypeVar("Index", int, tuple[int, ...])
-NodePair = tuple[Index, Index]
 
 
-def _sort_node_pairs(
+def _constrain_to_plane(
+    dx1: npt.NDArray,
+    dx2: npt.NDArray,
+    stencil: npt.NDArray,
+    plain: tuple[float, float],
+) -> tuple[npt.NDArray, npt.NDArray]:
+    norm = plain[0] * plain[0] + plain[1] * plain[1]
+    projection_factor = (dx1 * plain[0] + dx2 * plain[1]) / norm
+    stencil2 = 1 - stencil
+    return dx1 * stencil2 + stencil * projection_factor * plain[
+        0
+    ], dx2 * stencil2 + stencil * projection_factor * plain[1]
+
+
+def _sort_nodes(
     lower_dim_mesh: SliceCoords, nodes: tuple[Index, Index, Index, Index]
-) -> tuple[NodePair, NodePair, NodePair, NodePair]:
-    """Return sorted pairs of nodes.
-
-    Pairs are sorted so edges are in order north,
-    south, east, west. Additionally, node indices will always be
-    in ascending order within these pairs.
-
-    """
+) -> tuple[Index, Index, Index, Index]:
+    """Return sorted nodes in the order top-left, top-right, bottom-left, bottom-right."""
     if isinstance(nodes[0], int):
         index = nodes
     else:
@@ -282,16 +239,11 @@ def _sort_node_pairs(
         tmp = order[1]
         order[1] = order[0]
         order[0] = tmp
-    if x1[order[3]] > x1[order[2]]:
+    if x1[order[3]] < x1[order[2]]:
         tmp = order[3]
         order[3] = order[2]
         order[2] = tmp
-    return (
-        cast(tuple[Index, Index], tuple(sorted((nodes[order[2]], nodes[order[3]])))),
-        cast(tuple[Index, Index], tuple(sorted((nodes[order[0]], nodes[order[1]])))),
-        cast(tuple[Index, Index], tuple(sorted((nodes[order[1]], nodes[order[2]])))),
-        cast(tuple[Index, Index], tuple(sorted((nodes[order[3]], nodes[order[0]])))),
-    )
+    return nodes[order[0]], nodes[order[1]], nodes[order[2]], nodes[order[3]]
 
 
 def field_aligned_3d(
@@ -300,7 +252,7 @@ def field_aligned_3d(
     elements: Sequence[tuple[Index, Index, Index, Index]],
     extrusion_limits: tuple[float, float] = (0.0, 1.0),
     n: int = 10,
-    spatial_interp_resolution: int = 11,
+    order: int = 3,
     subdivisions: int = 1,
     conform_to_bounds: bool = True,
 ) -> PrismMesh:
@@ -335,9 +287,9 @@ def field_aligned_3d(
         The lower and upper limits of the domain in the x3-direction.
     n
         Number of layers to generate in the x3 direction
-    spatial_interp_resolution
-        Number of points used to interpolate distances along the field
-        line.
+    order
+        The order of accuracy with which to represent field-aligned
+        (and other) edges.
     subdivisions
         Depth of cells in x3-direction in each layer.
     conform_to_bounds
@@ -359,86 +311,121 @@ def field_aligned_3d(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    tracer = FieldTracer(field_line, spatial_interp_resolution)
 
-    element_node_pairs = [_sort_node_pairs(lower_dim_mesh, elem) for elem in elements]
+    element_nodes = [_sort_nodes(lower_dim_mesh, elem) for elem in elements]
 
     # Get the locations (north, south, east, west) of each quad in the hexes it builds
-    face_locations: defaultdict[NodePair, list[int]] = defaultdict(list)
-    for i, pair in itertools.chain.from_iterable(
-        enumerate(x) for x in element_node_pairs
-    ):
-        face_locations[pair].append(i)
+    face_locations: defaultdict[frozenset[Index], list[int]] = defaultdict(list)
+    for node00, node01, node10, node11 in element_nodes:
+        face_locations[frozenset({node00, node01})].append(0)
+        face_locations[frozenset({node10, node11})].append(1)
+        face_locations[frozenset({node01, node11})].append(2)
+        face_locations[frozenset({node00, node10})].append(3)
     # Find the quads that are on a boundary
-    boundary_faces: dict[NodePair, int] = {
+    boundary_faces: dict[frozenset[Index], int] = {
         pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1
     }
-    faces_by_nodes: defaultdict[Index, list[NodePair]] = defaultdict(list)
-    for j, k in boundary_faces:
-        faces_by_nodes[j].append((j, k))
-        faces_by_nodes[k].append((j, k))
-    # Find the nodes that fall on a boundary
+    print(boundary_faces)
 
-    def bound_type(edges: list[NodePair]) -> BoundType:
-        assert len(edges) == 2
-        vecs = [
-            (n1.x1 - n2.x1, n1.x2 - n2.x2)
-            for n1, n2 in ((lower_dim_mesh[x[0]], lower_dim_mesh[x[1]]) for x in edges)
+    s = np.linspace(0.0, 1.0, order + 1)
+    s1, s2 = np.meshgrid(s, s)
+    w00 = (1 - s1) * (1 - s2)
+    w10 = (1 - s1) * s2
+    w01 = s1 * (1 - s2)
+    w11 = s1 * s2
+
+    def make_prism(
+        node00: Index, node01: Index, node10: Index, node11: Index
+    ) -> tuple[Prism, list[None | Quad]]:
+        c00 = lower_dim_mesh[node00]
+        c10 = lower_dim_mesh[node10]
+        c01 = lower_dim_mesh[node01]
+        c11 = lower_dim_mesh[node11]
+        print(c00, c10, c01, c11)
+        prism = Prism(
+            PrismTypes.RECTANGULAR,
+            subdividable_field_aligned_positions(
+                SliceCoords(
+                    c00.x1 * w00 + c10.x1 * w10 + c01.x1 * w01 + c11.x1 * w11,
+                    c00.x2 * w00 + c10.x2 * w10 + c01.x2 * w01 + c11.x2 * w11,
+                    c00.system,
+                ),
+                dx3,
+                field_line,
+                np.array(1.0),
+                order,
+                subdivisions,
+            ),
+        )
+        # If any of the edges are on boundaries then constrain to them if necessary
+        is_bound = [
+            frozenset({node00, node01}) in boundary_faces,
+            frozenset({node10, node11}) in boundary_faces,
+            frozenset({node00, node10}) in boundary_faces,
+            frozenset({node01, node11}) in boundary_faces,
         ]
-        if np.isclose(
-            abs(vecs[0][0] * vecs[1][1]),
-            abs(vecs[1][0] * vecs[0][1]),
-            rtol=1e-8,
-            atol=1e-8,
-        ):
-            return vecs[0]
-        else:
-            return True
-
-    boundary_nodes = {i: bound_type(edges) for i, edges in faces_by_nodes.items()}
-
-    @cache
-    def make_quad(node1: Index, node2: Index) -> Quad:
-        shape = StraightLineAcrossField(lower_dim_mesh[node1], lower_dim_mesh[node2])
-        if conform_to_bounds:
-            north_bound = boundary_nodes.get(node1, False)
-            south_bound = boundary_nodes.get(node2, False)
-        else:
-            north_bound = False
-            south_bound = False
-        local_tracer = (
-            FieldTracer(
-                _constrain_to_plain(field_line, shape, north_bound, south_bound),
-                spatial_interp_resolution,
+        if conform_to_bounds and any(is_bound):
+            x1s = np.expand_dims(prism.nodes.start_points.x1, -1)
+            x2s = np.expand_dims(prism.nodes.start_points.x2, -1)
+            # Make the FieldAlignedPositions object compute the
+            # coordinates without accounting for the boundaries
+            x1, x2, _ = prism.nodes.coords
+            dx1 = x1 - x1s
+            dx2 = x2 - x2s
+            if is_bound[0]:
+                dx1, dx2 = _constrain_to_plane(
+                    dx1,
+                    dx2,
+                    np.expand_dims(1 - s2, -1),
+                    (c01.x1 - c00.x1, c01.x2 - c00.x2),
+                )
+            if is_bound[1]:
+                dx1, dx2 = _constrain_to_plane(
+                    dx1, dx2, np.expand_dims(s2, -1), (c11.x1 - c10.x1, c11.x2 - c10.x2)
+                )
+            if is_bound[2]:
+                dx1, dx2 = _constrain_to_plane(
+                    dx1,
+                    dx2,
+                    np.expand_dims(1 - s1, -1),
+                    (c10.x1 - c00.x1, c10.x2 - c00.x2),
+                )
+            if is_bound[3]:
+                dx1, dx2 = _constrain_to_plane(
+                    dx1, dx2, np.expand_dims(s1, -1), (c11.x1 - c01.x1, c11.x2 - c01.x2)
+                )
+            prism = Prism(
+                PrismTypes.RECTANGULAR,
+                FieldAlignedPositions(
+                    prism.nodes.start_points,
+                    prism.nodes.x3,
+                    prism.nodes.trace,
+                    prism.nodes.alignments,
+                    prism.nodes.subdivision,
+                    prism.nodes.num_divisions,
+                    x1s + dx1,
+                    x2s + dx2,
+                    np.copy(prism.nodes._computed),
+                ),
             )
-            if _is_planar(north_bound) or _is_planar(south_bound)
-            else tracer
-        )
-        return Quad(
-            shape,
-            local_tracer,
-            dx3,
-            north_start_weight=1 if _is_fixed(north_bound) else 0,
-            south_start_weight=1 if _is_fixed(south_bound) else 0,
-        )
+        if any(is_bound):
+            bounds = [side if bound else None for side, bound in zip(prism, is_bound)]
+        else:
+            bounds = [None] * 4
+        return prism, bounds
 
-    hexes = [
-        Prism(tuple(itertools.starmap(make_quad, pairs)))
-        for pairs in element_node_pairs
-    ]
+    prisms = []
+    boundaries: list[list[Quad]] = [[], [], [], []]
+    for prism, bounds in itertools.starmap(make_prism, element_nodes):
+        prisms.append(prism)
+        for i, b in enumerate(bounds):
+            if b is not None:
+                boundaries[i].append(b)
 
     return GenericMesh(
         MeshLayer(
-            hexes,
-            [
-                frozenset(
-                    itertools.starmap(
-                        make_quad,
-                        (pair for pair, loc in boundary_faces.items() if loc == i),
-                    )
-                )
-                for i in range(4)
-            ],
+            prisms,
+            list(map(frozenset, boundaries)),
             subdivisions=subdivisions,
         ),
         x3_mid,
@@ -834,6 +821,7 @@ def _validate_wall_elements(
     changed to prevent self-intersecting elements.
 
     """
+    # FIXME: My refactor of how I represent meshes will mean I pretty much need to rewrite this.
     # TODO: Should I validate internal elements too? If I flatten one
     # then that could end up makign a further element invalid, which
     # sounds unpleasant to have to deal with...
@@ -852,6 +840,8 @@ def _validate_wall_elements(
         # Try merging with adjacent triangles (which haven't already
         # been merged with another element, which would remove them
         # from new_elements)
+
+        # FIXME: Will need to change how I map faces to elements; just use pairs of points?
         merge_candidates = frozenset(
             item
             for item in itertools.chain.from_iterable(
@@ -1056,6 +1046,7 @@ def hypnotoad_mesh(
         )
         if corners_within_vessel(corners)
     ]
+    # Probably more efficient just to iterate over inner regions
     if mesh_to_core:
         core_elements = list(
             itertools.starmap(
@@ -1069,7 +1060,10 @@ def hypnotoad_mesh(
         inner_bounds = frozenset(factory.innermost_quads())
     if mesh_to_wall:
         # FIXME: Not capturing the curves of the outermost hypnotoad quads now, for some reason.
+
+        # FIXME: Assemble coordinate pairs and mapping between these pairs and the list of Coords defining the curve
         plasma_points = [tuple(p) for p in factory.outermost_vertices()]
+        # FIXME: Assemble list of Coords (one for each wall segment) and also coordinate pairs?
         if wall_resolution is not None:
             target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
             wall: list[Point2D] = adjust_wall_resolution(
@@ -1095,17 +1089,6 @@ def hypnotoad_mesh(
             + list(periodic_pairwise(iter(range(n, n + len(plasma_points)))))
         )
         info.set_holes([tuple(hypnotoad_poloidal_mesh.equilibrium.o_point)])
-        # It may be worth adding the option to start merging quads
-        # with a really weird aspect ratio (i.e, leading away from the
-        # x-point towards the centre). When aspect ratio of two of
-        # them gets too high, create a triangle. Would need to be
-        # careful about direction though. Would this also be useful
-        # around seperatrix? Want some increase resolution there, but
-        # not necessarily too much. Might a mapping between
-        # hypntoad-generate points and FAME elements be useful here?
-        # Or maybe I can extend _element_corners to be able to do
-        # this? Might also be good to reduce perpendicular resolution
-        # in PFR. Try tracing out from x-points? Quite hard to coordinate.
         wall_mesh = triangle.build(
             info, allow_volume_steiner=True, allow_boundary_steiner=False
         )
@@ -1115,6 +1098,7 @@ def hypnotoad_mesh(
             wall_mesh_points[:, 0], wall_mesh_points[:, 1], system
         )
         initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
+        # FIXME: Take coordinate pairs, check if either of them correspond to curves and use those or else just use the pair. If any of the pairs are from the wall, create a boundary item as well.
         initial_wall_elements, initial_outer_bounds = reduce(
             lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
             (

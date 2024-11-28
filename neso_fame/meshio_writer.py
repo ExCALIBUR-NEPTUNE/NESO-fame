@@ -1,8 +1,8 @@
 """Routines to output meshes using the meshio library."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from functools import cache
-from typing import Callable, DefaultDict, TypedDict, TypeVar, overload
+from typing import DefaultDict, TypedDict, TypeVar, cast, overload
 
 import meshio  # type: ignore
 import numpy as np
@@ -11,13 +11,17 @@ import numpy.typing as npt
 from .coordinates import Coord, Coords, SliceCoord, SliceCoords, coord_cache
 from .mesh import (
     AcrossFieldCurve,
-    EndShape,
+    Curve,
+    FieldAlignedCurve,
     Mesh,
-    NormalisedCurve,
     Prism,
     PrismMesh,
+    PrismTypes,
     Quad,
+    QuadMesh,
+    UnalignedShape,
     control_points,
+    order,
 )
 
 
@@ -115,29 +119,6 @@ _ELEMENT_DIMS = {
     )
     for k, v in d.items()
 }
-
-
-@cache
-def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1, x2 = np.meshgrid(
-        np.linspace(0.0, 1.0, order + 1),
-        np.linspace(0.0, 1.0, order + 1),
-        indexing="ij",
-        sparse=True,
-    )
-    return x1, x2
-
-
-@cache
-def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1sq, x2 = _quad_control_points(order)
-    x1 = np.empty(np.broadcast(x1sq, x2).shape)
-    x1[:, :-1] = x1sq / (1 - x2[:, :-1])
-    # Handle NaNs at top of triangle
-    x1[0, -1] = 1
-    x1[1:, -1] = 1.1
-    x1_m = np.ma.masked_greater(x1, 1.0)
-    return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
 
 
 @overload
@@ -461,12 +442,6 @@ def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
     )
 
 
-def _sort_cellset(
-    cellset: DefaultDict[str, list[int]], cells_order: Sequence[str]
-) -> list[npt.ArrayLike]:
-    return [cellset[cell_type] for cell_type in cells_order]
-
-
 class MeshioData:
     """Manages data for assembling a mesh in the MeshIO format.
 
@@ -519,29 +494,25 @@ class MeshioData:
         self._dim_tags.append(self._element_dim_tag(element_type, cellsets))
         return len(self._points) - 1
 
-    @cache
     def line(
         self,
-        curve: NormalisedCurve | AcrossFieldCurve,
-        order: int,
+        curve: Curve | AcrossFieldCurve | FieldAlignedCurve,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 1D element to the mesh data and return the integer ID for it."""
-        shape = _ELEMENT_TYPES[order - 1]["line"]
+        shape = _ELEMENT_TYPES[order(curve) - 1]["line"]
         points = tuple(
             self.point(p, shape, cellsets)
-            for p in _meshio_line_point_order(control_points(curve, order))
+            for p in _meshio_line_point_order(control_points(curve))
         )
         cell_list = self._cells[shape, cellsets]
         cell_list.append(points)
         cell_id = len(cell_list) - 1
         return cell_id
 
-    @cache
     def poloidal_face(
         self,
         solid: Prism,
-        order: int,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 2D element representing the poloidal cross-section of the prism.
@@ -557,23 +528,20 @@ class MeshioData:
 
         """
         # FIXME: Will need to have a different cellblock for each layer
-        if len(solid.sides) == 3:
-            s, t = _triangle_control_points(order)
-            shape = _ELEMENT_TYPES[order - 1]["triangle"]
-        elif len(solid.sides) == 4:
-            s, t = _quad_control_points(order)
-            shape = _ELEMENT_TYPES[order - 1]["quad"]
+        if solid.shape == PrismTypes.TRIANGULAR:
+            shape = _ELEMENT_TYPES[order(solid) - 1]["triangle"]
+        elif solid.shape == PrismTypes.RECTANGULAR:
+            shape = _ELEMENT_TYPES[order(solid) - 1]["quad"]
         else:
             raise NotImplementedError(
                 "Currently only triangular and rectangular prisms are supported."
             )
-        # FIXME: Avoid calling this if order == 1?
-        coords = solid.poloidal_map(s, t)
+        coords = solid.nodes.start_points
         points = tuple(
             self.point(p, shape, cellsets)
             for p in (
                 _meshio_quad_point_order(coords)
-                if len(solid.sides) == 4
+                if solid.shape == PrismTypes.RECTANGULAR
                 else _meshio_triangle_point_order(coords)
             )
         )
@@ -582,24 +550,20 @@ class MeshioData:
         cell_id = len(cell_list) - 1
         return cell_id
 
-    @cache
     def end_shape(
         self,
-        shape: EndShape,
-        order: int,
+        shape: UnalignedShape,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 2D element representing a poloidal face and return the integer ID for it."""
         # FIXME: This will require a bit of rethinking about how best to represent shape data in teh fame mesh. In particular, we want to avoid re-integrating the whole shape to get the data at the end. This applies for the 2D-case with quad ends too, actually. Makes me wonder if my attempt to avoid specifying the order until output is a good idea. Perhaps should just do it from the start. Then can specify shape of elements using arrays of points. Plus can use hypnotoad to compute the point once (relatively) cheaply. Would need to change technique for merging thin elements though, which I think would be complicated.
         return 0
 
-    @cache
-    def quad(self, quad: Quad, order: int, cellsets: frozenset[str]) -> int:
+    def quad(self, quad: Quad, cellsets: frozenset[str]) -> int:
         """Add a 2D element representing a quad and return the integer ID for it."""
         return 0
 
-    @cache
-    def solid(self, solid: Prism, order: int, cellsets: frozenset[str]) -> int:
+    def solid(self, solid: Prism, cellsets: frozenset[str]) -> int:
         """Add a 3D element representing to the mesh and return the integer ID for it."""
         return 0
 
@@ -634,7 +598,7 @@ class MeshioData:
         )
 
 
-def meshio_poloidal_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
+def meshio_poloidal_elements(mesh: PrismMesh) -> meshio.Mesh:
     """Create MeshIO mesh for intersection of the mesh with the poloidal plane.
 
     This can be useful for visualising the underlying mesh from whcih
@@ -651,15 +615,72 @@ def meshio_poloidal_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
         raise ValueError("Can not create poloidal mesh for 2D mesh")
     result = MeshioData()
     for element in layer.reference_elements:
-        result.poloidal_face(element, order)
+        # Need to subdivide the elements, or else will not get the
+        # right order of representation
+        result.poloidal_face(element)
     for i, bound in enumerate(layer.bounds):
         sets = frozenset({f"Boundary {i}"})
         for quad in bound:
-            result.line(quad.shape, order, sets)
+            result.line(
+                AcrossFieldCurve(quad.nodes.start_points),
+                sets,
+            )
     return result.meshio()
 
 
-def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
+def meshio_2d_elements(mesh: QuadMesh) -> meshio.Mesh:
+    """Create a 3D MeshIO object representing a 2D mesh.
+
+    Group
+    -----
+    public meshio
+
+    """
+    result = MeshioData()
+    for i, layer in enumerate(mesh.layers()):
+        sets = frozenset({f"Layer {i}"})
+        for element in layer:
+            result.quad(element, sets)
+        for j, bound in enumerate(layer.boundaries()):
+            sets = frozenset({f"Boundary {j}"})
+            for b in bound:
+                result.line(b, sets)
+        sets = frozenset(f"Interface {2*i}")
+        for f in layer.near_faces():
+            result.line(f, sets)
+        sets = frozenset(f"Interface {2*i + 1}")
+        for f in layer.far_faces():
+            result.line(f, sets)
+    return result.meshio()
+
+
+def meshio_3d_elements(mesh: PrismMesh) -> meshio.Mesh:
+    """Create a 3D MeshIO object representing a 3D mesh.
+
+    Group
+    -----
+    public meshio
+
+    """
+    result = MeshioData()
+    for i, layer in enumerate(mesh.layers()):
+        sets = frozenset({f"Layer {i}"})
+        for element in layer:
+            result.solid(element, sets)
+        for j, bound in enumerate(layer.boundaries()):
+            sets = frozenset({f"Boundary {j}"})
+            for b in bound:
+                result.quad(b, sets)
+        sets = frozenset(f"Interface {2*i}")
+        for f in layer.near_faces():
+            result.end_shape(f, sets)
+        sets = frozenset(f"Interface {2*i + 1}")
+        for f in layer.far_faces():
+            result.end_shape(f, sets)
+    return result.meshio()
+
+
+def meshio_elements(mesh: Mesh) -> meshio.Mesh:
     """Create a 3D MeshIO object representing the mesh.
 
     Group
@@ -668,38 +689,16 @@ def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
 
     """
     print("Converting FAME mesh to MeshIO object.")
-    make_element: Callable[[Quad | Prism, int, frozenset[str]], int]
-    make_bound: Callable[[NormalisedCurve | Quad, int, frozenset[str]], int]
-    make_interface: Callable[[NormalisedCurve | EndShape, int, frozenset[str]], int]
-    result = MeshioData()
-    if issubclass(mesh.reference_layer.element_type, Quad):
-        make_element = result.quad
-        make_bound = result.line
-        make_interface = result.line
-    else:
-        make_element = result.solid
-        make_bound = result.quad
-        make_interface = result.end_shape
-    for i, layer in enumerate(mesh.layers()):
-        sets = frozenset({f"Layer {i}"})
-        for element in layer:
-            make_element(element, order, sets)
-        for j, bound in enumerate(layer.boundaries()):
-            sets = frozenset({f"Boundary {j}"})
-            for b in bound:
-                make_bound(b, order, sets)
-        sets = frozenset(f"Interface {2*i}")
-        for f in layer.near_faces():
-            make_interface(f, order, sets)
-        sets = frozenset(f"Interface {2*i + 1}")
-        for f in layer.far_faces():
-            make_interface(f, order, sets)
-    return result.meshio()
+    elem = mesh.reference_layer.element_type
+    if issubclass(elem, Quad):
+        return meshio_2d_elements(cast(QuadMesh, mesh))
+    elif issubclass(elem, Prism):
+        return meshio_3d_elements(cast(PrismMesh, mesh))
+    raise ValueError(r"Unrecognised mesh with elements of type {elem}")
 
 
 def write_meshio(
     mesh: Mesh,
-    order: int,
     filename: str,
 ) -> None:
     """Create a Nektar++ MeshGraph object and write it to the disk.
@@ -708,8 +707,6 @@ def write_meshio(
     ----------
     mesh
         The mesh to be converted to Nektar++ format.
-    order
-        The order to use when representing the elements of the mesh.
     filename
         The name of the file to write the mesh to. The format is
         determined from the extension.
@@ -724,7 +721,6 @@ def write_meshio(
 
 def write_poloidal_mesh(
     mesh: PrismMesh,
-    order: int,
     filename: str,
     file_format: str,
 ) -> None:
@@ -736,8 +732,6 @@ def write_poloidal_mesh(
     ----------
     mesh
         The mesh to be converted to Nektar++ format.
-    order
-        The order to use when representing the elements of the mesh.
     filename
         The name of the file to write the mesh to.
     file_format
@@ -748,5 +742,5 @@ def write_poloidal_mesh(
     public meshio
 
     """
-    output = meshio_poloidal_elements(mesh, order)
+    output = meshio_poloidal_elements(mesh)
     output.write(filename, file_format)

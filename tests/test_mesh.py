@@ -1,5 +1,6 @@
 import itertools
-from typing import Any, Callable, Iterable, cast
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -8,22 +9,17 @@ import pytest
 from hypothesis import given, settings
 from hypothesis.extra.numpy import basic_indices
 from hypothesis.strategies import (
-    booleans,
     builds,
-    composite,
     floats,
     from_type,
     integers,
     just,
     lists,
     one_of,
-    permutations,
     sampled_from,
     shared,
     slices,
-    tuples,
 )
-from scipy.optimize import minimize_scalar
 
 from neso_fame import coordinates, mesh
 from neso_fame.offset import (
@@ -31,29 +27,29 @@ from neso_fame.offset import (
 )
 
 from .conftest import (
-    CARTESIAN_SYSTEMS,
     _hex_mesh_arguments,
     _quad_mesh_elements,
+    common_coords,
+    common_slice_coords,
     compatible_coords_and_alignments,
-    coordinate_systems,
-    curve_sided_hex,
-    cylindrical_field_line,
-    cylindrical_field_trace,
+    corners_to_poloidal_quad,
     flat_sided_hex,
-    linear_field_trace,
     linear_traces,
-    maybe_divide_hex,
     mesh_arguments,
     non_nans,
-    non_zero,
-    offset_straight_line,
+    orders,
     prism_mesh_layer_no_divisions,
     quad_mesh_layer_no_divisions,
     shared_coordinate_systems,
-    simple_trace,
+    subdivideable_hex,
+    subdivideable_mesh_arguments,
+    subdivideable_quad,
     unbroadcastable_shape,
     whole_numbers,
 )
+
+divisions = shared(integers(-5, 10), key=5545)
+pos_divisions = shared(integers(1, 10), key=5546)
 
 
 @given(
@@ -63,15 +59,15 @@ from .conftest import (
     integers(1, 10),
     integers(1, 5),
 )
-def test_field_aligned_positions(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+def test_subdivideable_field_aligned_positions(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     assert data.start_points is starts
@@ -81,10 +77,41 @@ def test_field_aligned_positions(
     assert alignments is data.alignments
     assert data.subdivision == 0
     assert data.num_divisions == 1
+    np.broadcast(*data.start_points, alignments, data._computed[..., 0])
+    assert data._x1.shape[-1] == len(data.x3)
+    assert data._x2.shape[-1] == len(data.x3)
+
+
+@given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
+)
+def test_field_aligned_positions(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert data.start_points is starts
+    assert np.isclose(data.x3[-1] * 2, dx3)
+    assert data.x3.shape == (order * num_divisions + 1,)
+    assert field is data.trace
+    assert alignments is data.alignments
+    assert data.subdivision == subdivision
+    assert data.num_divisions == num_divisions
     np.broadcast(*data.start_points, data._computed[..., 0])
-    expected_shape = data.start_points.shape + data.x3.shape
-    assert data._x1.shape == expected_shape
-    assert data._x2.shape == expected_shape
+    assert data._x1.shape[-1] == len(data.x3)
+    assert data._x2.shape[-1] == len(data.x3)
 
 
 @given(
@@ -92,19 +119,21 @@ def test_field_aligned_positions(
     linear_traces,
     floats(0.1, 10.0),
     integers(-10, 0),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
 )
 def test_field_aligned_positions_bad_order(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
     with pytest.raises(ValueError, match=r".*order.*"):
         mesh.field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
@@ -116,7 +145,7 @@ def test_field_aligned_positions_bad_order(
     integers(-10, 0),
 )
 def test_field_aligned_positions_bad_divisions(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
@@ -125,40 +154,44 @@ def test_field_aligned_positions_bad_divisions(
     starts, alignments = coords_alignemnts
     with pytest.raises(ValueError, match=r".*num_divisions.*"):
         mesh.field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+            starts, dx3, field, alignments, order, 0, num_divisions
         )
 
 
 @given(
-    from_type(mesh.SliceCoords),
+    from_type(coordinates.SliceCoords),
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
     lists(integers(1, 10), min_size=1, max_size=5),
 )
 def test_field_aligned_positions_bad_alignment_dim(
-    starts: mesh.SliceCoords,
+    starts: coordinates.SliceCoords,
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
     extra_dims: list[int],
 ) -> None:
     alignments = np.ones(starts.shape + tuple(extra_dims))
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
         mesh.field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
     alignments = np.ones(tuple(extra_dims) + np.broadcast(*starts).shape)
     with pytest.raises(ValueError, match=r".*higher dimension.*"):
         mesh.field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
 shared_slice_coords = shared(
-    from_type(mesh.SliceCoords).filter(lambda x: len(x.shape) > 0 and 1 not in x.shape),
+    from_type(coordinates.SliceCoords).filter(
+        lambda x: len(x.shape) > 0 and 1 not in x.shape
+    ),
     key=1111,
 )
 
@@ -169,19 +202,21 @@ shared_slice_coords = shared(
     floats(0.1, 10.0),
     shared_slice_coords.flatmap(lambda x: unbroadcastable_shape(x.shape)).map(np.ones),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
 )
 def test_field_aligned_positions_bad_alignment_shape(
-    starts: mesh.SliceCoords,
+    starts: coordinates.SliceCoords,
     field: mesh.FieldTrace,
     dx3: float,
     alignments: npt.NDArray,
     order: int,
+    subdivision: int,
     num_divisions: int,
 ) -> None:
     with pytest.raises(ValueError, match=r".*broadcast-compatible.*"):
         mesh.field_aligned_positions(
-            starts, dx3, field, alignments, order, num_divisions
+            starts, dx3, field, alignments, order, subdivision, num_divisions
         )
 
 
@@ -192,13 +227,13 @@ def test_field_aligned_positions_bad_alignment_shape(
     lists(integers(1, 4), min_size=1, max_size=4),
 )
 def test_field_aligned_positions_subdivide(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     division_sizes: list[int],
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, int(np.prod(division_sizes)), 1
     )
     base = 0
@@ -220,6 +255,18 @@ def test_field_aligned_positions_subdivide(
         base += m
 
 
+def test_field_aligned_positions_bad_subdivide() -> None:
+    starts = coordinates.SliceCoords(
+        np.array([0.0, 0.25, 0.5, 0.75, 1.0]),
+        np.array([-1.0, -0.5, 0.0, 0.5, 1.0]),
+        coordinates.CoordinateSystem.CARTESIAN,
+    )
+    alignments = np.array([1.0, 1.0, 1.0, 1.0, 0.0])
+    data = mesh.field_aligned_positions(starts, 2.0, sample_trace, alignments, 4, 0, 1)
+    with pytest.raises(ValueError, match=r"Can not subdivide.*"):
+        next(data.subdivide(3))
+
+
 @given(
     compatible_coords_and_alignments,
     linear_traces,
@@ -229,7 +276,7 @@ def test_field_aligned_positions_subdivide(
     integers(-10, 1),
 )
 def test_field_aligned_positions_subdivide_self(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
@@ -237,7 +284,7 @@ def test_field_aligned_positions_subdivide_self(
     m: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     divisions = list(data.subdivide(m))
@@ -249,11 +296,70 @@ shared_coords_alignments = shared(compatible_coords_and_alignments, key=22222)
 
 
 @given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
+)
+def test_field_aligned_positions_poloidal_shape(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert len(data.poloidal_shape) == len(starts.shape)
+    assert (
+        data.poloidal_shape
+        == tuple(
+            map(
+                max,
+                itertools.zip_longest(
+                    starts.shape[::-1], alignments.shape[::-1], fillvalue=0
+                ),
+            )
+        )[::-1]
+    )
+
+
+@settings(report_multiple_bugs=False)
+@given(
+    compatible_coords_and_alignments,
+    linear_traces,
+    floats(0.1, 10.0),
+    integers(1, 10),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
+)
+def test_field_aligned_positions_shape(
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
+    field: mesh.FieldTrace,
+    dx3: float,
+    order: int,
+    subdivision: int,
+    num_divisions: int,
+) -> None:
+    starts, alignments = coords_alignemnts
+    data = mesh.field_aligned_positions(
+        starts, dx3, field, alignments, order, subdivision, num_divisions
+    )
+    assert data.shape == data.coords.shape
+
+
+@given(
     shared_coords_alignments,
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+    pos_divisions,
     shared_coords_alignments.flatmap(
         lambda x: basic_indices(x[0].shape)
         if len(x[0].shape) > 2
@@ -263,24 +369,29 @@ shared_coords_alignments = shared(compatible_coords_and_alignments, key=22222)
     ),
 )
 def test_field_aligned_positions_getitem(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
+    subdivision: int,
     num_divisions: int,
     idx: Any,
 ) -> None:
     starts, alignments = coords_alignemnts
     data = mesh.field_aligned_positions(
-        starts, dx3, field, alignments, order, num_divisions
+        starts, dx3, field, alignments, order, subdivision, num_divisions
     )
     result = data[idx]
     assert result.start_points is not data.start_points
-    assert result.start_points.x1.base is data.start_points.x1 or not isinstance(
-        result.start_points.x1, np.ndarray
+    assert (
+        result.start_points.x1.base is data.start_points.x1
+        or not isinstance(result.start_points.x1, np.ndarray)
+        or not isinstance(data.start_points.x1, np.ndarray)
     )
-    assert result.start_points.x2.base is data.start_points.x2 or not isinstance(
-        result.start_points.x1, np.ndarray
+    assert (
+        result.start_points.x2.base is data.start_points.x2
+        or not isinstance(result.start_points.x1, np.ndarray)
+        or not isinstance(data.start_points.x2, np.ndarray)
     )
     assert result.x3 is data.x3
     assert result.trace is data.trace
@@ -303,30 +414,30 @@ def test_field_aligned_positions_getitem(
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions,
 )
 def test_field_aligned_positions_coords_shape(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
     num_divisions: int,
 ) -> None:
     starts, alignments = coords_alignemnts
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, field, alignments, order, num_divisions
     )
     coords = data.coords
-    assert coords.shape == starts.shape + (order * num_divisions + 1,)
+    assert coords.shape == data.poloidal_shape + (order * num_divisions + 1,)
     for div in data.subdivide(num_divisions):
-        assert div.coords.shape == starts.shape + (order + 1,)
+        assert div.coords.shape == data.poloidal_shape + (order + 1,)
 
 
 def sample_trace(
-    start: mesh.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
-) -> tuple[mesh.SliceCoords, npt.NDArray]:
+    start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
+) -> tuple[coordinates.SliceCoords, npt.NDArray]:
     x3 = np.asarray(x3)
-    return mesh.SliceCoords(
+    return coordinates.SliceCoords(
         (1 - start_weight) * x3 + start.x1,
         2 * (1 - start_weight) * x3 + start.x2,
         start.system,
@@ -339,12 +450,12 @@ def sample_trace(
     integers(1, 10),
 )
 def test_field_aligned_positions_coords_fully_aligned(
-    starts: mesh.SliceCoords,
+    starts: coordinates.SliceCoords,
     dx3: float,
     order: int,
 ) -> None:
     data = mesh.field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(1.0), order, 1
+        starts, dx3, sample_trace, np.asarray(1.0), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -359,12 +470,12 @@ def test_field_aligned_positions_coords_fully_aligned(
     integers(1, 10),
 )
 def test_field_aligned_positions_coords_partially_aligned(
-    starts: mesh.SliceCoords,
+    starts: coordinates.SliceCoords,
     dx3: float,
     order: int,
 ) -> None:
     data = mesh.field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(0.5), order, 1
+        starts, dx3, sample_trace, np.asarray(0.5), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -379,12 +490,12 @@ def test_field_aligned_positions_coords_partially_aligned(
     integers(1, 10),
 )
 def test_field_aligned_positions_coords_unaligned(
-    starts: mesh.SliceCoords,
+    starts: coordinates.SliceCoords,
     dx3: float,
     order: int,
 ) -> None:
     data = mesh.field_aligned_positions(
-        starts, dx3, sample_trace, np.asarray(0.0), order, 1
+        starts, dx3, sample_trace, np.asarray(0.0), order, 0, 1
     )
     coords = data.coords
     for idx in itertools.product(*map(range, starts.shape)):
@@ -398,10 +509,10 @@ def test_field_aligned_positions_coords_unaligned(
     linear_traces,
     floats(0.1, 10.0),
     integers(1, 10),
-    integers(1, 5),
+    pos_divisions,
 )
 def test_field_aligned_positions_coords_caching(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
@@ -410,7 +521,7 @@ def test_field_aligned_positions_coords_caching(
     starts, alignments = coords_alignemnts
     trace = MagicMock()
     trace.side_effect = field
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, trace, alignments, order, num_divisions
     )
     trace.assert_not_called()
@@ -436,7 +547,7 @@ def test_field_aligned_positions_coords_caching(
     integers(2, 6),
 )
 def test_field_aligned_positions_subdivided_coords(
-    coords_alignemnts: tuple[mesh.SliceCoords, npt.NDArray],
+    coords_alignemnts: tuple[coordinates.SliceCoords, npt.NDArray],
     field: mesh.FieldTrace,
     dx3: float,
     order: int,
@@ -445,7 +556,7 @@ def test_field_aligned_positions_subdivided_coords(
     starts, alignments = coords_alignemnts
     trace = MagicMock()
     trace.side_effect = field
-    data = mesh.field_aligned_positions(
+    data = mesh.subdividable_field_aligned_positions(
         starts, dx3, trace, alignments, order, num_divisions
     )
     coords = [d.coords for d in data.subdivide(num_divisions)]
@@ -453,6 +564,8 @@ def test_field_aligned_positions_subdivided_coords(
     x1 = np.concatenate(
         [c.x1[..., 1:] if i != 0 else c.x1 for i, c in enumerate(coords)], axis=-1
     )
+    if np.any(x1 != data.coords.x1):
+        breakpoint()
     assert np.all(x1 == data.coords.x1)
     x2 = np.concatenate(
         [c.x2[..., 1:] if i != 0 else c.x2 for i, c in enumerate(coords)], axis=-1
@@ -473,7 +586,7 @@ def test_field_aligned_positions_slice_caching() -> None:
     alignments = np.array([1.0, 1.0, 0.0])
     trace = MagicMock()
     trace.side_effect = sample_trace
-    data = mesh.field_aligned_positions(starts, 2.0, trace, alignments, 4, 1)
+    data = mesh.field_aligned_positions(starts, 2.0, trace, alignments, 4)
     near = data[0]
     expected_x1 = np.array(
         [
@@ -502,79 +615,6 @@ def test_field_aligned_positions_slice_caching() -> None:
     np.testing.assert_allclose(coords.x3, expected_x3, 1e-8, 1e-8)
 
 
-@given(from_type(mesh.FieldAlignedCurve), floats(0.0, 1.0))
-def test_curve_start_weight_1(sample_curve: mesh.FieldAlignedCurve, arg: float) -> None:
-    # Create a new curve with the start_weight set to 1
-    line = mesh.FieldAlignedCurve(
-        sample_curve.field,
-        sample_curve.start,
-        sample_curve.dx3,
-        sample_curve.subdivision,
-        sample_curve.num_divisions,
-        1.0,
-    )
-    p = line(arg)
-    # Use low-ish accuracy to reflect the fact that there is interpolation happening
-    np.testing.assert_allclose(p.x1, line.start.x1, 1e-8, 1e-8)
-    np.testing.assert_allclose(p.x2, line.start.x2, 1e-8, 1e-8)
-
-
-@given(from_type(mesh.FieldAlignedCurve), floats(0.0, 1.0))
-def test_curve_against_trace(curve: mesh.FieldAlignedCurve, arg: float) -> None:
-    p1 = curve(arg)
-    p2, _ = curve.field.trace(curve.start, p1.x3, curve.start_weight)
-    np.testing.assert_allclose(p1.x1, p2.x1, atol=1e-6, rtol=1e-6)
-    np.testing.assert_allclose(p1.x2, p2.x2, atol=1e-6, rtol=1e-6)
-
-
-@given(from_type(mesh.FieldAlignedCurve), whole_numbers, floats(0.0, 1.0))
-def test_curve_offset(curve: mesh.FieldAlignedCurve, offset: float, arg: float) -> None:
-    curve2 = Offset(curve, offset)
-    p1 = curve(arg)
-    p2 = curve2(arg)
-    np.testing.assert_allclose(p1.x1, p2.x1, atol=1e-12)
-    np.testing.assert_allclose(p1.x2, p2.x2, atol=1e-12)
-    np.testing.assert_allclose(p1.x3, p2.x3 - offset, atol=1e-12)
-
-
-@given(from_type(mesh.FieldAlignedCurve), integers(-50, 100))
-def test_curve_subdivision_len(curve: mesh.FieldAlignedCurve, divisions: int) -> None:
-    expected = max(1, divisions)
-    divisions_iter = curve.subdivide(divisions)
-    for _ in range(expected):
-        _ = next(divisions_iter)
-    with pytest.raises(StopIteration):
-        next(divisions_iter)
-
-
-@given(from_type(mesh.FieldAlignedCurve), integers(-5, 100))
-def test_curve_subdivision(curve: mesh.FieldAlignedCurve, divisions: int) -> None:
-    divisions_iter = curve.subdivide(divisions)
-    first = next(divisions_iter)
-    coord = first(0.0)
-    for component, expected in zip(coord, curve(0.0)):
-        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
-    prev = first(1.0)
-    for curve in divisions_iter:
-        for c, p in zip(curve(0.0), prev):
-            np.testing.assert_allclose(c, p, rtol=1e-7, atol=1e-10)
-        prev = curve(1.0)
-    for component, expected in zip(prev, curve(1.0)):
-        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
-
-
-@given(from_type(mesh.FieldAlignedCurve), integers(1, 10))
-def test_curve_control_points_cached(curve: mesh.FieldAlignedCurve, order: int) -> None:
-    p1 = mesh.control_points(curve, order)
-    p2 = mesh.control_points(curve, order)
-    assert p1 is p2
-
-
-@given(from_type(mesh.FieldAlignedCurve), integers(1, 10))
-def test_curve_control_points_size(curve: mesh.FieldAlignedCurve, n: int) -> None:
-    assert len(mesh.control_points(curve, n)) == n + 1
-
-
 def example_trace(
     start: coordinates.SliceCoord, x3: npt.ArrayLike, start_weight: float = 0.0
 ) -> tuple[coordinates.SliceCoords, npt.NDArray]:
@@ -591,248 +631,140 @@ def example_trace(
     )
 
 
-def test_curve_control_points_values() -> None:
-    curve = Offset(
-        mesh.FieldAlignedCurve(
-            mesh.FieldTracer(
-                example_trace,
-                5,
-            ),
-            coordinates.SliceCoord(0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
-            -1.0,
-        ),
-        x3_offset=-0.5,
+def test_straight_line_across_field() -> None:
+    line = mesh.control_points(
+        mesh.straight_line_across_field(
+            mesh.SliceCoord(1.0, 1.0, coordinates.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(2.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
+            4,
+        )
     )
+    np.testing.assert_allclose(line.x1, np.linspace(1, 2, 5), 1e-10, 1e-10)
+    np.testing.assert_allclose(line.x2, np.linspace(1, 0, 5), 1e-10, 1e-10)
 
-    x1, x2, x3 = mesh.control_points(curve, 2)
-    np.testing.assert_allclose(x1, [-1.0, 0.0, 1.0], atol=1e-12)
-    np.testing.assert_allclose(x2, [-0.25, 0.0, 0.25], atol=1e-12)
-    np.testing.assert_allclose(x3, [0.0, -0.5, -1.0], atol=1e-12)
+
+def test_straight_line_across_field_mismatched_coords() -> None:
+    with pytest.raises(ValueError):
+        mesh.straight_line_across_field(
+            mesh.SliceCoord(1.0, 1.0, coordinates.CoordinateSystem.CARTESIAN),
+            mesh.SliceCoord(1.0, 1.0, coordinates.CoordinateSystem.CYLINDRICAL),
+            3,
+        )
 
 
 def test_bad_straight_line() -> None:
-    line = mesh.StraightLine(
-        coordinates.Coord(0.0, 0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
-        coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CYLINDRICAL),
-    )
     with pytest.raises(ValueError):
-        _ = line([0.0, 0.5, 1.0])
+        mesh.straight_line(
+            coordinates.Coord(0.0, 0.0, 0.0, coordinates.CoordinateSystem.CARTESIAN),
+            coordinates.Coord(1.0, 2.0, 3.0, coordinates.CoordinateSystem.CYLINDRICAL),
+            4,
+        )
 
 
-@given(from_type(mesh.StraightLine), floats(0.0, 1.0))
-def test_straight_line_between_termini(line: mesh.StraightLine, s: float) -> None:
-    position = line(s).to_coord()
-    for p, n, s in zip(position, line.north, line.south):
-        xs = sorted([p, n, s])
-        assert p == xs[1]
+line_termini = sampled_from(coordinates.CoordinateSystem).flatmap(
+    lambda c: lists(
+        builds(mesh.Coord, whole_numbers, whole_numbers, whole_numbers, just(c)),
+        min_size=2,
+        max_size=2,
+    )
+)
 
 
-@given(from_type(mesh.StraightLine), integers(-50, 100))
-def test_straight_line_subdivision_len(
-    curve: mesh.StraightLine, divisions: int
+@given(line_termini, orders, integers(0, 10), integers(1, 10))
+def test_straight_line_between_termini(
+    termini: list[coordinates.Coord], order: int, i: int, j: int
 ) -> None:
-    expected = max(1, divisions)
-    divisions_iter = curve.subdivide(divisions)
-    for _ in range(expected):
-        _ = next(divisions_iter)
-    with pytest.raises(StopIteration):
-        next(divisions_iter)
-
-
-@given(from_type(mesh.StraightLine), integers(-5, 100))
-def test_striaght_line_subdivision(curve: mesh.StraightLine, divisions: int) -> None:
-    divisions_iter = curve.subdivide(divisions)
-    first = next(divisions_iter)
-    coord = first(0.0)
-    for component, expected in zip(coord, curve(0.0)):
-        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
-    prev = first(1.0)
-    for curve in divisions_iter:
-        for c, p in zip(curve(0.0), prev):
-            np.testing.assert_allclose(c, p, rtol=1e-7, atol=1e-10)
-        prev = curve(1.0)
-    for component, expected in zip(prev, curve(1.0)):
-        np.testing.assert_allclose(component, expected, rtol=1e-7, atol=1e-10)
+    line = mesh.straight_line(termini[0], termini[1], order)
+    positions = mesh.control_points(line)
+    for position in positions.iter_points():
+        for p, n, s in zip(position, termini[0], termini[1]):
+            xs = sorted([p, n, s])
+            assert p == xs[1]
 
 
 @given(from_type(mesh.Quad))
 def test_quad_iter(q: mesh.Quad) -> None:
-    assert list(q) == [q.north, q.south]
+    sides = list(q)
+    assert coordinates.FrozenCoordSet(
+        sides[0].coords.iter_points()
+    ) == coordinates.FrozenCoordSet(q.north.coords.iter_points())
+    assert coordinates.FrozenCoordSet(
+        sides[1].coords.iter_points()
+    ) == coordinates.FrozenCoordSet(q.south.coords.iter_points())
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_north(q: mesh.Quad, s: float) -> None:
-    actual = q.north(s)
-    x3_offset = q.x3_offset
-    field_x1, field_x2 = q.field.trace(q.shape(0.0).to_coord(), actual.x3 - x3_offset)[
-        0
-    ]
-    start_x1, start_x2 = q.shape(0.0)
-    w = q.north_start_weight
-    expected_x1 = w * start_x1 + (1 - w) * field_x1
-    expected_x2 = w * start_x2 + (1 - w) * field_x2
-    np.testing.assert_allclose(actual.x1, expected_x1, rtol=2e-4, atol=1e-5)
-    np.testing.assert_allclose(actual.x2, expected_x2, rtol=2e-4, atol=1e-5)
+    actual = q.north.coords
+    expected = q.nodes.coords.get[0, :]
+    np.testing.assert_allclose(actual.x1, expected.x1, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(actual.x2, expected.x2, rtol=1e-12, atol=1e-12)
 
 
 @given(from_type(mesh.Quad), floats(0.0, 1.0))
 def test_quad_south(q: mesh.Quad, s: float) -> None:
-    actual = q.south(s)
-    x3_offset = q.x3_offset
-    field_x1, field_x2 = q.field.trace(q.shape(1.0).to_coord(), actual.x3 - x3_offset)[
-        0
-    ]
-    start_x1, start_x2 = q.shape(1.0)
-    w = q.south_start_weight
-    expected_x1 = w * start_x1 + (1 - w) * field_x1
-    expected_x2 = w * start_x2 + (1 - w) * field_x2
-    np.testing.assert_allclose(actual.x1, expected_x1, rtol=2e-4, atol=1e-5)
-    np.testing.assert_allclose(actual.x2, expected_x2, rtol=2e-4, atol=1e-5)
-
-
-@given(from_type(mesh.Quad), floats(0.0, 1.0), floats(0.0, 1.0))
-def test_quad_get_field_line(q: mesh.Quad, s: float, t: float) -> None:
-    line = q.get_field_line(s)
-    start = q.shape(s).to_coord()
-    # Check the line passes through the correct location on `q.shape`
-    if q.num_divisions == 1:
-        expected_start_x1, expected_start_x2 = start
-
-        def distance_from_start_point(t: float) -> npt.NDArray:
-            coord = line(t)
-            return np.sqrt(
-                (coord.x1 - expected_start_x1) ** 2
-                + (coord.x2 - expected_start_x2) ** 2
-            )
-
-        if np.isclose(distance_from_start_point(0.5), 0.0, 1e-8, 1e-8):
-            # Handle case where line is constant (the minimiser doesn't like it)
-            actual_start_x1, actual_start_x2, _ = line(0.5)
-        else:
-            res = minimize_scalar(
-                distance_from_start_point, (0.0, 0.5, 1.0), (0.0, 1.0), tol=1e-12
-            )
-            assert res.success
-            actual_start_x1, actual_start_x2, _ = line(res.x)
-        np.testing.assert_allclose(
-            actual_start_x1, expected_start_x1, rtol=1e-8, atol=1e-8
-        )
-        np.testing.assert_allclose(
-            actual_start_x2, expected_start_x2, rtol=1e-8, atol=1e-8
-        )
-    # Check location along the line
-    actual_x1, actual_x2, actual_x3 = line(t).to_coord()
-    field_coord = q.field.trace(start, actual_x3 - q.x3_offset)[0].to_coord()
-    weight = (q.south_start_weight - q.north_start_weight) * s + q.north_start_weight
-    expected_x1 = weight * start.x1 + (1 - weight) * field_coord.x1
-    expected_x2 = weight * start.x2 + (1 - weight) * field_coord.x2
-    np.testing.assert_allclose(actual_x1, expected_x1, rtol=2e-4, atol=1e-5)
-    np.testing.assert_allclose(actual_x2, expected_x2, rtol=2e-4, atol=1e-5)
-    assert actual_x3 <= q.x3_offset + 0.5 * np.abs(q.dx3) + 1e12
-    assert actual_x3 >= q.x3_offset - 0.5 * np.abs(q.dx3) - 1e-12
+    actual = q.south.coords
+    expected = q.nodes.coords.get[-1, :]
+    np.testing.assert_allclose(actual.x1, expected.x1, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(actual.x2, expected.x2, rtol=1e-12, atol=1e-12)
 
 
 @settings(deadline=None)
-@given(from_type(mesh.Quad), integers(2, 10))
-def test_quad_near_edge(q: mesh.Quad, n: int) -> None:
-    actual = coordinates.FrozenCoordSet(q.near(np.array([0.0, 1.0])).iter_points())
-    expected = coordinates.FrozenCoordSet(
-        {q.north(0.0).to_coord(), q.south(0.0).to_coord()}
-    )
-    assert expected == actual
-    s = np.linspace(0.0, 1.0, n)
-    cp = q.near(s)
-    x1, x2, x3 = np.vectorize(lambda t: tuple(q.get_field_line(t)(0.0)))(
-        s,
-    )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(cp.x3, x3, rtol=1e-10, atol=1e-12)
+@given(from_type(mesh.Quad))
+def test_quad_near_edge(q: mesh.Quad) -> None:
+    actual = coordinates.FrozenCoordSet(q.near.iter_points())
+    expected = coordinates.FrozenCoordSet({q.north.coords[0], q.south.coords[0]})
+    assert expected <= actual
+    x3 = np.array([a.x3 for a in actual])
+    np.testing.assert_allclose(x3, x3[0], 1e-8, 1e-8)
 
 
 @settings(deadline=None)
-@given(from_type(mesh.Quad), integers(2, 10))
-def test_quad_far_edge(q: mesh.Quad, n: int) -> None:
-    actual = coordinates.FrozenCoordSet(q.far(np.array([0.0, 1.0])).iter_points())
-    expected = coordinates.FrozenCoordSet(
-        {q.north(1.0).to_coord(), q.south(1.0).to_coord()}
-    )
-    assert expected == actual
-    s = np.linspace(0.0, 1.0, n)
-    cp = q.far(s)
-    x1, x2, x3 = np.vectorize(lambda t: tuple(q.get_field_line(t)(1.0)))(
-        s,
-    )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-4, atol=1e-5)
-    np.testing.assert_allclose(cp.x3, x3, rtol=1e-10, atol=1e-12)
+@given(from_type(mesh.Quad))
+def test_quad_far_edge(q: mesh.Quad) -> None:
+    actual = coordinates.FrozenCoordSet(q.far.iter_points())
+    expected = coordinates.FrozenCoordSet({q.north.coords[-1], q.south.coords[-1]})
+    assert expected <= actual
+    x3 = np.array([a.x3 for a in actual])
+    np.testing.assert_allclose(x3, x3[0], 1e-8, 1e-8)
 
 
 @given(from_type(mesh.Quad))
 def test_quad_near_far_corners(q: mesh.Quad) -> None:
-    expected = coordinates.FrozenCoordSet(q.corners().iter_points())
-    actual = coordinates.FrozenCoordSet(
-        q.far([0.0, 1.0]).iter_points()
-    ) | coordinates.FrozenCoordSet(q.near([0.0, 1.0]).iter_points())
+    expected = coordinates.FrozenCoordSet(q.corners())
+    actual = coordinates.FrozenCoordSet([q.far[0], q.far[-1], q.near[0], q.near[-1]])
     assert expected == actual
 
 
 @given(from_type(mesh.Quad))
 def test_quad_corners(q: mesh.Quad) -> None:
-    corners = q.corners()
-    assert corners[0].approx_eq(q.north(0.0).to_coord())
-    assert corners[1].approx_eq(q.north(1.0).to_coord())
-    assert corners[2].approx_eq(q.south(0.0).to_coord())
-    assert corners[3].approx_eq(q.south(1.0).to_coord())
+    corners = list(q.corners())
+    assert corners[0].approx_eq(q.north.coords[0])
+    assert corners[1].approx_eq(q.south.coords[0])
+    assert corners[2].approx_eq(q.north.coords[-1])
+    assert corners[3].approx_eq(q.south.coords[-1])
 
 
-@given(from_type(mesh.Quad), sampled_from(list(range(2, 10, 2))))
-def test_quad_control_points_spacing(q: mesh.Quad, n: int) -> None:
-    cp = mesh.control_points(q, n)
-    samples = np.linspace(0.0, 1.0, n + 1)
+@given(from_type(mesh.Quad))
+def test_quad_control_points_spacing(q: mesh.Quad) -> None:
     # Check spacing in the direction along the field lines (holds true
     # even for quads that aren't field-aligned)
-    start_points = q.shape(samples)
-    x1_starts = np.expand_dims(start_points.x1, 1)
-    x2_starts = np.expand_dims(start_points.x2, 1)
-    x3_offset = q.x3_offset
-    weights = (q.south_start_weight - q.north_start_weight) * np.expand_dims(
-        samples, 1
-    ) + q.north_start_weight
-    distances = np.vectorize(
-        lambda x1, x2, x3, start_weight: q.field.trace(
-            coordinates.SliceCoord(x1, x2, start_points.system), x3, start_weight
-        )[1]
-    )(
-        x1_starts,
-        x2_starts,
-        cp.x3 - x3_offset,
-        weights,
-    )
-    d_diff = distances[:, 1:] - distances[:, :-1]
-    for i in range(n + 1):
-        np.testing.assert_allclose(d_diff[i, 0], d_diff[i, :], rtol=1e-6, atol=1e-7)
-    # Check points fall along field lines that are equally spaced at the start position
-    x1, x2, x3 = np.vectorize(lambda s, t: tuple(q.get_field_line(s)(t)))(
-        samples.reshape((-1, 1)),
-        samples,
-    )
-    np.testing.assert_allclose(cp.x1, x1, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(cp.x2, x2, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(cp.x3, x3, rtol=1e-6, atol=1e-6)
+    cp = mesh.control_points(q)
+    d_diff = cp.x3[:, 1:] - cp.x3[:, :-1]
+    np.testing.assert_allclose(d_diff[0, 0], d_diff, rtol=1e-10, atol=1e-10)
 
 
-@given(from_type(mesh.Quad), whole_numbers, integers(1, 5))
-def test_quad_offset(q: mesh.Quad, x: float, n: int) -> None:
-    actual = mesh.control_points(Offset(q, x), n)
-    expected = mesh.control_points(q, n).offset(x)
+@given(from_type(mesh.Quad), whole_numbers)
+def test_quad_offset(q: mesh.Quad, x: float) -> None:
+    actual = mesh.control_points(Offset(q, x))
+    expected = mesh.control_points(q).offset(x)
     np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
     np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
     np.testing.assert_allclose(actual.x3, expected.x3, atol=1e-12)
     assert actual.system == expected.system
 
 
-@given(from_type(mesh.Quad), integers(-50, 100))
+@given(divisions.flatmap(subdivideable_quad), divisions)
 def test_quad_subdivision_len(quad: mesh.Quad, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = quad.subdivide(divisions)
@@ -843,114 +775,121 @@ def test_quad_subdivision_len(quad: mesh.Quad, divisions: int) -> None:
 
 
 @settings(deadline=None)
-@given(from_type(mesh.Quad), integers(-5, 100))
+@given(divisions.flatmap(subdivideable_quad), divisions)
 def test_quad_subdivision(quad: mesh.Quad, divisions: int) -> None:
     divisions_iter = quad.subdivide(divisions)
-    quad_corners = quad.corners()
+    quad_corners = list(quad.corners())
     first = next(divisions_iter)
-    corners = first.corners()
-    for c, q in zip(corners, quad_corners):
-        np.testing.assert_allclose(c[[0, 2]], q[[0, 2]], rtol=1e-8, atol=1e-10)
+    corners = list(first.corners())
+    assert corners[0].approx_eq(quad_corners[0])
+    assert corners[1].approx_eq(quad_corners[1])
     prev = corners
     for quad in divisions_iter:
-        corners = quad.corners()
-        for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[[0, 2]], p[[1, 3]], rtol=1e-8, atol=1e-10)
+        corners = list(quad.corners())
+        assert corners[0].approx_eq(prev[2])
+        assert corners[1].approx_eq(prev[3])
         prev = corners
-    for p, q in zip(prev, quad_corners):
-        np.testing.assert_allclose(p[[1, 3]], q[[1, 3]], rtol=1e-8, atol=1e-10)
+    assert prev[2].approx_eq(quad_corners[2])
+    assert prev[3].approx_eq(quad_corners[3])
 
 
 @given(from_type(mesh.Quad))
 def test_quad_make_flat(q: mesh.Quad) -> None:
     flat = q.make_flat_quad()
-    corners = q.corners()
-    flat_corners = flat.corners()
-    np.testing.assert_allclose(corners.x1, flat_corners.x1)
-    np.testing.assert_allclose(corners.x2, flat_corners.x2)
-    np.testing.assert_allclose(corners.x3, flat_corners.x3)
-    assert corners.system == flat_corners.system
+    for corner, flat_corner in zip(q.corners(), flat.corners()):
+        assert corner.approx_eq(flat_corner)
+    assert corner.system == flat_corner.system
 
 
-@given(from_type(mesh.Quad), integers(1, 20))
+@given(from_type(mesh.Quad), integers(1, 5))
 def test_quad_make_flat_idempotent(q: mesh.Quad, n: int) -> None:
-    new_quad = flat_quad = q.make_flat_quad()
+    new_quad = q.make_flat_quad()
+    expected = coordinates.FrozenCoordSet(mesh.control_points(new_quad).iter_points())
     for _ in range(n):
         new_quad = new_quad.make_flat_quad()
-        assert new_quad == flat_quad
+        assert (
+            coordinates.FrozenCoordSet(mesh.control_points(new_quad).iter_points())
+            == expected
+        )
 
 
 @given(from_type(mesh.Prism))
 def test_prism_near_edge(h: mesh.Prism) -> None:
     expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
-            (s.north(0.0).to_coord(), s.south(0.0).to_coord()) for s in h.sides
+            s.nodes.coords.get[..., 0].iter_points() for s in h
         )
     )
-    actual = coordinates.FrozenCoordSet(h.near.corners().iter_points())
-    assert expected == actual
+    actual = coordinates.FrozenCoordSet(h.near.corners())
+    assert actual <= expected
+    x3 = np.array([a.x3 for a in actual])
+    np.testing.assert_allclose(x3, x3[0], 1e-8, 1e-8)
 
 
-@given(from_type(mesh.EndShape))
-def test_end_shape(shape: mesh.EndShape) -> None:
-    assert shape.edges == tuple(shape)
+@given(from_type(mesh.UnalignedShape))
+def test_unaligned_shape(shape: mesh.UnalignedShape) -> None:
+    actual = coordinates.FrozenCoordSet(shape.corners())
+    expected = coordinates.FrozenCoordSet(
+        itertools.chain.from_iterable((c[0], c[-1]) for c in shape)
+    )
+    assert actual == expected
+    if shape.shape == mesh.PrismTypes.TRIANGULAR:
+        assert len(actual) == 3
+    else:
+        assert shape.shape == mesh.PrismTypes.RECTANGULAR
+        assert len(actual) == 4
 
 
 @given(flat_sided_hex)
 def test_prism_far_edge(h: mesh.Prism) -> None:
     expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
-            (
-                s.north(1.0).to_coord(),
-                s.south(1.0).to_coord(),
-            )
-            for s in h.sides
+            s.nodes.coords.get[..., -1].iter_points() for s in h
         )
     )
-    actual = coordinates.FrozenCoordSet(h.far.corners().iter_points())
-    assert expected == actual
+    actual = coordinates.FrozenCoordSet(h.far.corners())
+    assert actual <= expected
+    x3 = np.array([a.x3 for a in actual])
+    np.testing.assert_allclose(x3, x3[0], 1e-8, 1e-8)
 
 
 @given(from_type(mesh.Prism))
 def test_prism_near_far_corners(h: mesh.Prism) -> None:
-    expected = coordinates.FrozenCoordSet(h.corners().iter_points())
-    actual = coordinates.FrozenCoordSet(
-        h.near.corners().iter_points()
-    ) | coordinates.FrozenCoordSet(h.far.corners().iter_points())
+    expected = coordinates.FrozenCoordSet(h.corners())
+    actual = coordinates.FrozenCoordSet(h.near.corners()) | coordinates.FrozenCoordSet(
+        h.far.corners()
+    )
     assert expected == actual
 
 
 @given(flat_sided_hex)
 def test_hex_corners(h: mesh.Prism) -> None:
-    corners = h.corners()
-    assert corners[0].approx_eq(h.sides[0].north(0.0).to_coord())
-    assert corners[1].approx_eq(h.sides[0].south(0.0).to_coord())
-    assert corners[2].approx_eq(h.sides[1].north(0.0).to_coord())
-    assert corners[3].approx_eq(h.sides[1].south(0.0).to_coord())
-    assert corners[4].approx_eq(h.sides[0].north(1.0).to_coord())
-    assert corners[5].approx_eq(h.sides[0].south(1.0).to_coord())
-    assert corners[6].approx_eq(h.sides[1].north(1.0).to_coord())
-    assert corners[7].approx_eq(h.sides[1].south(1.0).to_coord())
+    corners = coordinates.FrozenCoordSet(h.corners())
+    assert corners <= coordinates.FrozenCoordSet(mesh.control_points(h).iter_points())
+    assert len(corners) == 8
 
 
 @given(from_type(mesh.Prism))
-def test_prism_get_quads(h: mesh.Prism) -> None:
-    actual = frozenset(h)
-    expected = frozenset(h.sides)
-    assert actual == expected
+def test_prism_iter(h: mesh.Prism) -> None:
+    sides = list(h)
+    if h.shape == mesh.PrismTypes.TRIANGULAR:
+        assert len(sides) == 3
+    else:
+        assert h.shape == mesh.PrismTypes.RECTANGULAR
+        assert len(sides) == 4
+    cp = coordinates.FrozenCoordSet(mesh.control_points(h).iter_points())
+    for side in sides:
+        assert coordinates.FrozenCoordSet(mesh.control_points(side).iter_points()) < cp
 
 
 @given(from_type(mesh.Prism), whole_numbers)
 def test_prism_offset(h: mesh.Prism, x: float) -> None:
-    actual = Offset(h, x).corners()
-    expected = h.corners().offset(x)
-    np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
-    np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
-    np.testing.assert_allclose(actual.x3, expected.x3, atol=1e-12)
-    assert actual.system == expected.system
+    actual = coordinates.FrozenCoordSet(Offset(h, x).corners())
+    expected = coordinates.FrozenCoordSet(c.offset(x) for c in h.corners())
+    assert actual == expected
 
 
-@given(from_type(mesh.Prism), integers(-15, 30))
+@given(divisions.flatmap(subdivideable_hex), divisions)
 def test_prism_subdivision_len(h: mesh.Prism, divisions: int) -> None:
     expected = max(1, divisions)
     divisions_iter = h.subdivide(divisions)
@@ -960,287 +899,44 @@ def test_prism_subdivision_len(h: mesh.Prism, divisions: int) -> None:
         next(divisions_iter)
 
 
-@given(from_type(mesh.Prism), integers(-3, 5))
+@given(divisions.flatmap(subdivideable_hex), divisions)
 def test_prism_subdivision(h: mesh.Prism, divisions: int) -> None:
     divisions_iter = h.subdivide(divisions)
-    prism_corners = h.corners()
+    prism_corners = list(h.corners())
     first = next(divisions_iter)
-    corners = first.corners()
-    n = len(h.sides)
-    for c, t in zip(corners, prism_corners):
-        np.testing.assert_allclose(c[:n], t[:n], rtol=1e-8, atol=1e-8)
+    corners = list(first.corners())
+    n = 3 if h.shape == mesh.PrismTypes.TRIANGULAR else 4
+    for i in range(n):
+        corners[i].approx_eq(prism_corners[i])
     prev = corners
     for h in divisions_iter:
-        corners = h.corners()
-        for c, p in zip(corners, prev):
-            np.testing.assert_allclose(c[:n], p[n:], rtol=1e-8, atol=1e-8)
+        corners = list(h.corners())
+        for i in range(n):
+            corners[i].approx_eq(prev[i + n])
         prev = corners
-    for p, t in zip(prev, prism_corners):
-        np.testing.assert_allclose(p[n:], t[n:], rtol=1e-8, atol=1e-8)
+    for i in range(n, 2 * n):
+        corners[i].approx_eq(prism_corners[i])
 
 
 @given(from_type(mesh.Prism))
 def test_prism_make_flat(p: mesh.Prism) -> None:
     flat = p.make_flat_faces()
-    corners = p.corners()
-    flat_corners = flat.corners()
-    np.testing.assert_allclose(corners.x1, flat_corners.x1)
-    np.testing.assert_allclose(corners.x2, flat_corners.x2)
-    np.testing.assert_allclose(corners.x3, flat_corners.x3)
-    assert corners.system == flat_corners.system
+    corners = coordinates.FrozenCoordSet(p.corners())
+    flat_corners = coordinates.FrozenCoordSet(flat.corners())
+    assert corners == flat_corners
 
 
-@given(from_type(mesh.Prism), integers(1, 20))
+@settings(deadline=None)
+@given(from_type(mesh.Prism), integers(1, 10))
 def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
     new_prism = flat_prism = p.make_flat_faces()
+    expected = coordinates.FrozenCoordSet(mesh.control_points(flat_prism).iter_points())
     for _ in range(n):
         new_prism = new_prism.make_flat_faces()
-        assert new_prism == flat_prism
-
-
-@composite
-def _randomise_edges(draw: Any, p: mesh.Prism) -> mesh.Prism:
-    if len(p.sides) == 3:
-        sides: list[mesh.Quad] = draw(permutations(p.sides))
-    else:
-        assert len(p.sides) == 4
-        sides = list(
-            itertools.chain.from_iterable(
-                draw(
-                    permutations(
-                        [
-                            draw(permutations(p.sides[:2])),
-                            draw(permutations(p.sides[2:])),
-                        ]
-                    )
-                )
-            )
+        assert (
+            coordinates.FrozenCoordSet(mesh.control_points(new_prism).iter_points())
+            == expected
         )
-    reverse = draw(lists(booleans(), min_size=len(p.sides), max_size=len(p.sides)))
-
-    def reverse_shape(q: mesh.Quad) -> mesh.Quad:
-        if isinstance(q.shape, mesh.StraightLineAcrossField):
-            return mesh.Quad(
-                mesh.StraightLineAcrossField(q.shape.south, q.shape.north),
-                q.field,
-                q.dx3,
-                q.subdivision,
-                q.num_divisions,
-                q.south_start_weight,
-                q.north_start_weight,
-            )
-        return mesh.Quad(
-            lambda x: q.shape(1 - np.asarray(x)),
-            q.field,
-            q.dx3,
-            q.subdivision,
-            q.num_divisions,
-            q.south_start_weight,
-            q.north_start_weight,
-        )
-
-    return mesh.Prism(
-        tuple(reverse_shape(q) if rev else q for q, rev in zip(sides, reverse))
-    )
-
-
-@settings(report_multiple_bugs=False)
-@given(
-    builds(
-        maybe_divide_hex,
-        one_of([flat_sided_hex, curve_sided_hex]),
-        booleans(),
-    )
-    .map(lambda x: x[0])
-    .flatmap(_randomise_edges),
-    integers(2, 10),
-)
-def test_prism_poloidal_map_edges(p: mesh.Prism, n: int) -> None:
-    x = np.linspace(0.0, 1.0, n)
-    edgemap = {
-        coordinates.FrozenCoordSet({c[0], c[-1]}): c
-        for c in (s.shape(x) for s in p.sides)
-    }
-    directions = [
-        (x, np.asarray(0.0)),
-        (np.asarray(1.0), x),
-        (np.asarray(0.0), x),
-    ]
-    if len(p.sides) == 4:
-        directions.append((x, np.asarray(1.0)))
-    termini: list[coordinates.FrozenCoordSet[coordinates.SliceCoord]] = []
-    # Check that when a coord is 0 or 1 then it corresponds to one of
-    # the edges of the prism
-    for coords in directions:
-        actual = p.poloidal_map(*coords)
-        ends = coordinates.FrozenCoordSet({actual[0], actual[-1]})
-        termini.append(ends)
-        expected = edgemap[ends]
-        if actual[0] == expected[0]:
-            sl = slice(None)
-        else:
-            sl = slice(None, None, -1)
-        np.testing.assert_allclose(actual.x1[sl], expected.x1, atol=1e-12)
-        np.testing.assert_allclose(actual.x2[sl], expected.x2, atol=1e-12)
-    # Check that each side of the prism has been covered
-    assert set(termini) == set(edgemap)
-
-
-def wedge_hex_profile(
-    r0: float,
-    r1: float,
-    theta0: float,
-    dtheta: float,
-    system: coordinates.CoordinateSystem,
-    x1_r: bool,
-) -> tuple[
-    mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], coordinates.SliceCoords]
-]:
-    def polar_coords(
-        r: npt.ArrayLike,
-        theta: npt.ArrayLike,
-    ) -> coordinates.SliceCoords:
-        r = np.asarray(r)
-        return coordinates.SliceCoords(r * np.cos(theta), r * np.sin(theta), system)
-
-    def expected_mapping(s: npt.ArrayLike, t: npt.ArrayLike) -> coordinates.SliceCoords:
-        if x1_r:
-            xr = np.asarray(s)
-            xt = np.asarray(t)
-        else:
-            xr = np.asarray(t)
-            xt = np.asarray(s)
-        return polar_coords(r0 + (r1 - r0) * xr, theta0 + dtheta * xt)
-
-    radials: list[mesh.AcrossFieldCurve] = [
-        mesh.StraightLineAcrossField(
-            *polar_coords(
-                np.array([r0, r1]),
-                np.array(theta0 + dtheta),
-            ).iter_points()
-        ),
-        mesh.StraightLineAcrossField(
-            *polar_coords(np.array([r0, r1]), np.array(theta0)).iter_points()
-        ),
-    ]
-    arcs: list[mesh.AcrossFieldCurve] = [
-        lambda s: polar_coords(r1, theta0 + dtheta * np.asarray(s)),
-        lambda s: polar_coords(r0, theta0 + dtheta * np.asarray(s)),
-    ]
-    if x1_r:
-        shapes = radials + arcs
-    else:
-        shapes = arcs + radials
-    tracer = mesh.FieldTracer(simple_trace)
-    return mesh.Prism(
-        tuple(mesh.Quad(sh, tracer, 1) for sh in shapes)
-    ), expected_mapping
-
-
-@settings(report_multiple_bugs=False)
-@given(
-    builds(
-        wedge_hex_profile,
-        floats(0.01, 10.0),
-        floats(-0.25, 10.0).map(lambda x: x + 0.5),
-        floats(0.0, 2 * np.pi),
-        floats(-1.5 * np.pi, 0.5 * np.pi).map(lambda x: x + 0.5 * np.pi),
-        coordinate_systems,
-        booleans(),
-    ),
-    integers(3, 10),
-    integers(3, 10),
-)
-def test_prism_poloidal_map_internal(
-    prism_expected: tuple[
-        mesh.Prism, Callable[[npt.ArrayLike, npt.ArrayLike], coordinates.SliceCoords]
-    ],
-    n: int,
-    m: int,
-) -> None:
-    p, expected_func = prism_expected
-    x1, x2 = np.meshgrid(
-        np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, m), sparse=True
-    )
-    actual = p.poloidal_map(x1, x2)
-    expected = expected_func(x1, x2)
-    np.testing.assert_allclose(actual.x1, expected.x1, atol=1e-12)
-    np.testing.assert_allclose(actual.x2, expected.x2, atol=1e-12)
-
-
-def make_symmetric_curved_prism(
-    line_points: list[coordinates.SliceCoord], height: float, distortion: float
-) -> tuple[mesh.Prism, mesh.AcrossFieldCurve]:
-    north, south = line_points
-    assert north.system == south.system
-    tracer = mesh.FieldTracer(simple_trace)
-    dx1 = south.x1 - north.x1
-    dx2 = south.x2 - north.x2
-    norm = np.sqrt(dx1 * dx1 + dx2 * dx2)
-    perp = [dx2 / norm, -dx1 / norm]
-    centre = coordinates.SliceCoord(
-        0.5 * (north.x1 + south.x1), 0.5 * (north.x2 + south.x2), north.system
-    )
-    vertex = coordinates.SliceCoord(
-        centre.x1 + perp[0] * height, centre.x2 + perp[1] * height, north.system
-    )
-    expected = mesh.StraightLineAcrossField(centre, vertex)
-    p = mesh.Prism(
-        (
-            mesh.Quad(mesh.StraightLineAcrossField(north, south), tracer, 1),
-            mesh.Quad(
-                offset_straight_line(
-                    mesh.StraightLineAcrossField(north, vertex), distortion
-                ),
-                tracer,
-                1,
-            ),
-            mesh.Quad(
-                offset_straight_line(
-                    mesh.StraightLineAcrossField(south, vertex), -distortion
-                ),
-                tracer,
-                1,
-            ),
-        )
-    )
-    return p, expected
-
-
-@given(
-    builds(
-        make_symmetric_curved_prism,
-        lists(
-            builds(
-                coordinates.SliceCoord,
-                whole_numbers,
-                whole_numbers,
-                shared_coordinate_systems,
-            ),
-            min_size=2,
-            max_size=2,
-            unique=True,
-        ),
-        non_zero,
-        floats(-0.1, 0.1).filter(bool),
-    ).flatmap(lambda x: tuples(_randomise_edges(x[0]), just(x[1]))),
-    integers(3, 12),
-)
-def test_prism_poloidal_map_symmetric(
-    prism_expected: tuple[mesh.Prism, mesh.AcrossFieldCurve],
-    n: int,
-) -> None:
-    p, exp_func = prism_expected
-    actual = p.poloidal_map(np.asarray(0.5), np.linspace(0, 1, n))
-    x1_0, x2_0 = exp_func(0)
-    x1_1, x2_1 = exp_func(1)
-    # Check the points of the result fall on a straight line
-    if abs(x1_1 - x1_0) > abs(x2_1 - x2_0):
-        expected = x2_0 + (x2_1 - x2_0) / (x1_1 - x1_0) * (actual.x1 - x1_0)
-        np.testing.assert_allclose(actual.x2, expected, atol=1e-12)
-    else:
-        expected = x1_0 + (x1_1 - x1_0) / (x2_1 - x2_0) * (actual.x2 - x2_0)
-        np.testing.assert_allclose(actual.x1, expected, atol=1e-12)
 
 
 @given(mesh_arguments)
@@ -1255,11 +951,20 @@ def test_mesh_layer_elements_no_offset(
 
 
 def get_corners(
-    shape: mesh.Prism | mesh.EndShape | mesh.Quad | mesh.NormalisedCurve,
-) -> coordinates.Coords:
-    if isinstance(shape, (mesh.Prism, mesh.Quad, mesh.EndShape)):
-        return shape.corners()
-    return shape([0.0, 1.0])
+    shape: mesh.Prism
+    | mesh.UnalignedShape
+    | mesh.Quad
+    | mesh.Curve
+    | mesh.FieldAlignedCurve,
+) -> Iterator[coordinates.Coord]:
+    if isinstance(shape, (mesh.Prism, mesh.Quad, mesh.UnalignedShape)):
+        yield from shape.corners()
+    elif isinstance(shape, coordinates.Coords):
+        yield shape[0]
+        yield shape[-1]
+    else:
+        yield shape.coords[0]
+        yield shape.coords[-1]
 
 
 @settings(deadline=None)
@@ -1269,25 +974,24 @@ def test_mesh_layer_elements_with_offset(
 ) -> None:
     layer = Offset(mesh.MeshLayer(*args), offset)
     for actual, expected in zip(layer, args[0]):
-        actual_corners = actual.corners()
-        expected_corners = Offset(expected, offset).corners()
-        np.testing.assert_allclose(actual_corners.x1, expected_corners.x1, atol=1e-12)
-        np.testing.assert_allclose(actual_corners.x2, expected_corners.x2, atol=1e-12)
-        np.testing.assert_allclose(actual_corners.x3, expected_corners.x3, atol=1e-12)
+        actual_corners = coordinates.FrozenCoordSet(actual.corners())
+        expected_corners = coordinates.FrozenCoordSet(
+            Offset(expected, offset).corners()
+        )
+        assert actual_corners == expected_corners
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         actual_elems = frozenset(
-            coordinates.FrozenCoordSet(get_corners(elem).iter_points())
-            for elem in actual_bound
+            coordinates.FrozenCoordSet(get_corners(elem)) for elem in actual_bound
         )
         expected_elems = frozenset(
-            coordinates.FrozenCoordSet(get_corners(elem).offset(offset).iter_points())
+            coordinates.FrozenCoordSet(get_corners(Offset(elem, offset)))
             for elem in expected_bound
         )
         assert actual_elems == expected_elems
 
 
 @settings(deadline=None)
-@given(mesh_arguments, integers(1, 10))
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), divisions)
 def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
@@ -1295,7 +999,7 @@ def test_mesh_layer_elements_with_subdivisions(
     expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
             (
-                x.corners().iter_points()
+                x.corners()
                 for x in itertools.chain.from_iterable(
                     (x.subdivide(subdivisions) for x in args[0])
                 )
@@ -1303,14 +1007,14 @@ def test_mesh_layer_elements_with_subdivisions(
         )
     )
     actual = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable((x.corners().iter_points() for x in layer))
+        itertools.chain.from_iterable((x.corners() for x in layer))
     )
     assert expected == actual
     for actual_bound, expected_bound in zip(layer.boundaries(), args[1]):
         expected_corners = coordinates.FrozenCoordSet(
             itertools.chain.from_iterable(
                 (
-                    get_corners(x).iter_points()
+                    get_corners(x)
                     for x in itertools.chain.from_iterable(
                         (
                             cast(Iterable[mesh.B], x.subdivide(subdivisions))
@@ -1321,23 +1025,28 @@ def test_mesh_layer_elements_with_subdivisions(
             )
         )
         actual_corners = coordinates.FrozenCoordSet(
-            itertools.chain.from_iterable(
-                (get_corners(x).iter_points() for x in actual_bound)
-            )
+            itertools.chain.from_iterable((get_corners(x) for x in actual_bound))
         )
         assert expected_corners == actual_corners
 
 
 def evaluate_element(
-    element: mesh.Quad | mesh.Prism, s: float
-) -> list[coordinates.Coord]:
+    element: mesh.Quad | mesh.Prism, i: int
+) -> Iterator[coordinates.Coord]:
+    coords = element.nodes.coords.get[..., i]
     if isinstance(element, mesh.Quad):
-        return [element.north(s).to_coord(), element.south(s).to_coord()]
-    # This works for hexahedrons and triangular prisms
-    return evaluate_element(element.sides[0], s) + evaluate_element(element.sides[1], s)
+        yield coords[0]
+        yield coords[-1]
+    else:
+        yield coords[0, 0]
+        yield coords[0, -1]
+        yield coords[-1, 0]
+        if element.shape == mesh.PrismTypes.RECTANGULAR:
+            yield coords[-1, -1]
 
 
-@given(mesh_arguments, whole_numbers, integers(1, 5))
+@settings(deadline=None)
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, divisions)
 def test_mesh_layer_near_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
     offset: float,
@@ -1346,18 +1055,17 @@ def test_mesh_layer_near_faces(
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
     expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
-            (evaluate_element(Offset(x, offset), 0.0) for x in args[0])
+            (evaluate_element(Offset(x, offset), 0) for x in args[0])
         ),
     )
     actual = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable(
-            (get_corners(x).iter_points() for x in layer.near_faces())
-        ),
+        itertools.chain.from_iterable((get_corners(x) for x in layer.near_faces())),
     )
     assert expected == actual
 
 
-@given(mesh_arguments, whole_numbers, integers(1, 5))
+@settings(deadline=None)
+@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5))
 def test_mesh_layer_far_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
     offset: float,
@@ -1366,13 +1074,11 @@ def test_mesh_layer_far_faces(
     layer = Offset(mesh.MeshLayer(*args, subdivisions), offset)
     expected = coordinates.FrozenCoordSet(
         itertools.chain.from_iterable(
-            (evaluate_element(Offset(x, offset), 1.0) for x in args[0])
+            (evaluate_element(Offset(x, offset), -1) for x in args[0])
         ),
     )
     actual = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable(
-            (get_corners(x).iter_points() for x in layer.far_faces())
-        ),
+        itertools.chain.from_iterable((get_corners(x) for x in layer.far_faces())),
     )
     assert expected == actual
 
@@ -1380,17 +1086,13 @@ def test_mesh_layer_far_faces(
 @given(from_type(mesh.MeshLayer))
 def test_mesh_layer_faces_in_elements(layer: mesh.MeshLayer) -> None:
     element_corners = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable((get_corners(x).iter_points() for x in layer)),
+        itertools.chain.from_iterable((get_corners(x) for x in layer)),
     )
     near_face_corners = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable(
-            (get_corners(x).iter_points() for x in layer.near_faces())
-        ),
+        itertools.chain.from_iterable((get_corners(x) for x in layer.near_faces())),
     )
     far_face_corners = coordinates.FrozenCoordSet(
-        itertools.chain.from_iterable(
-            (get_corners(x).iter_points() for x in layer.far_faces())
-        ),
+        itertools.chain.from_iterable((get_corners(x) for x in layer.far_faces())),
     )
     assert near_face_corners < element_corners
     assert far_face_corners < element_corners
@@ -1406,19 +1108,20 @@ def test_mesh_layer_len(layer: mesh.MeshLayer) -> None:
 
 
 quad_mesh_elements = _quad_mesh_elements(
+    5,
     1.0,
     1.0,
     10.0,
     ((0.0, 0.0), (1.0, 0.0)),
     4,
     coordinates.CoordinateSystem.CARTESIAN,
-    10,
     False,
     False,
 )
 hex_mesh_elements = cast(
     tuple[list[mesh.Prism], list[frozenset[mesh.Quad]]],
     _hex_mesh_arguments(
+        3,
         1.0,
         1.0,
         10.0,
@@ -1426,7 +1129,6 @@ hex_mesh_elements = cast(
         3,
         3,
         coordinates.CoordinateSystem.CARTESIAN,
-        10,
         False,
     ),
 )[0]
@@ -1444,19 +1146,21 @@ def test_mesh_layer_element_type(elements: list[mesh.Quad] | list[mesh.Prism]) -
 
 @given(quad_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_quads(
-    layer: mesh.MeshLayer[mesh.Quad, mesh.Segment, mesh.NormalisedCurve],
+    layer: mesh.MeshLayer[mesh.Quad, mesh.FieldAlignedCurve, mesh.Curve],
 ) -> None:
     assert all(q1 is q2 for q1, q2 in zip(layer, layer.quads()))
 
 
 @given(prism_mesh_layer_no_divisions)
 def test_mesh_layer_quads_for_prisms(
-    layer: mesh.MeshLayer[mesh.Prism, mesh.Quad, mesh.EndShape],
+    layer: mesh.MeshLayer[mesh.Prism, mesh.Quad, mesh.UnalignedShape],
 ) -> None:
     all_quads = list(itertools.chain.from_iterable(p for p in layer))
     returned_quads = list(layer.quads())
     assert len(all_quads) == len(returned_quads)
-    assert frozenset(all_quads) == frozenset(returned_quads)
+    assert frozenset(
+        coordinates.FrozenCoordSet(q.corners()) for q in all_quads
+    ) == frozenset(coordinates.FrozenCoordSet(q.corners()) for q in returned_quads)
 
 
 @given(from_type(mesh.GenericMesh))
@@ -1479,101 +1183,61 @@ def test_mesh_len(m: mesh.GenericMesh) -> None:
         next(mesh_iter)
 
 
-shared_coords = shared(coordinate_systems, key=0)
-
-
-@given(
-    builds(
-        linear_field_trace,
-        whole_numbers,
-        whole_numbers,
-        non_zero,
-        shared_coords,
-        floats(-0.1, 0.1),
-        tuples(whole_numbers, whole_numbers),
-    ),
-    builds(coordinates.SliceCoord, non_zero, whole_numbers, shared_coords),
+shared_orders = shared(integers(1, 10), key=123456)
+coords = builds(
+    coordinates.Coord,
     whole_numbers,
-    non_zero,
-    integers(2, 8),
-    integers(3, 12),
+    whole_numbers,
+    whole_numbers,
+    just(coordinates.CoordinateSystem.CARTESIAN),
 )
-def test_normalise_straight_field_line(
-    trace: mesh.FieldTrace,
-    start: coordinates.SliceCoord,
-    x3_start: float,
-    dx3: float,
-    resolution: int,
-    n: int,
-) -> None:
-    normalised = mesh.normalise_field_line(
-        trace, start, x3_start, x3_start + dx3, resolution
-    )
-    checkpoints = np.linspace(0.0, 1.0, n)
-    coords_normed = normalised(checkpoints)
-    coords_trace, distances = trace(start, coords_normed.x3)
-    np.testing.assert_allclose(coords_trace.x1, coords_normed.x1, atol=1e-7)
-    np.testing.assert_allclose(coords_trace.x2, coords_normed.x2, atol=1e-7)
-    spacing = distances[1:] - distances[:-1]
-    np.testing.assert_allclose(spacing, spacing[0], atol=1e-7)
-
-
-centre = shared(whole_numbers, key=100)
-rad = shared(non_zero, key=101)
-x3_limit = shared(rad.flatmap(lambda r: floats(*sorted([0.01 * r, 0.99 * r]))), key=102)
-x3_start = x3_limit.map(lambda x: -x)
-slope = shared(whole_numbers, key=103)
-x1_start = shared(tuples(centre, rad).map(lambda x: x[0] + x[1]), key=104)
-x2_centre = shared(whole_numbers, key=105)
-cartesian_coords = shared(sampled_from(list(CARTESIAN_SYSTEMS)), key=106)
-
-
-@given(
-    builds(cylindrical_field_trace, centre, slope),
-    builds(
-        cylindrical_field_line,
-        centre,
-        x1_start,
-        x2_centre,
-        slope,
-        tuples(x3_start, x3_limit),
-        cartesian_coords,
-    ),
-    builds(coordinates.SliceCoord, x1_start, x2_centre, cartesian_coords),
-    x3_start,
-    x3_limit.map(lambda x: 2 * x),
-    integers(100, 200),
-    integers(3, 6),
+lines_across_field = builds(
+    mesh.straight_line_across_field,
+    common_slice_coords,
+    common_slice_coords,
+    shared_orders,
 )
-def test_normalise_curved_field_line(
-    trace: mesh.FieldTrace,
-    line: mesh.NormalisedCurve,
-    start: coordinates.SliceCoord,
-    x3_start: float,
-    dx3: float,
-    resolution: int,
-    n: int,
+geometries = one_of(
+    (
+        lines_across_field,
+        builds(mesh.straight_line, common_coords, common_coords, shared_orders),
+        builds(
+            mesh.field_aligned_positions,
+            lines_across_field,
+            floats(1e-3, 1e3),
+            linear_traces,
+            floats(0.0, 1.0).map(np.array),
+            shared_orders,
+            pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+            pos_divisions,
+        ).map(mesh.Quad),
+        builds(
+            mesh.Prism,
+            sampled_from(tuple(mesh.PrismTypes)[::-1]),
+            builds(
+                mesh.field_aligned_positions,
+                builds(
+                    corners_to_poloidal_quad,
+                    shared_orders,
+                    lists(common_slice_coords.map(tuple), min_size=4, max_size=4).map(
+                        tuple
+                    ),
+                    shared_coordinate_systems,
+                ),
+                floats(1e-3, 1e3),
+                linear_traces,
+                floats(0.0, 1.0).map(np.array),
+                shared_orders,
+                pos_divisions.flatmap(lambda x: integers(0, x - 1)),
+                pos_divisions,
+            ),
+        ),
+    )
+)
+
+
+@given(shared_orders, geometries)
+def test_order(
+    n: int, geom: mesh.AcrossFieldCurve | mesh.Curve | mesh.Quad | mesh.Prism
 ) -> None:
-    # Note: part of the motivation of this test is to ensure my
-    # functions to generate curved fields are self-consistent.
-    normalised = mesh.normalise_field_line(
-        trace, start, x3_start, x3_start + dx3, resolution
-    )
-    checkpoints = np.linspace(0.0, 1.0, n)
-    coords_normed = normalised(checkpoints)
-    expected_coords = line(checkpoints)
-    np.testing.assert_allclose(
-        coords_normed.x1, expected_coords.x1, atol=1e-6, rtol=1e-6
-    )
-    np.testing.assert_allclose(
-        coords_normed.x2, expected_coords.x2, atol=1e-6, rtol=1e-6
-    )
-    np.testing.assert_allclose(
-        coords_normed.x3, expected_coords.x3, atol=1e-6, rtol=1e-6
-    )
-    _, distances = trace(start, expected_coords.x3)
-    spacing = distances[1:] - distances[:-1]
-    np.testing.assert_allclose(spacing, spacing[0])
-
-
-# FIXME: Write unit tests for FieldTracer class
+    assert n == mesh.order(geom)
