@@ -812,13 +812,13 @@ def nektar_composite_map(composite_map: dict[int, SD.Composite]) -> SD.Composite
     return comp_map
 
 
-def _assign_points(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+def _assign_points(elements: NektarElements, meshgraph: SD.MeshGraph) -> None:
     points = meshgraph.GetAllPointGeoms()
     for point in elements.points():
         points[point.GetGlobalID()] = point
 
 
-def _assign_segments(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+def _assign_segments(elements: NektarElements, meshgraph: SD.MeshGraph) -> None:
     segments = meshgraph.GetAllSegGeoms()
     curved_edges = meshgraph.GetCurvedEdges()
     for seg in elements.segments():
@@ -830,7 +830,7 @@ def _assign_segments(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> No
             curved_edges[i] = curve
 
 
-def _assign_faces(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+def _assign_faces(elements: NektarElements, meshgraph: SD.MeshGraph) -> None:
     """Assign faces to a MeshGraph object."""
     tris = meshgraph.GetAllTriGeoms()
     quads = meshgraph.GetAllQuadGeoms()
@@ -857,7 +857,7 @@ def _assign_face_curve(curved_faces: SD.CurveMap, element: SD.Geometry, i: int) 
             curved_faces[i] = curve
 
 
-def _assign_elements(elements: NektarElements, meshgraph: SD.MeshGraphXml) -> None:
+def _assign_elements(elements: NektarElements, meshgraph: SD.MeshGraph) -> None:
     """Assign elements to a MeshGraph object."""
     segments = meshgraph.GetAllSegGeoms()
     tris = meshgraph.GetAllTriGeoms()
@@ -894,9 +894,8 @@ def nektar_mesh(
     spatial_dim: int,
     write_movement: bool = True,
     periodic_interfaces: bool = True,
-    compressed: bool = True,
-) -> SD.MeshGraphXml | SD.MeshGraphXmlCompressed:
-    """Create a Nektar++ MeshGraphXml from Nektar++ geometry objects.
+) -> SD.MeshGraph:
+    """Create a Nektar++ MeshGraph from Nektar++ geometry objects.
 
     Parameters
     ----------
@@ -914,9 +913,6 @@ def nektar_mesh(
         If write_movement is True, whether the last layer joins
         back up with the first, requiring an interface to be
         defined between the two.
-    compressed
-        Whether to return a ``MeshGraphXmlCompressed`` object or
-        a plain ``MeshGraphXml`` object
 
     Danger
     ------
@@ -936,11 +932,9 @@ def nektar_mesh(
 
     """
     print("Assembling Nektar++ MeshGraph")
-    meshgraph = (
-        SD.MeshGraphXmlCompressed(mesh_dim, spatial_dim)
-        if compressed
-        else SD.MeshGraphXml(mesh_dim, spatial_dim)
-    )
+    meshgraph = SD.MeshGraph()
+    meshgraph.SetMeshDimension(mesh_dim)
+    meshgraph.SetSpaceDimension(spatial_dim)
     print("Assigning vertices")
     _assign_points(elements, meshgraph)
     print("Assigning segments")
@@ -1039,10 +1033,11 @@ def write_nektar(
         spatial_dim,
         write_movement,
         periodic_interfaces,
-        compressed,
     )
     print(f"Writing mesh to {filename}")
-    nek_mesh.Write(filename, True, SD.FieldMetaDataMap())
+    writer = SD.MeshGraphIO.Create("XmlCompressed" if compressed else "Xml")
+    writer.SetMeshGraph(nek_mesh)
+    writer.Write(filename, True, SD.FieldMetaDataMap())
 
 
 def write_poloidal_mesh(
@@ -1083,7 +1078,8 @@ def write_poloidal_mesh(
         3,
         False,
         False,
-        compressed,
     )
     print(f"Writing mesh to {filename}")
-    nek_mesh.Write(filename, True, SD.FieldMetaDataMap())
+    writer = SD.MeshGraphIO.Create("XmlCompressed" if compressed else "Xml")
+    writer.SetMeshGraph(nek_mesh)
+    writer.Write(filename, True, SD.FieldMetaDataMap())
