@@ -35,6 +35,7 @@ following.
 .. image:: _static/aligned_2d.png
            :width: 600
            :alt: A non-conformal field-aligned 2D mesh.
+           :class: white-background
 
 By default, the number of layers in the x1-direction is the
 same as the number of elements. This can be adjusted by using the
@@ -48,6 +49,7 @@ That mesh will look like the image below.
 .. image:: _static/subdivided_2d.png
            :width: 600
            :alt: A conformal field-aligned 2D mesh.
+           :class: white-background
 
 Run ``fame-simple 2d --help`` to find out about additional options for
 configuring your mesh.
@@ -56,6 +58,7 @@ configuring your mesh.
 ---------
 The process of generating a 3D mesh is very similar. For example, to
 produce a mesh with the following properties
+
 - 10 by 20 by 8 elements
 - domain :math:`x_1 \in [0, 100], x_2 \in [0, 200], x_3 \in [0, 80]`
 - aligned to a field rotate by 3 degrees away from the x1-axis and towards the x2-axis

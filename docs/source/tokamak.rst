@@ -79,6 +79,7 @@ mesh like the one below::
 .. image:: _static/poloidal-fame.png
            :width: 400
            :alt: A poloidal mesh produced by NESO-fame with hypnotoad.
+           :class: white-background
 
 Extruding the Mesh
 ------------------

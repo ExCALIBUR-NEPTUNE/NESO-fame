@@ -21,7 +21,7 @@ jobs:
           path: |
             /usr/local/bin/python3.10/dist-packages/
             ~/.cache/sphinx_immaterial/
-          key: ${{ runner.os }}-${{ hashFiles('setup.py', 'docs/requirements.txt') }}
+          key: ${{ runner.os }}-${{ hashFiles('setup.py', 'requirements-dev.txt') }}
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip

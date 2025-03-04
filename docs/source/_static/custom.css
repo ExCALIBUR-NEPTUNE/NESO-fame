@@ -10,6 +10,64 @@ body {
 }
 
 /* Code snippets. */
-pre, code, kbd, samp {
-  font-family: "Roboto Mono", SFMono-Regular, Consolas, Menlo, monospace;
+pre, code, kbd, samp, .highlight {
+    font-family: "Roboto Mono", SFMono-Regular, Consolas, Menlo, monospace;
+}
+
+.md-tabs__link {
+    opacity: 0.8;
+}
+
+@media screen {
+    /* Light mode adjustments */
+    .md-main {
+        --md-default-fg-color--light: rgba(0, 0, 0, 0.6);
+        --md-code-hl-name-color: var(--md-code-fg-color);
+        --md-code-hl-operator-color: var(--md-default-fg-color--light);
+        --md-code-hl-punctuation-color: var(--md-default-fg-color--light);
+        --md-code-hl-comment-color: var(--md-default-fg-color--light);
+        --md-code-hl-generic-color: var(--md-default-fg-color--light);
+        --md-code-hl-variable-color: var(--md-default-fg-color--light);
+        --md-accent-fg-color: #4a65fb;
+    }
+
+    .md-search-result__meta {
+        color: var(--md-default-fg-color);
+    }
+
+    .md-skip {
+        opacity: 1;
+    }
+
+    .md-typeset .headerlink {
+        color: var(--md-default-fg-color--light);
+    }
+
+    /* Dark mode adjustments */
+    [data-md-color-scheme="slate"] {
+        .md-main {
+            --md-default-fg-color--light: hsla(var(--md-hue), 15%, 90%, 0.56);
+            --md-code-hl-name-color: var(--md-code-fg-color);
+            --md-code-hl-operator-color: var(--md-default-fg-color--light);
+            --md-code-hl-punctuation-color: var(--md-default-fg-color--light);
+            --md-code-hl-comment-color: var(--md-default-fg-color--light);
+            --md-code-hl-generic-color: var(--md-default-fg-color--light);
+            --md-code-hl-variable-color: var(--md-default-fg-color--light);
+            --md-code-hl-number-color: #e47265;
+            --md-code-hl-constant-color: #9687e1;
+            --md-accent-fg-color: #657dff;
+        }
+
+        .white-background {
+            background: white;
+        }
+        /* .md-typeset .headerlink { */
+        /*     color: var(--md-default-fg-color--light); */
+        /* } */
+    }
+    
+    [data-md-color-scheme="slate"][data-md-color-primary="indigo"] {
+        --md-typeset-a-color: #6494ec;
+    }
+    
 }
