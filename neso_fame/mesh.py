@@ -1479,9 +1479,9 @@ class FieldTracer:
             within the specified subdivision of the quad.
 
         """
-        assert (
-            division < total_divisions
-        ), f"Can not request division {division} when only {total_divisions} available"
+        assert division < total_divisions, (
+            f"Can not request division {division} when only {total_divisions} available"
+        )
         assert total_divisions > 0, "Number of divisions must be positive"
         assert division >= 0, "Division number must be non-negative"
         segments = self._normalise_and_subdivide(

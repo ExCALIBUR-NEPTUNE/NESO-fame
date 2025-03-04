@@ -980,7 +980,9 @@ def nektar_mesh(
         composites[k] = far
         if write_movement and (i != n - 1 or periodic_interfaces):
             near_interface = SD.Interface(2 * i, nektar_composite_map({j: near}), False)
-            far_interface = SD.Interface(2 * i + 1, nektar_composite_map({k: far}), False)
+            far_interface = SD.Interface(
+                2 * i + 1, nektar_composite_map({k: far}), False
+            )
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
     print("Assigning boundary composites")
     for i, bound in enumerate(elements.bounds(), m + 2 * n):

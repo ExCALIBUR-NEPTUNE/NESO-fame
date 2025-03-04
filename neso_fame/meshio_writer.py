@@ -688,10 +688,10 @@ def meshio_elements(mesh: PrismMesh, order: int) -> meshio.Mesh:
             sets = frozenset({f"Boundary {j}"})
             for b in bound:
                 make_bound(b, order, sets)
-        sets = frozenset(f"Interface {2*i}")
+        sets = frozenset(f"Interface {2 * i}")
         for f in layer.near_faces():
             make_interface(f, order, sets)
-        sets = frozenset(f"Interface {2*i + 1}")
+        sets = frozenset(f"Interface {2 * i + 1}")
         for f in layer.far_faces():
             make_interface(f, order, sets)
     return result.meshio()
