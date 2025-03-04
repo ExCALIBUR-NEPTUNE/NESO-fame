@@ -74,6 +74,10 @@ def field_aligned_positions(
         in this way; it will just be able to be divided while still
         providing the desired order of accuracy.
 
+    Group
+    -----
+    positions
+
     """
     start_array = np.broadcast(start_points.x1, start_points.x2)
     if start_array.ndim < alignments.ndim:
@@ -124,6 +128,10 @@ class FieldAlignedPositions:
     data in the x3 direction by dividing it into a certain number of
     subdivisions and choosing one of these.
 
+    Group
+    -----
+    positions
+
     """
 
     start_points: SliceCoords
@@ -167,9 +175,10 @@ class FieldAlignedPositions:
     ) -> FieldAlignedPositions:
         """Slice the start-points of the data, returning the specificed subset.
 
-        This returns a view of the data in the data, not a copy. This
-        means that as positions are calculated they will become
-        available to other overlapping slices.
+        This returns a view of the data, not a copy. This means that
+        as positions are calculated they will become available to
+        other overlapping slices.
+
         """
         x1, x2, alignments = np.broadcast_arrays(
             self.start_points.x1, self.start_points.x2, self.alignments

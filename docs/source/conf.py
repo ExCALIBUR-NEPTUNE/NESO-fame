@@ -148,6 +148,7 @@ autodoc_type_aliases = {
 
 # Python apigen configuration
 python_apigen_modules = {
+    "neso_fame.coordinates": "api/autogen/coordinates/",
     "neso_fame.mesh": "api/autogen/mesh/",
     "neso_fame.fields": "api/autogen/fields/",
     "neso_fame.generators": "api/autogen/generators/",

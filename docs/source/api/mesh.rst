@@ -1,9 +1,9 @@
 ``mesh`` Module
 ===============
 
-Coordinates
------------
-.. python-apigen-group:: coordinates
+Positions
+---------
+.. python-apigen-group:: positions
 
 Magnetic Fields
 ---------------
