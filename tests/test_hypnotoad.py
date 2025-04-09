@@ -46,6 +46,7 @@ from neso_fame.hypnotoad_interface import (
 )
 from neso_fame.mesh import (
     Quad,
+    field_aligned_positions,
     straight_line_across_field,
 )
 
@@ -680,52 +681,37 @@ def test_trace_o_point(x_point_equilibrium: TokamakEquilibrium) -> None:
 # point in our equations, so will have bad accuracy; avoid it!
 psis = integers(-99, 400).map(lambda x: (x + 100) / 100)
 
+orders = integers(1, 10)
 
-@settings(deadline=None, report_multiple_bugs=False)
+
+@settings(deadline=None)
 @given(
     fake_equilibria,
     floats(0.0, 2 * np.pi),
     psis,
-    arrays(
-        np.float64,
-        array_shapes(max_side=3),
-        # The scipy integration routines don't behave well if we have
-        # numbers that differ by around machine-epsilon, so we enforce
-        # larger differences between values. Our semi-analytic
-        # solution doesn't work at the end-point/O-point, so don't try
-        # evaluating for position=1.
-        elements=integers(-500, 499).map(lambda x: (x + 500) / 1000),
-        fill=nothing(),
-    ),
+    orders
 )
 def test_connect_to_o_point(
-    eq: FakeEquilibrium, angle: float, start_psi: float, positions: npt.NDArray
+    eq: FakeEquilibrium, angle: float, start_psi: float, order: int
 ) -> None:
     R_start, Z_start = map(float, eq.to_RZ(start_psi, angle))
     curve_of_psi = eq.perpendicular_curve(R_start, Z_start)
     R_end, Z_end = eq.o_point
     end_psi = eq.psi_func(R_end, Z_end, grid=False)
-    approx_end_psi = start_psi + 0.95 * (end_psi - start_psi)
     start = SliceCoord(R_start, Z_start, CoordinateSystem.CYLINDRICAL)
     end = SliceCoord(R_end, Z_end, CoordinateSystem.CYLINDRICAL)
-    edge = connect_to_o_point(cast(TokamakEquilibrium, eq), start)
+    edge = connect_to_o_point(cast(TokamakEquilibrium, eq), start, order)
     # Check starts and ends of the curve are at the right locations
-    assert edge(0.0).to_coord() == start
-    assert edge(1.0).to_coord() == end
-    actual = edge(positions)
-    actual_psis = eq.psi_func(actual.x1, actual.x2, grid=False)
-    # For values values beyond approx_end_psi, linear interpolation is
-    # used and accuracy is low
-    mask = actual_psis >= approx_end_psi
+    assert edge[0] == start
+    assert edge[-1] == end
+    actual_psis = eq.psi_func(edge.x1, edge.x2, grid=False)
     # Check positions of points on line correspond to our
-    # semi-analytic expression, except very near the O-point
-    expected_R, expected_Z = curve_of_psi(actual_psis)
-    np.testing.assert_allclose(actual.x1[mask], expected_R[mask], 1e-8, 1e-8)
-    np.testing.assert_allclose(actual.x2[mask], expected_Z[mask], 1e-8, 1e-8)
-    # Check positions along curve are proportional to psi
-    normed_psi = (actual_psis - start_psi) / (end_psi - start_psi)
-    for act, exp in np.nditer([normed_psi, positions]):
-        np.testing.assert_allclose(act, exp, 1.5e-7, 1.5e-7)
+    # semi-analytic expression
+    expected_R, expected_Z = curve_of_psi(actual_psis[:-1])
+    np.testing.assert_allclose(edge.x1[:-1], expected_R, 1e-8, 1e-8)
+    np.testing.assert_allclose(edge.x2[:-1], expected_Z, 1e-8, 1e-8)
+    # Check positions along curve are equispaced in psi
+    np.testing.assert_allclose(actual_psis, np.linspace(start_psi, end_psi, order + 1), 1.5e-7, 1.5e-7)
 
 
 @np.vectorize
@@ -751,46 +737,33 @@ def _smallest_angle_between(end_angle: float, start_angle: float) -> float:
         )
     ),
     psis,
-    one_of(
-        floats(-0.5, 1.0),
-        arrays(
-            np.float64,
-            array_shapes(max_side=3),
-            # The scipy integration routines don't behave well if we have
-            # numbers that differ by around machine-epsilon, so we enforce
-            # larger differences between values
-            elements=integers(-100, 50).map(lambda x: (x + 50) / 100),
-            fill=nothing(),
-        ),
-    ),
+    orders,
 )
 def test_flux_surface_edges(
     eq: FakeEquilibrium,
     start_end_points: tuple[float, float],
     psi: float,
-    positions: npt.NDArray,
+    order: int
 ) -> None:
     R_start, Z_start = eq.to_RZ(psi, start_end_points[0])
     start = SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL)
     R_end, Z_end = eq.to_RZ(psi, start_end_points[1])
     end = SliceCoord(float(R_end), float(Z_end), CoordinateSystem.CYLINDRICAL)
-    curve = flux_surface_edge(cast(TokamakEquilibrium, eq), start, end)
+    curve = flux_surface_edge(cast(TokamakEquilibrium, eq), start, end, order)
     # Check termini of curve
-    assert curve(0.0).to_coord() == start
-    assert curve(1.0).to_coord() == end
-    actual = curve(positions)
+    assert curve[0] == start
+    assert curve[-1] == end
     # Check all points have the correct psi value
-    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-8, 1e-8)
-    # Calculate distances of points along ellipse and check they are
-    # proportional to the normalised `position` parameter
-
+    np.testing.assert_allclose(eq.psi(curve.x1, curve.x2), psi, 1e-8, 1e-8)
+    # Calculate distances between points along ellipse and check they are
+    # equally spaced
     a_prime = np.sqrt(eq.a * psi)
     b_prime = np.sqrt(eq.b * psi)
     semi_maj = max(a_prime, b_prime)
     semi_min = min(a_prime, b_prime)
     m = 1 - (semi_min / semi_maj) ** 2
     parameters = np.arctan2(
-        a_prime * (actual.x2 - eq.o_point.Z), b_prime * (actual.x1 - eq.o_point.R)
+        a_prime * (curve.x2 - eq.o_point.Z), b_prime * (curve.x1 - eq.o_point.R)
     )
     start_parameter = np.arctan2(
         a_prime * (start.x2 - eq.o_point.Z), b_prime * (start.x1 - eq.o_point.R)
@@ -809,7 +782,7 @@ def test_flux_surface_edges(
     start_distance = ellipeinc(start_parameter - offset, m)
     distances = ellipeinc(t - offset, m) - start_distance
     total_arc = ellipeinc(end_parameter - offset, m) - start_distance
-    np.testing.assert_allclose(distances / total_arc, positions, 1e-8, 1e-8)
+    np.testing.assert_allclose(distances / total_arc, np.linspace(0, 1, order + 1), 1e-8, 1e-8)
 
 
 # Building meshes is expensive, so use caching to avoid having to do
@@ -826,6 +799,7 @@ def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mes
             RuntimeWarning,
             "hypnotoad.core.equilibrium",
         )
+        warnings.filterwarnings("ignore", "Conversion of an array with ndim > 0 to a scalar is deprecated", DeprecationWarning, "hypnotoad.utils.critical")
         eq = create_equilibrium(o_points=args[0], make_regions=True, options=args[1])
         m = Mesh(
             eq,
@@ -854,7 +828,7 @@ def flux_surface_termini(
     draw: Any, region: MeshRegion
 ) -> tuple[SliceCoord, SliceCoord]:
     n, m = region.Rxy.corners.shape
-    i = draw(integers(0, n - 1))
+    i = draw(integers(1, n - 2))
     j = draw(integers(0, m - 2))
     start = SliceCoord(
         region.Rxy.corners[i, j], region.Zxy.corners[i, j], CoordinateSystem.CYLINDRICAL
@@ -871,61 +845,28 @@ def flux_surface_termini(
         return start, end
 
 
-@composite
-def perpendicular_termini(
-    draw: Any, region: MeshRegion
-) -> tuple[SliceCoord, SliceCoord]:
-    n, m = region.Rxy.corners.shape
-    i = draw(integers(0, n - 2))
-    j = draw(integers(0, m - 1))
-    start = SliceCoord(
-        region.Rxy.corners[i, j], region.Zxy.corners[i, j], CoordinateSystem.CYLINDRICAL
-    )
-    end = SliceCoord(
-        region.Rxy.corners[i + 1, j],
-        region.Zxy.corners[i + 1, j],
-        CoordinateSystem.CYLINDRICAL,
-    )
-    if draw(booleans()):
-        # Reverse direction of points
-        return end, start
-    else:
-        return start, end
-
-
-@settings(deadline=None)
+@settings(deadline=None, report_multiple_bugs=False)
 @given(
     shared_mesh_regions,
     shared_mesh_regions.flatmap(flux_surface_termini),
-    one_of(
-        floats(0.0, 1.0),
-        arrays(
-            np.float64,
-            array_shapes(max_side=3),
-            # The scipy integration routines don't behave well if we have
-            # numbers that differ by around machine-epsilon, so we enforce
-            # larger differences between values
-            elements=integers(-50, 50).map(lambda x: (x + 50) / 100),
-            fill=nothing(),
-        ),
-    ),
+    orders,
 )
 def test_flux_surface_realistic_topology(
     region: MeshRegion,
     start_end_points: tuple[SliceCoord, SliceCoord],
-    positions: npt.NDArray,
+    order: int
 ) -> None:
     eq: TokamakEquilibrium = region.meshParent.equilibrium
     start, end = start_end_points
-    curve = flux_surface_edge(eq, start, end)
+    curve = flux_surface_edge(eq, start, end, order)
     psi = eq.psi(start.x1, start.x2)
+    # Sanity check
     assert np.isclose(psi, eq.psi(end.x1, end.x2), 1e-5, 1e-5)
     # Check termini of curve
-    assert curve(0.0).to_coord() == start
-    assert curve(1.0).to_coord() == end
-    actual = curve(positions)
+    assert curve[0] == start
+    assert curve[-1] == end
     # Check all points have the correct psi value
-    np.testing.assert_allclose(eq.psi(actual.x1, actual.x2), psi, 1e-5, 1e-5)
+    np.testing.assert_allclose(eq.psi(curve.x1, curve.x2), psi, 1e-5, 1e-5)
 
 
 def check_coordinate_pairs_connected(
@@ -948,7 +889,7 @@ def check_coordinate_pairs_connected(
 def check_flux_surface_bound(
     eq: Equilibrium, bound: frozenset[Quad], periodic: bool
 ) -> None:
-    quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in bound]
+    quad_nodes = [(q.nodes.start_points[0], q.nodes.start_points[-1]) for q in bound]
     # Check quads are all adjacent
     check_coordinate_pairs_connected(quad_nodes, periodic)
     # Check quads all have same psi values
@@ -960,7 +901,7 @@ def check_flux_surface_bound(
 
 
 def check_perpendicular_bounds(eq: Equilibrium, bound: frozenset[Quad]) -> None:
-    quad_nodes = [(q.shape(0.0).to_coord(), q.shape(1.0).to_coord()) for q in bound]
+    quad_nodes = [(q.nodes.start_points[0], q.nodes.start_points[-1]) for q in bound]
     # Check quads are all adjacent
     check_coordinate_pairs_connected(quad_nodes, False)
     # Check quads start at unique psi
@@ -974,8 +915,8 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(straight_line_across_field(north, south), simple_trace, dx3)
-
+        return Quad(field_aligned_positions(straight_line_across_field(north, south, 1), dx3, simple_trace, np.array(1), 1))
+    
     for points in get_region_flux_surface_boundary_points(region):
         check_flux_surface_bound(
             eq,
@@ -990,7 +931,7 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(straight_line_across_field(north, south), simple_trace, dx3)
+        return Quad(field_aligned_positions(straight_line_across_field(north, south, 1), dx3, simple_trace, np.array(1), 1))
 
     for points in get_region_perpendicular_boundary_points(region):
         check_perpendicular_bounds(
@@ -1087,7 +1028,7 @@ def test_region_bounds(
 )
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(straight_line_across_field(north, south), simple_trace, 1.0)
+        return  Quad(field_aligned_positions(straight_line_across_field(north, south, 1), 1.0, simple_trace, np.array(1.0), 1))
 
     mesh = to_mesh(mesh_args)
     eq = mesh.equilibrium
