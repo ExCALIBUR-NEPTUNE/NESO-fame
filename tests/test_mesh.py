@@ -989,9 +989,10 @@ def test_mesh_layer_elements_with_offset(
         )
         assert actual_elems == expected_elems
 
+positive_divisions = shared(integers(1,5), key=1000000)
 
 @settings(deadline=None)
-@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), divisions)
+@given(positive_divisions.flatmap(subdivideable_mesh_arguments), positive_divisions)
 def test_mesh_layer_elements_with_subdivisions(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]], subdivisions: int
 ) -> None:
