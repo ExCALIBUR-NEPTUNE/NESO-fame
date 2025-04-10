@@ -1,10 +1,20 @@
-"""Functions for working with GEQDSK data processed using hypnotoad."""
+"""Functions for working with GEQDSK data processed using hypnotoad.
+
+The contents of this module have been significantly simplified as part
+of a refactoring of NESO-fame. They can no longer trace the separatrix
+well near x-points. The ability to trace lines perpendicular to the
+flux surfaces was removed, except in the context of connecting a point
+to the O-point. These features were no longer needed and so were
+removed to reduce complexity. If for some reason they are needed again
+then can be found in `commit f95f5b8
+<https://github.com/ExCALIBUR-NEPTUNE/NESO-fame/commit/f95f5b83eacaf3f90131ad8e8899a1796c703b3b>`_.
+
+"""
 
 from __future__ import annotations
 
 import itertools
 from collections.abc import Iterator
-from enum import Enum
 from functools import partial, reduce
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, cast, overload
@@ -623,7 +633,7 @@ def flux_surface_edge(
 
     """
     # FIXME: Think I can simplify this, as it will only be used in the core.
-    
+
     if north.system != south.system:
         raise ValueError("`north` and `south` have different coordinate systems")
 
@@ -635,7 +645,13 @@ def flux_surface_edge(
         )
 
     if order == 1:
-        return AcrossFieldCurve(SliceCoords(np.array([north.x1, south.x1]), np.array([north.x2, south.x2]), north.system))
+        return AcrossFieldCurve(
+            SliceCoords(
+                np.array([north.x1, south.x1]),
+                np.array([north.x2, south.x2]),
+                north.system,
+            )
+        )
 
     # Note: This won't be able to handle the inexact seperatrix you
     # will get when doing a realistic connected double
@@ -660,13 +676,15 @@ def flux_surface_edge(
     # Work out whether following the surface clockwise or anticlockwise
     direction = surface(np.array(list(north)))
     sign = float(
-        np.sign(direction[0] * (south.x1 - north.x1) + direction[1] * (south.x2 - north.x2))
+        np.sign(
+            direction[0] * (south.x1 - north.x1) + direction[1] * (south.x2 - north.x2)
+        )
     )
 
     def f(_: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         """Compute tangent for flux surface, pointing in direction of integration."""
         x1, x2 = surface(x)
-        assert abs(1 - np.sqrt(x1*x1 + x2*x2)) < 1e-8
+        assert abs(1 - np.sqrt(x1 * x1 + x2 * x2)) < 1e-8
         return sign * x1, sign * x2
 
     end_orthogonal = (
@@ -685,7 +703,8 @@ def flux_surface_edge(
 
         """
         sign = np.sign(
-            end_orthogonal[0] * (x[1] - south.x2) - end_orthogonal[1] * (x[0] - south.x1)
+            end_orthogonal[0] * (x[1] - south.x2)
+            - end_orthogonal[1] * (x[0] - south.x1)
         )
         return float(sign * np.sqrt((x[0] - south.x1) ** 2 + (x[1] - south.x2) ** 2))
 
@@ -753,7 +772,13 @@ def connect_to_o_point(
         vectorized=False,
     )
 
-    return AcrossFieldCurve(SliceCoords(np.append(result.y[0, :], eq.o_point.R), np.append(result.y[1, :], eq.o_point.Z), start.system))
+    return AcrossFieldCurve(
+        SliceCoords(
+            np.append(result.y[0, :], eq.o_point.R),
+            np.append(result.y[1, :], eq.o_point.Z),
+            start.system,
+        )
+    )
 
 
 QuadMaker = Callable[[SliceCoord, SliceCoord], Quad]

@@ -685,12 +685,7 @@ orders = integers(1, 10)
 
 
 @settings(deadline=None)
-@given(
-    fake_equilibria,
-    floats(0.0, 2 * np.pi),
-    psis,
-    orders
-)
+@given(fake_equilibria, floats(0.0, 2 * np.pi), psis, orders)
 def test_connect_to_o_point(
     eq: FakeEquilibrium, angle: float, start_psi: float, order: int
 ) -> None:
@@ -711,7 +706,9 @@ def test_connect_to_o_point(
     np.testing.assert_allclose(edge.x1[:-1], expected_R, 1e-8, 1e-8)
     np.testing.assert_allclose(edge.x2[:-1], expected_Z, 1e-8, 1e-8)
     # Check positions along curve are equispaced in psi
-    np.testing.assert_allclose(actual_psis, np.linspace(start_psi, end_psi, order + 1), 1.5e-7, 1.5e-7)
+    np.testing.assert_allclose(
+        actual_psis, np.linspace(start_psi, end_psi, order + 1), 1.5e-7, 1.5e-7
+    )
 
 
 @np.vectorize
@@ -740,10 +737,7 @@ def _smallest_angle_between(end_angle: float, start_angle: float) -> float:
     orders,
 )
 def test_flux_surface_edges(
-    eq: FakeEquilibrium,
-    start_end_points: tuple[float, float],
-    psi: float,
-    order: int
+    eq: FakeEquilibrium, start_end_points: tuple[float, float], psi: float, order: int
 ) -> None:
     R_start, Z_start = eq.to_RZ(psi, start_end_points[0])
     start = SliceCoord(float(R_start), float(Z_start), CoordinateSystem.CYLINDRICAL)
@@ -782,7 +776,9 @@ def test_flux_surface_edges(
     start_distance = ellipeinc(start_parameter - offset, m)
     distances = ellipeinc(t - offset, m) - start_distance
     total_arc = ellipeinc(end_parameter - offset, m) - start_distance
-    np.testing.assert_allclose(distances / total_arc, np.linspace(0, 1, order + 1), 1e-8, 1e-8)
+    np.testing.assert_allclose(
+        distances / total_arc, np.linspace(0, 1, order + 1), 1e-8, 1e-8
+    )
 
 
 # Building meshes is expensive, so use caching to avoid having to do
@@ -799,7 +795,12 @@ def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mes
             RuntimeWarning,
             "hypnotoad.core.equilibrium",
         )
-        warnings.filterwarnings("ignore", "Conversion of an array with ndim > 0 to a scalar is deprecated", DeprecationWarning, "hypnotoad.utils.critical")
+        warnings.filterwarnings(
+            "ignore",
+            "Conversion of an array with ndim > 0 to a scalar is deprecated",
+            DeprecationWarning,
+            "hypnotoad.utils.critical",
+        )
         eq = create_equilibrium(o_points=args[0], make_regions=True, options=args[1])
         m = Mesh(
             eq,
@@ -852,9 +853,7 @@ def flux_surface_termini(
     orders,
 )
 def test_flux_surface_realistic_topology(
-    region: MeshRegion,
-    start_end_points: tuple[SliceCoord, SliceCoord],
-    order: int
+    region: MeshRegion, start_end_points: tuple[SliceCoord, SliceCoord], order: int
 ) -> None:
     eq: TokamakEquilibrium = region.meshParent.equilibrium
     start, end = start_end_points
@@ -915,8 +914,16 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(field_aligned_positions(straight_line_across_field(north, south, 1), dx3, simple_trace, np.array(1), 1))
-    
+        return Quad(
+            field_aligned_positions(
+                straight_line_across_field(north, south, 1),
+                dx3,
+                simple_trace,
+                np.array(1),
+                1,
+            )
+        )
+
     for points in get_region_flux_surface_boundary_points(region):
         check_flux_surface_bound(
             eq,
@@ -931,7 +938,15 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
     eq = region.meshParent.equilibrium
 
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(field_aligned_positions(straight_line_across_field(north, south, 1), dx3, simple_trace, np.array(1), 1))
+        return Quad(
+            field_aligned_positions(
+                straight_line_across_field(north, south, 1),
+                dx3,
+                simple_trace,
+                np.array(1),
+                1,
+            )
+        )
 
     for points in get_region_perpendicular_boundary_points(region):
         check_perpendicular_bounds(
@@ -1028,7 +1043,15 @@ def test_region_bounds(
 )
 def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
     def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return  Quad(field_aligned_positions(straight_line_across_field(north, south, 1), 1.0, simple_trace, np.array(1.0), 1))
+        return Quad(
+            field_aligned_positions(
+                straight_line_across_field(north, south, 1),
+                1.0,
+                simple_trace,
+                np.array(1.0),
+                1,
+            )
+        )
 
     mesh = to_mesh(mesh_args)
     eq = mesh.equilibrium
