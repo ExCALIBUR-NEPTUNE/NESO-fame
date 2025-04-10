@@ -20,6 +20,7 @@ from neso_fame.coordinates import (
 from neso_fame.element_builder import ElementBuilder
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
+    AcrossFieldCurve,
     FieldAlignedCurve,
     Prism,
     PrismMeshLayer,
@@ -714,13 +715,14 @@ def test_validate_wall_elements() -> None:
         CoordMap.empty_slicecoord(float),
         CoordinateSystem.CARTESIAN,
     )
+    s = np.linspace(0., 1., 4)
     curved_quad = builder.make_wall_quad_for_prism(
-        lambda s: SliceCoords(
+        AcrossFieldCurve(SliceCoords(
             2 * np.asarray(s),
             np.interp(2 * np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]),
             CoordinateSystem.CARTESIAN,
         )
-    )
+    ))
     p1, b1 = builder.make_outer_prism(c00, c20, c11, wall_vertices)
     p2, b2 = builder.make_outer_prism(c20, c21, c11, wall_vertices)
     p3, b3 = builder.make_outer_prism(c00, c11, c03, wall_vertices)
