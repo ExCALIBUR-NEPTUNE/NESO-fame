@@ -989,7 +989,9 @@ def test_mesh_layer_elements_with_offset(
         )
         assert actual_elems == expected_elems
 
-positive_divisions = shared(integers(1,5), key=1000000)
+
+positive_divisions = shared(integers(1, 5), key=1000000)
+
 
 @settings(deadline=None)
 @given(positive_divisions.flatmap(subdivideable_mesh_arguments), positive_divisions)
@@ -1066,7 +1068,9 @@ def test_mesh_layer_near_faces(
 
 
 @settings(deadline=None)
-@given(integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5))
+@given(
+    integers(1, 5).flatmap(subdivideable_mesh_arguments), whole_numbers, integers(1, 5)
+)
 def test_mesh_layer_far_faces(
     args: tuple[list[mesh.E], list[frozenset[mesh.B]]],
     offset: float,

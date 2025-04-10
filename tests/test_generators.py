@@ -5,6 +5,7 @@ from typing import Optional
 from unittest.mock import MagicMock
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from neso_fame import generators
@@ -21,6 +22,7 @@ from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     FieldAlignedCurve,
     Prism,
+    PrismMeshLayer,
     PrismTypes,
     Quad,
     control_points,
@@ -301,6 +303,46 @@ def test_subdivided_grid_2d() -> None:
         assert actual_south == expected_south
 
 
+def _check_layer_bounds(
+    layer: PrismMeshLayer,
+    starts: SliceCoords,
+    x1_offsets: npt.NDArray,
+    x2_offsets: npt.NDArray,
+) -> None:
+    bounds = list(layer.boundaries())
+    assert len(bounds) == 4
+    expected_north = []
+    expected_south = []
+    expected_east = []
+    expected_west = []
+    for element in layer:
+        sides = list(element)
+        x = control_points(sides[0])
+        if np.allclose(x.x2, starts.x2[0, 0] + x2_offsets):
+            expected_north.append(tuple(x.iter_points()))
+        x = control_points(sides[1])
+        if np.allclose(x.x2, starts.x2[-1, -1] + x2_offsets):
+            expected_south.append(tuple(x.iter_points()))
+        x = control_points(sides[2])
+        if np.allclose(x.x1, starts.x1[0, 0] + x1_offsets):
+            expected_east.append(tuple(x.iter_points()))
+        x = control_points(sides[3])
+        if np.allclose(x.x1, starts.x1[-1, -1] + x1_offsets):
+            expected_west.append(tuple(x.iter_points()))
+    actual_north = frozenset(
+        (tuple(control_points(x).iter_points()) for x in bounds[0])
+    )
+    actual_south = frozenset(
+        (tuple(control_points(x).iter_points()) for x in bounds[1])
+    )
+    actual_east = frozenset((tuple(control_points(x).iter_points()) for x in bounds[2]))
+    actual_west = frozenset((tuple(control_points(x).iter_points()) for x in bounds[3]))
+    assert actual_north == frozenset(expected_north)
+    assert actual_south == frozenset(expected_south)
+    assert actual_east == frozenset(expected_east)
+    assert actual_west == frozenset(expected_west)
+
+
 # Test for simple grid
 def test_simple_grid_3d() -> None:
     n1 = 5
@@ -368,42 +410,7 @@ def test_simple_grid_3d() -> None:
                 np.testing.assert_approx_equal(corners[i].x3, x3_start)
                 np.testing.assert_approx_equal(corners[i + 4].x3, x3_end)
         x3_start = x3_end
-        bounds = list(layer.boundaries())
-        assert len(bounds) == 4
-        expected_north = []
-        expected_south = []
-        expected_east = []
-        expected_west = []
-        for element in layer:
-            sides = list(element)
-            x = control_points(sides[0])
-            if np.all(x.x2 == starts.x2[0, 0]):
-                expected_north.append(tuple(x.iter_points()))
-            x = control_points(sides[1])
-            if np.all(x.x2 == starts.x2[-1, -1]):
-                expected_south.append(tuple(x.iter_points()))
-            x = control_points(sides[2])
-            if np.all(x.x1 == starts.x1[0, 0]):
-                expected_east.append(tuple(x.iter_points()))
-            x = control_points(sides[3])
-            if np.all(x.x1 == starts.x1[-1, -1]):
-                expected_west.append(tuple(x.iter_points()))
-        actual_north = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[0])
-        )
-        actual_south = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[1])
-        )
-        actual_east = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[2])
-        )
-        actual_west = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[3])
-        )
-        assert actual_north == frozenset(expected_north)
-        assert actual_south == frozenset(expected_south)
-        assert actual_east == frozenset(expected_east)
-        assert actual_west == frozenset(expected_west)
+        _check_layer_bounds(layer, starts, np.array(0.0), np.array(0.0))
 
 
 def test_angled_grid_conforming_bounds_3d() -> None:
@@ -496,42 +503,7 @@ def test_angled_grid_conforming_bounds_3d() -> None:
             np.testing.assert_allclose(points_1_0.x3, x3_positions)
             np.testing.assert_allclose(points_1_1.x3, x3_positions)
         x3_start = x3_end
-        bounds = list(layer.boundaries())
-        assert len(bounds) == 4
-        expected_north = []
-        expected_south = []
-        expected_east = []
-        expected_west = []
-        for element in layer:
-            sides = list(element)
-            x = control_points(sides[0])
-            if np.all(x.x2 == starts.x2[0, 0]):
-                expected_north.append(tuple(x.iter_points()))
-            x = control_points(sides[1])
-            if np.all(x.x2 == starts.x2[-1, -1]):
-                expected_south.append(tuple(x.iter_points()))
-            x = control_points(sides[2])
-            if np.all(x.x1 == starts.x1[0, 0]):
-                expected_east.append(tuple(x.iter_points()))
-            x = control_points(sides[3])
-            if np.all(x.x1 == starts.x1[-1, -1]):
-                expected_west.append(tuple(x.iter_points()))
-        actual_north = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[0])
-        )
-        actual_south = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[1])
-        )
-        actual_east = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[2])
-        )
-        actual_west = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[3])
-        )
-        assert actual_north == frozenset(expected_north)
-        assert actual_south == frozenset(expected_south)
-        assert actual_east == frozenset(expected_east)
-        assert actual_west == frozenset(expected_west)
+        _check_layer_bounds(layer, starts, np.array(0.0), np.array(0.0))
 
 
 # Test for angled grid
@@ -579,6 +551,7 @@ def test_angled_grid_jagged_bounds_3d() -> None:
     for layer in mesh.layers():
         x3_end = x3_start + dx3
         x3_positions = np.array([x3_start, x3_start + dx3 / 2, x3_end])
+        # Check the corners of each element
         for index, hexa in enumerate(layer):
             i = index // (m1 - 1)
             j = index % (m1 - 1)
@@ -616,42 +589,8 @@ def test_angled_grid_jagged_bounds_3d() -> None:
             np.testing.assert_allclose(points_1_0.x3, x3_positions)
             np.testing.assert_allclose(points_1_1.x3, x3_positions)
         x3_start = x3_end
-        bounds = list(layer.boundaries())
-        assert len(bounds) == 4
-        expected_north = []
-        expected_south = []
-        expected_east = []
-        expected_west = []
-        for element in layer:
-            sides = list(element)
-            x = control_points(sides[0])
-            if np.allclose(x.x2, starts.x2[0, 0] + x2_offsets):
-                expected_north.append(tuple(x.iter_points()))
-            x = control_points(sides[1])
-            if np.allclose(x.x2, starts.x2[-1, -1] + x2_offsets):
-                expected_south.append(tuple(x.iter_points()))
-            x = control_points(sides[2])
-            if np.allclose(x.x1, starts.x1[0, 0] + x1_offsets):
-                expected_east.append(tuple(x.iter_points()))
-            x = control_points(sides[3])
-            if np.allclose(x.x1, starts.x1[-1, -1] + x1_offsets):
-                expected_west.append(tuple(x.iter_points()))
-        actual_north = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[0])
-        )
-        actual_south = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[1])
-        )
-        actual_east = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[2])
-        )
-        actual_west = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[3])
-        )
-        assert actual_north == frozenset(expected_north)
-        assert actual_south == frozenset(expected_south)
-        assert actual_east == frozenset(expected_east)
-        assert actual_west == frozenset(expected_west)
+        # Check boundary regions of layer
+        _check_layer_bounds(layer, starts, x1_offsets, x2_offsets)
 
 
 # Test for simple grid
@@ -719,44 +658,9 @@ def test_subdivided_grid_3d() -> None:
         np.testing.assert_allclose(corners[7].x1, x2_1_1)
         for i in range(4):
             np.testing.assert_allclose(corners[i].x3, x3[0] + k * dx3)
-            np.testing.assert_allclose(corners[i+4].x3, x3[0] + (k + 1) * dx3)
+            np.testing.assert_allclose(corners[i + 4].x3, x3[0] + (k + 1) * dx3)
     for layer in mesh.layers():
-        bounds = list(layer.boundaries())
-        assert len(bounds) == 4
-        expected_north = []
-        expected_south = []
-        expected_east = []
-        expected_west = []
-        for element in layer:
-            sides = list(element)
-            x = control_points(sides[0])
-            if np.all(x.x2 == starts.x2[0, 0]):
-                expected_north.append(tuple(x.iter_points()))
-            x = control_points(sides[1])
-            if np.all(x.x2 == starts.x2[-1, -1]):
-                expected_south.append(tuple(x.iter_points()))
-            x = control_points(sides[2])
-            if np.all(x.x1 == starts.x1[0, 0]):
-                expected_east.append(tuple(x.iter_points()))
-            x = control_points(sides[3])
-            if np.all(x.x1 == starts.x1[-1, -1]):
-                expected_west.append(tuple(x.iter_points()))
-        actual_north = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[0])
-        )
-        actual_south = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[1])
-        )
-        actual_east = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[2])
-        )
-        actual_west = frozenset(
-            (tuple(control_points(x).iter_points()) for x in bounds[3])
-        )
-        assert actual_north == frozenset(expected_north)
-        assert actual_south == frozenset(expected_south)
-        assert actual_east == frozenset(expected_east)
-        assert actual_west == frozenset(expected_west)
+        _check_layer_bounds(layer, starts, np.array(0.0), np.array(0.0))
 
 
 def test_iterate_and_merge_elements() -> None:

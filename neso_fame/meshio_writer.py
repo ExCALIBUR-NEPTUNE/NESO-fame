@@ -645,10 +645,10 @@ def meshio_2d_elements(mesh: QuadMesh) -> meshio.Mesh:
             sets = frozenset({f"Boundary {j}"})
             for b in bound:
                 result.line(b, sets)
-        sets = frozenset(f"Interface {2*i}")
+        sets = frozenset(f"Interface {2 * i}")
         for f in layer.near_faces():
             result.line(f, sets)
-        sets = frozenset(f"Interface {2*i + 1}")
+        sets = frozenset(f"Interface {2 * i + 1}")
         for f in layer.far_faces():
             result.line(f, sets)
     return result.meshio()
@@ -671,10 +671,10 @@ def meshio_3d_elements(mesh: PrismMesh) -> meshio.Mesh:
             sets = frozenset({f"Boundary {j}"})
             for b in bound:
                 result.quad(b, sets)
-        sets = frozenset(f"Interface {2*i}")
+        sets = frozenset(f"Interface {2 * i}")
         for f in layer.near_faces():
             result.end_shape(f, sets)
-        sets = frozenset(f"Interface {2*i + 1}")
+        sets = frozenset(f"Interface {2 * i + 1}")
         for f in layer.far_faces():
             result.end_shape(f, sets)
     return result.meshio()

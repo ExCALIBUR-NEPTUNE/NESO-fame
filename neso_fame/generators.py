@@ -246,85 +246,16 @@ def _sort_nodes(
     return nodes[order[0]], nodes[order[1]], nodes[order[2]], nodes[order[3]]
 
 
-def field_aligned_3d(
+def _make_3d_element_builder(
     lower_dim_mesh: SliceCoords,
+    boundary_faces: dict[frozenset[Index], int],
     field_line: FieldTrace,
-    elements: Sequence[tuple[Index, Index, Index, Index]],
-    extrusion_limits: tuple[float, float] = (0.0, 1.0),
-    n: int = 10,
+    dx3: float,
     order: int = 3,
     subdivisions: int = 1,
     conform_to_bounds: bool = True,
-) -> PrismMesh:
-    """Generate a 3D mesh.
-
-    Element edges follow field lines. Start with a 2D mesh defined in
-    the poloidal plane. Edges are then traced along the field lines
-    both backwards and forwards in the toroidal direction to form a
-    single layer of field-aligned elements. The field is assumed not
-    to vary in the toroidal direction, meaning this layer can be
-    repeated. However, each layer will be non-conformal with the next.
-
-    Parameters
-    ----------
-    lower_dim_mesh
-        Locations of nodes in the x1-x2 plane, from which to project
-        along field-lines. Unless providing `connectivity`, must be
-        ordered.
-    field_line
-        A callable which takes a `SliceCoord` defining a position on
-        the x3=0 plane and an array-like object with x3
-        coordinates. It should return a 2-tuple. The first element is
-        the locations found by tracing the magnetic field line
-        beginning at the position of the first argument until reaching
-        the x3 locations described in the second argument. The second
-        element is the distance traversed along the field line.
-    elements
-        Defines groups of four points which together make up a quad in the
-        2D mesh. Consists of four integers (or tuples of integers) indicating
-        the indices of the points which make up the corners.
-    extrusion_limits
-        The lower and upper limits of the domain in the x3-direction.
-    n
-        Number of layers to generate in the x3 direction
-    order
-        The order of accuracy with which to represent field-aligned
-        (and other) edges.
-    subdivisions
-        Depth of cells in x3-direction in each layer.
-    conform_to_bounds
-        If True, make the curves originating from boundary nodes
-        straight lines, so that there are regular edges to the domain.
-
-    Returns
-    -------
-    :obj:`~neso_fame.mesh.HexMesh`
-        A 3D field-aligned, non-conformal grid
-
-    Group
-    -----
-    generator
-
-    """
-    # Calculate x3 positions for nodes in final mesh
-    dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
-    x3_mid = np.linspace(
-        extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
-    )
-
-    element_nodes = [_sort_nodes(lower_dim_mesh, elem) for elem in elements]
-
-    # Get the locations (north, south, east, west) of each quad in the hexes it builds
-    face_locations: defaultdict[frozenset[Index], list[int]] = defaultdict(list)
-    for node00, node01, node10, node11 in element_nodes:
-        face_locations[frozenset({node00, node01})].append(0)
-        face_locations[frozenset({node10, node11})].append(1)
-        face_locations[frozenset({node01, node11})].append(2)
-        face_locations[frozenset({node00, node10})].append(3)
-    # Find the quads that are on a boundary
-    boundary_faces: dict[frozenset[Index], int] = {
-        pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1
-    }
+) -> Callable[[Index, Index, Index, Index], tuple[Prism, list[None | Quad]]]:
+    """Make a function that can build prisms from indices on the lower-dim mesh."""
     print(boundary_faces)
 
     s = np.linspace(0.0, 1.0, order + 1)
@@ -413,6 +344,95 @@ def field_aligned_3d(
         else:
             bounds = [None] * 4
         return prism, bounds
+
+    return make_prism
+
+
+def field_aligned_3d(
+    lower_dim_mesh: SliceCoords,
+    field_line: FieldTrace,
+    elements: Sequence[tuple[Index, Index, Index, Index]],
+    extrusion_limits: tuple[float, float] = (0.0, 1.0),
+    n: int = 10,
+    order: int = 3,
+    subdivisions: int = 1,
+    conform_to_bounds: bool = True,
+) -> PrismMesh:
+    """Generate a 3D mesh.
+
+    Element edges follow field lines. Start with a 2D mesh defined in
+    the poloidal plane. Edges are then traced along the field lines
+    both backwards and forwards in the toroidal direction to form a
+    single layer of field-aligned elements. The field is assumed not
+    to vary in the toroidal direction, meaning this layer can be
+    repeated. However, each layer will be non-conformal with the next.
+
+    Parameters
+    ----------
+    lower_dim_mesh
+        Locations of nodes in the x1-x2 plane, from which to project
+        along field-lines. Unless providing `connectivity`, must be
+        ordered.
+    field_line
+        A callable which takes a `SliceCoord` defining a position on
+        the x3=0 plane and an array-like object with x3
+        coordinates. It should return a 2-tuple. The first element is
+        the locations found by tracing the magnetic field line
+        beginning at the position of the first argument until reaching
+        the x3 locations described in the second argument. The second
+        element is the distance traversed along the field line.
+    elements
+        Defines groups of four points which together make up a quad in the
+        2D mesh. Consists of four integers (or tuples of integers) indicating
+        the indices of the points which make up the corners.
+    extrusion_limits
+        The lower and upper limits of the domain in the x3-direction.
+    n
+        Number of layers to generate in the x3 direction
+    order
+        The order of accuracy with which to represent field-aligned
+        (and other) edges.
+    subdivisions
+        Depth of cells in x3-direction in each layer.
+    conform_to_bounds
+        If True, make the curves originating from boundary nodes
+        straight lines, so that there are regular edges to the domain.
+
+    Returns
+    -------
+    :obj:`~neso_fame.mesh.HexMesh`
+        A 3D field-aligned, non-conformal grid
+
+    Group
+    -----
+    generator
+
+    """
+    # Calculate x3 positions for nodes in final mesh
+    dx3 = (extrusion_limits[1] - extrusion_limits[0]) / n
+    x3_mid = np.linspace(
+        extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
+    )
+
+    element_nodes = [_sort_nodes(lower_dim_mesh, elem) for elem in elements]
+
+    # Get the locations (north, south, east, west) of each quad in the hexes it builds
+    face_locations: defaultdict[frozenset[Index], list[int]] = defaultdict(list)
+    for node00, node01, node10, node11 in element_nodes:
+        face_locations[frozenset({node00, node01})].append(0)
+        face_locations[frozenset({node10, node11})].append(1)
+        face_locations[frozenset({node01, node11})].append(2)
+        face_locations[frozenset({node00, node10})].append(3)
+
+    make_prism = _make_3d_element_builder(
+        lower_dim_mesh,
+        {pair: locs[0] for pair, locs in face_locations.items() if len(locs) == 1},
+        field_line,
+        dx3,
+        order,
+        subdivisions,
+        conform_to_bounds,
+    )
 
     prisms = []
     boundaries: list[list[Quad]] = [[], [], [], []]
