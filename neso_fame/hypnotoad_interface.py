@@ -86,8 +86,6 @@ integration
 def _process_integrate_vectorize_array_inputs(
     products: npt.NDArray,
     s_sorted: npt.NDArray,
-    pos_fixed: dict[float, npt.NDArray],
-    neg_fixed: dict[float, npt.NDArray],
 ) -> tuple[
     int | None,
     Optional[npt.NDArray],
@@ -96,11 +94,7 @@ def _process_integrate_vectorize_array_inputs(
     Optional[int | slice],
     Optional[float],
     Optional[float],
-    dict[int, npt.NDArray],
-    dict[int, npt.NDArray],
 ]:
-    pos_fixed_positions: dict[int, npt.NDArray] = {}
-    neg_fixed_positions: dict[int, npt.NDArray] = {}
     pivot: int = cast(int, np.argmin(products))
     zero = (
         pivot + 1
@@ -117,11 +111,6 @@ def _process_integrate_vectorize_array_inputs(
             neg_slice = slice(None, None, -1)
         neg = s_sorted[neg_slice]
         neg_limit = neg[-1]
-        for k, v in neg_fixed.items():
-            loc = np.where(neg == k)[0]
-            if len(loc) > 0:
-                assert len(loc) == 1
-                neg_fixed_positions[loc[0]] = v
     else:
         neg_slice = neg_limit = neg = None
     if s_sorted[-1] > 0.0:
@@ -132,11 +121,6 @@ def _process_integrate_vectorize_array_inputs(
         else:
             pos_slice = slice(None, None)
         pos = s_sorted[pos_slice]
-        for k, v in pos_fixed.items():
-            loc = np.where(pos == k)[0]
-            if len(loc) > 0:
-                assert len(loc) == 1
-                pos_fixed_positions[loc[0]] = v
         pos_limit = pos[-1]
     else:
         pos_slice = pos_limit = pos = None
@@ -148,15 +132,11 @@ def _process_integrate_vectorize_array_inputs(
         neg_slice,
         pos_limit,
         neg_limit,
-        pos_fixed_positions,
-        neg_fixed_positions,
     )
 
 
 def _process_integrate_vectorize_inputs(
     s_sorted: npt.NDArray,
-    pos_fixed: dict[float, npt.NDArray],
-    neg_fixed: dict[float, npt.NDArray],
 ) -> tuple[
     int | None,
     Optional[npt.NDArray],
@@ -165,32 +145,20 @@ def _process_integrate_vectorize_inputs(
     Optional[int | slice],
     Optional[float],
     Optional[float],
-    dict[int, npt.NDArray],
-    dict[int, npt.NDArray],
 ]:
     products = s_sorted[:-1] * s_sorted[1:]
     if len(products) > 0:
-        return _process_integrate_vectorize_array_inputs(
-            products, s_sorted, pos_fixed, neg_fixed
-        )
-    pos_fixed_positions: dict[int, npt.NDArray] = {}
-    neg_fixed_positions: dict[int, npt.NDArray] = {}
+        return _process_integrate_vectorize_array_inputs(products, s_sorted)
     if s_sorted > 0:
         pos_limit = s_sorted[0]
         pos = s_sorted
         neg_limit = neg = None
         zero = None
-        for k, v in pos_fixed.items():
-            if pos == k:
-                pos_fixed_positions[0] = v
     elif s_sorted < 0:
         neg_limit = s_sorted[0]
         neg = s_sorted
         pos_limit = pos = None
         zero = None
-        for k, v in neg_fixed.items():
-            if neg == k:
-                neg_fixed_positions[0] = v
     else:
         pos_limit = pos = None
         neg_limit = neg = None
@@ -205,32 +173,7 @@ def _process_integrate_vectorize_inputs(
         neg_slice,
         pos_limit,
         neg_limit,
-        pos_fixed_positions,
-        neg_fixed_positions,
     )
-
-
-def _process_fixed_points(
-    start: npt.NDArray, fixed_points: dict[float, npt.ArrayLike]
-) -> tuple[dict[float, npt.NDArray], dict[float, npt.NDArray]]:
-    fixed_points = {k: np.asarray(v) for k, v in fixed_points.items()}
-    bad_points = {
-        k: v
-        for k, v in fixed_points.items()
-        if cast(npt.NDArray, v).size != start.size or cast(npt.NDArray, v).ndim > 1
-    }
-    if len(bad_points) > 0:
-        raise ValueError(
-            "Specified fixed points with sizes/shapes different from those of "
-            f"`start`: {bad_points}"
-        )
-    pos_fixed = {k: cast(npt.NDArray, v) for k, v in fixed_points.items() if k > 0}
-    neg_fixed = {k: cast(npt.NDArray, v) for k, v in fixed_points.items() if k < 0}
-    if 0.0 in fixed_points and any(cast(npt.NDArray, fixed_points[0.0]) != start):
-        raise ValueError(
-            "Specified 0 value in `fixed-points` which is different from `start`"
-        )
-    return pos_fixed, neg_fixed
 
 
 def _handle_integration(
@@ -241,20 +184,10 @@ def _handle_integration(
     rtol: float,
     atol: float,
     vectorize_integrand_calls: bool,
-    fixed_positions: dict[int, npt.NDArray],
     result_slice: Optional[int | slice],
-    event_generator: Optional[Callable[[float], Callable[[float, npt.NDArray], float]]],
     output: npt.NDArray,
 ) -> None:
     if positions is not None:
-        events: None | list[Callable[[float, npt.NDArray], float]]
-        if event_generator:
-            events = list(map(event_generator, positions))
-            events[-1].terminal = True  # type: ignore
-            if isinstance(limit, float):
-                limit *= 10
-        else:
-            events = None
         result = solve_ivp(
             func,
             (0.0, limit),
@@ -265,49 +198,29 @@ def _handle_integration(
             atol=atol,
             dense_output=True,
             vectorized=vectorize_integrand_calls,
-            events=events,
         )
         if not result.success:
             raise RuntimeError("Failed to integrate along field line")
-        if event_generator:
-            y = np.array([val[0] for val in result.y_events]).T
-        else:
-            y = result.y
-        for i, v in fixed_positions.items():
-            y[:, i] = v
+        y = result.y
         output[:, result_slice] = y
 
 
 def integrate_vectorized(
     start: npt.ArrayLike,
-    fixed_points: dict[float, npt.ArrayLike] = {},
     rtol: float = 1e-12,
     atol: float = 1e-14,
     vectorize_integrand_calls: bool = True,
-    event_generator: Optional[
-        Callable[[float], Callable[[float, npt.NDArray], float]]
-    ] = None,
 ) -> Callable[[Integrand], IntegratedFunction]:
     r"""Return a vectorised numerically-integrated function.
 
     Decorator that will numerically integrate an ODE and return
     a callable that is vectorised. The integration will start from
-    t=0. You must specify the y-value at that starting point. You may
-    optionally specify additional "fixed points" which should fall
-    along the curve at chosen t-values. If someone requests a result
-    at this position, the fixed-point will be returned instead. This
-    can be useful if you need to enforce the end-point of a curve to
-    within a very high level of precision.
+    t=0. You must specify the y-value at that starting point.
 
     Arguments
     ---------
     start
         The starting point for the integration
-    fixed_points
-        Keys are values of the integration variable at which the
-        solution is assumed to be the corresponding value in the
-        dictionary. Useful to make sure end-points are respected
-        exactly.
     rtol
         Relative tolerance to use for the integration.
     atol
@@ -333,7 +246,6 @@ def integrate_vectorized(
     start_array = np.asarray(start)
     if start_array.ndim > 1:
         raise ValueError("`start` must be 0- or 1-dimensional")
-    pos_fixed, neg_fixed = _process_fixed_points(start_array, fixed_points)
 
     def wrap(func: Integrand) -> IntegratedFunction:
         def wrapper(s: npt.ArrayLike) -> tuple[npt.NDArray, ...]:
@@ -350,9 +262,7 @@ def integrate_vectorized(
                 neg_slice,
                 pos_limit,
                 neg_limit,
-                pos_fixed_positions,
-                neg_fixed_positions,
-            ) = _process_integrate_vectorize_inputs(s_sorted, pos_fixed, neg_fixed)
+            ) = _process_integrate_vectorize_inputs(s_sorted)
             result_tmp = np.empty((cast(npt.NDArray, start_array).size, s_sorted.size))
             _handle_integration(
                 func,
@@ -362,9 +272,7 @@ def integrate_vectorized(
                 rtol,
                 atol,
                 vectorize_integrand_calls,
-                neg_fixed_positions,
                 neg_slice,
-                event_generator,
                 result_tmp,
             )
             _handle_integration(
@@ -375,9 +283,7 @@ def integrate_vectorized(
                 rtol,
                 atol,
                 vectorize_integrand_calls,
-                pos_fixed_positions,
                 pos_slice,
-                event_generator,
                 result_tmp,
             )
             if zero is not None:
@@ -755,7 +661,7 @@ def connect_to_o_point(
     diff = psi_end - psi_start
     sign = np.sign(diff)
 
-    def f(t: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+    def f(_: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
         dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
         norm = dpsidR * dpsidR + dpsidZ * dpsidZ
