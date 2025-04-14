@@ -455,6 +455,10 @@ def point_in_tokamak(point: SliceCoord, wall: Sequence[WallSegment]) -> bool:
     return crossings % 2 == 1
 
 
+# FIXME: It would be more efficient when dealing with hypnotoad meshes
+# to store these as region names and indices. However, this would be
+# less general. Also not clear how to handle points that are in more
+# than one region...
 Connections = MutableCoordMap[SliceCoord, FrozenCoordSet[SliceCoord]]
 
 
@@ -592,7 +596,7 @@ def get_all_rectangular_mesh_connections(points: SliceCoords) -> Connections:
 def get_immediate_rectangular_mesh_connections(points: SliceCoords) -> Connections:
     """Return connectivity information for a logically-rectangular set of points.
 
-    Only edges which actually have an edge between them will be marked
+    Only nodes which actually have an edge between them will be marked
     as connected. Those that are diagonally across from each other are
     not. It should not be used in association with
     :func:`~neso_fame.wall.find_external_points`, as it will result in

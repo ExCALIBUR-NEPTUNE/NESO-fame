@@ -244,6 +244,28 @@ class FieldAlignedPositions(LazilyOffsetable):
             self._computed[idx],
         )
 
+    def flip(self, axis: None | int = None) -> FieldAlignedPositions:
+        """Reverse the order of the start-points along the given axis.
+
+        Behaves like :py:func`numpy.flip`.
+        """
+        x1, x2, alignments = np.broadcast_arrays(
+            self.start_points.x1, self.start_points.x2, self.alignments
+        )
+        return FieldAlignedPositions(
+            SliceCoords(np.flip(x1, axis), np.flip(x2, axis), self.start_points.system),
+            self.x3,
+            self.trace,
+            np.flip(alignments, axis),
+            self.subdivision,
+            self.num_divisions,
+            np.flip(self._x1, axis),
+            np.flip(self._x2, axis),
+            np.flip(
+                self._computed, axis - 1 if axis is not None and axis < 0 else axis
+            ),
+        )
+
     @property
     def poloidal_shape(self) -> tuple[int, ...]:
         """The logical shape of the array of starting points in the poloidal plane."""

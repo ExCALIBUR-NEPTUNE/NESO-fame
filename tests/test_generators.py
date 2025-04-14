@@ -685,7 +685,7 @@ def test_iterate_and_merge_elements() -> None:
     hypno_region.equilibriumRegion.name = "core"
     hypno_region.connections = {"inner": None}
     elements = frozenset(
-        generators._iter_element_corners(hypno_region, 10, CoordinateSystem.CYLINDRICAL)
+        generators._iter_element_nodes(hypno_region, 10, CoordinateSystem.CYLINDRICAL)
     )
 
     def coord(R: float, Z: float) -> SliceCoord:
@@ -715,14 +715,18 @@ def test_validate_wall_elements() -> None:
         CoordMap.empty_slicecoord(float),
         CoordinateSystem.CARTESIAN,
     )
-    s = np.linspace(0., 1., 4)
+    s = np.linspace(0.0, 1.0, 4)
     curved_quad = builder.make_wall_quad_for_prism(
-        AcrossFieldCurve(SliceCoords(
-            2 * np.asarray(s),
-            np.interp(2 * np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]),
-            CoordinateSystem.CARTESIAN,
+        AcrossFieldCurve(
+            SliceCoords(
+                2 * np.asarray(s),
+                np.interp(
+                    2 * np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]
+                ),
+                CoordinateSystem.CARTESIAN,
+            )
         )
-    ))
+    )
     p1, b1 = builder.make_outer_prism(c00, c20, c11, wall_vertices)
     p2, b2 = builder.make_outer_prism(c20, c21, c11, wall_vertices)
     p3, b3 = builder.make_outer_prism(c00, c11, c03, wall_vertices)

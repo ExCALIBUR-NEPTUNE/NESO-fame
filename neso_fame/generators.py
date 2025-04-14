@@ -19,6 +19,7 @@ from hypnotoad import Point2D
 from neso_fame.coordinates import (
     CoordinateSystem,
     CoordMap,
+    CoordSet,
     FrozenCoordSet,
     SliceCoord,
     SliceCoords,
@@ -30,7 +31,6 @@ from neso_fame.hypnotoad_interface import (
     get_region_perpendicular_boundary_points,
 )
 from neso_fame.mesh import (
-    FieldAlignedCurve,
     FieldAlignedPositions,
     FieldTrace,
     GenericMesh,
@@ -40,19 +40,17 @@ from neso_fame.mesh import (
     PrismTypes,
     Quad,
     QuadMesh,
-    control_points,
+    field_aligned_positions,
     straight_line_across_field,
     subdividable_field_aligned_positions,
 )
 from neso_fame.wall import (
     Connections,
-    WallSegment,
     adjust_wall_resolution,
     find_external_points,
     get_all_rectangular_mesh_connections,
     get_immediate_rectangular_mesh_connections,
     periodic_pairwise,
-    point_in_tokamak,
     wall_points_to_segments,
 )
 
@@ -467,25 +465,38 @@ def _get_element_corners(
     return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
 
 
-def _element_corners(
-    R_corners: npt.NDArray, Z_corners: npt.NDArray, system: CoordinateSystem
-) -> Iterator[tuple[SliceCoord, SliceCoord, SliceCoord, SliceCoord]]:
-    R = _get_element_corners(R_corners)
-    Z = _get_element_corners(Z_corners)
-    return zip(
-        *map(
-            operator.methodcaller("iter_points"),
-            (SliceCoords(r, z, system) for r, z in zip(R, Z)),
-        )
+def _element_nodes(
+    nodes: FieldAlignedPositions, order: int
+) -> Iterator[FieldAlignedPositions]:
+    n1, n2 = nodes.poloidal_shape
+    return map(
+        nodes.__getitem__,
+        (
+            (
+                slice(i * order, (i + 1) * order + 1),
+                slice(j * order, (j + 1) * order + 1),
+            )
+            for i, j in itertools.product(
+                range((n1 - 1) // order), range((n2 - 1) // order)
+            )
+        ),
     )
 
 
 def _element_aspect_ratio(
-    R_left: npt.NDArray, R_right: npt.NDArray, Z_left: npt.NDArray, Z_right: npt.NDArray
+    left_nodes: SliceCoords, right_nodes: SliceCoords
 ) -> npt.NDArray:
-    dx = np.sqrt((R_left - R_right) ** 2 + (Z_left - Z_right) ** 2)
-    dy1 = np.sqrt((R_left[:-1] - R_left[1:]) ** 2 + (Z_left[:-1] - Z_left[1:]) ** 2)
-    dy2 = np.sqrt((R_right[:-1] - R_right[1:]) ** 2 + (Z_right[:-1] - Z_right[1:]) ** 2)
+    dx = np.sqrt(
+        (left_nodes.x1 - right_nodes.x1) ** 2 + (left_nodes.x2 - right_nodes.x2) ** 2
+    )
+    dy1 = np.sqrt(
+        (left_nodes.x1[:-1] - left_nodes.x1[1:]) ** 2
+        + (left_nodes.x2[:-1] - left_nodes.x2[1:]) ** 2
+    )
+    dy2 = np.sqrt(
+        (right_nodes.x1[:-1] - right_nodes.x1[1:]) ** 2
+        + (right_nodes.x2[:-1] - right_nodes.x2[1:]) ** 2
+    )
     # return cast(npt.NDArray, np.abs((dx[:-1] + dx[1:]) / (dy1 + dy2)))
     return cast(npt.NDArray, np.abs((dy1 + dy2) / (dx[:-1] + dx[1:])))
 
@@ -495,75 +506,82 @@ CornersIterator = Iterator[Corners]
 
 
 def _iter_merge_elements(
-    R: npt.NDArray,
-    Z: npt.NDArray,
+    nodes: FieldAlignedPositions,
+    order: int,
     max_aspect_ratio: float,
-    system: CoordinateSystem,
-) -> tuple[int, CornersIterator]:
+) -> tuple[int, Iterator[FieldAlignedPositions]]:
     """Iterate over elements, merging those that are too narrow.
 
     Always starts looking from index [0, 0]
     """
+    # TODO check this is the right shape for broadcasting
+    weights = np.linspace(0.0, 1.0, order + 1)
+    one_minus_weights = 1 - weights
 
     def inner_func(
         count: int,
-        prev_elements: CornersIterator,
-        R_left: npt.NDArray,
-        R_remainder: npt.NDArray,
-        Z_left: npt.NDArray,
-        Z_remainder: npt.NDArray,
-    ) -> tuple[int, CornersIterator]:
-        def iterate_column(merge_start: int | None) -> CornersIterator:
+        prev_merge_start: int,
+        prev_elements: Iterator[FieldAlignedPositions],
+    ) -> tuple[int, Iterator[FieldAlignedPositions]]:
+        def iterate_column(merge_start: int | None) -> Iterator[FieldAlignedPositions]:
             # Handle elements that don't need to be merged
-            for (R_sw, R_se, Z_sw, Z_se), (
-                R_nw,
-                R_ne,
-                Z_nw,
-                Z_ne,
-            ) in itertools.pairwise(
-                np.nditer(
-                    (
-                        R_left[:merge_start],
-                        R_remainder[:merge_start, 0],
-                        Z_left[:merge_start],
-                        Z_remainder[:merge_start, 0],
-                    )
+            for i in range(0, prev_merge_start - order, order):
+                yield nodes[i : i + order + 1, count * order : (count + 1) * order + 1]
+            # TODO: Deal with weird warped rectangle
+            if prev_merge_start > 0 and prev_merge_start != merge_start:
+                narrow_element_points = nodes[
+                    prev_merge_start : prev_merge_start + count + 1,
+                    count * order : (count + 1) * order + 1,
+                ]
+                wide_element_points = nodes[
+                    prev_merge_start : prev_merge_start + count + 1,
+                    : (count + 1) * order + 1 : count + 1,
+                ]
+                starts = SliceCoords(
+                    narrow_element_points.start_points.x1 * one_minus_weights
+                    + wide_element_points.start_points.x1 * weights,
+                    narrow_element_points.start_points.x2 * one_minus_weights
+                    + wide_element_points.start_points.x2 * weights,
+                    nodes.start_points.system,
                 )
+                return field_aligned_positions(
+                    starts,
+                    nodes.x3[-1] - nodes.x3[1],
+                    nodes.trace,
+                    narrow_element_points.alignments * one_minus_weights
+                    + wide_element_points.alignments * weights,
+                    len(nodes.x3) - 1,
+                )
+            # Handle elements that are merged into adjacent ones
+            for i in range(
+                prev_merge_start + order,
+                nodes.poloidal_shape[0] if merge_start is None else merge_start,
+                order,
             ):
-                yield (
-                    SliceCoord(float(R_sw), float(Z_sw), system),
-                    SliceCoord(float(R_se), float(Z_se), system),
-                    SliceCoord(float(R_nw), float(Z_nw), system),
-                    SliceCoord(float(R_ne), float(Z_ne), system),
-                )
+                yield nodes[i : i + order + 1, : (count + 1) * order + 1 : count + 1]
             # Return triangle
+            # FIXME: This only makes sense to do if returning Prism objects. Also, should I mask it somehow?
             if merge_start is not None:
-                yield (
-                    SliceCoord(
-                        float(R_left[merge_start - 1]),
-                        float(Z_left[merge_start - 1]),
-                        system,
-                    ),
-                    SliceCoord(
-                        float(R_remainder[merge_start - 1, 0]),
-                        float(Z_remainder[merge_start - 1, 0]),
-                        system,
-                    ),
-                    SliceCoord(
-                        float(R_left[merge_start]),
-                        float(Z_left[merge_start]),
-                        system,
-                    ),
-                    None,
-                )
+                yield nodes[
+                    merge_start : merge_start + order + 1,
+                    : (count + 1) * order + 1 : count + 1,
+                ]
 
-        ratios = _element_aspect_ratio(
-            R_left, R_remainder[:, 0], Z_left, Z_remainder[:, 0]
+        # FIXME: Not sure I'm quite getting the right number of elements from each here
+        column_starts = nodes.start_points.get[:prev_merge_start:order, count * order]
+        leftmost = nodes.start_points.get[prev_merge_start::order, 0]
+        column_edge = SliceCoords(
+            np.concatenate((column_starts.x1, leftmost.x1)),
+            np.concatenate((column_starts.x2, leftmost.x2)),
+            column_starts.system,
         )
-        first_merging = int(np.argmax(ratios > max_aspect_ratio))
+        ratios = _element_aspect_ratio(
+            column_edge, nodes.start_points.get[::order, (count + 1) * order]
+        )
+        first_merging = int(np.argmax(ratios > max_aspect_ratio)) * order
         # Deal with case where nothing needs to be merged or have reached the last column
         if (
-            R_remainder.shape[1] == 1
+            nodes.poloidal_shape[1] == 1
             or first_merging == 0
             and not ratios[0] > max_aspect_ratio
         ):
@@ -571,73 +589,46 @@ def _iter_merge_elements(
             return count + 1, itertools.chain(prev_elements, iterate_column(None))
         # Never merge the first element, to make sure it stays
         # conformal across the boundary of the mesh region
-        merge_start = max(1, first_merging)
-        R_next = np.concatenate((R_remainder[:merge_start, 0], R_left[merge_start:]))
-        Z_next = np.concatenate((Z_remainder[:merge_start, 0], Z_left[merge_start:]))
+        merge_start = max(order, first_merging)
         return inner_func(
             count + 1,
+            merge_start,
             itertools.chain(prev_elements, iterate_column(merge_start)),
-            R_next,
-            R_remainder[:, 1:],
-            Z_next,
-            Z_remainder[:, 1:],
         )
 
-    # Copy the first column to ensure we know exactly what its layout
-    # will be in memory. Otherwise this can end up being inconsistent
-    # for the first call compared to subsequent levels of recursion,
-    # which construct this column from scratch.
-    return inner_func(
-        0, iter([]), np.copy(R[:, 0]), R[:, 1:], np.copy(Z[:, 0]), Z[:, 1:]
-    )
+    return inner_func(0, 0, iter([]))
 
 
-def _flip_corners_horizontally(corners: Corners) -> Corners:
-    if corners[3] is None:
-        return corners[1], corners[0], corners[2], corners[3]
-    return corners[1], corners[0], corners[3], corners[2]
-
-
-def _flip_corners_vertically(corners: Corners) -> Corners:
-    if corners[3] is None:
-        return corners
-    return corners[2], corners[3], corners[0], corners[1]
-
-
-def _iter_element_corners(
-    region: HypnoMeshRegion,
+def _iter_element_nodes(
+    nodes: FieldAlignedPositions,
+    merge: bool,
     max_aspect_ratio: float,
-    system: CoordinateSystem,
-) -> CornersIterator:
-    """Iterate over the elements, returning the points at the corner for each one.
+    order: int,
+) -> Iterator[FieldAlignedPositions]:
+    """Iterate over the elements, returning the nodes making up each one.
 
     This will merge elements radiating from the X-point if they are too oblong.
     """
     # Need to ensure the first coordinate is indexed away from the x-point
-    R = region.Rxy.corners[::-1, :]
-    Z = region.Zxy.corners[::-1, :]
-    if (
-        region.equilibriumRegion.name.endswith("core")
-        and region.connections["inner"] is None
-    ):
-        half = R.shape[1] // 2
+    nodes = nodes[::-1, :]
+    if merge:
+        half = nodes.poloidal_shape[1] // 2
         start, left = _iter_merge_elements(
-            R[:, : half + 1], Z[:, : half + 1], max_aspect_ratio, system
+            nodes[:, : half + 1], order, max_aspect_ratio
         )
         negative_end, right = _iter_merge_elements(
-            np.flip(R[:, half:], 1),
-            np.flip(Z[:, half:], 1),
+            nodes[:, half:].flip(1),
+            order,
             max_aspect_ratio,
-            system,
         )
         end: int | None = None if negative_end == 0 else -negative_end
         return itertools.chain(
             left,
-            _element_corners(R[:, start:end], Z[:, start:end], system),
-            map(_flip_corners_horizontally, right),
+            _element_nodes(nodes[:, start:end], order),
+            map(operator.methodcaller("flip", 1), right),
         )
     else:
-        return _element_corners(R, Z, system)
+        return _element_nodes(nodes, order)
 
 
 def _find_internal_neighbours(
@@ -657,13 +648,19 @@ def _find_internal_neighbours(
 def _handle_edge_nodes(
     hypnotoad_poloidal_mesh: HypnoMesh,
     wall_points: Iterable[Point2D],
+    order: int,
     restrict_to_vessel: bool,
-    in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
+    # in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
     alignment_steps: int,
     system: CoordinateSystem,
 ) -> tuple[Callable[[Corners], bool], CoordMap[SliceCoord, float]]:
     """Work out which nodes fall outside the vessle and degree of field-alignment."""
-    initial_outermost_nodes = FrozenCoordSet(
+    # FIXME: Would probably be better to rework this to have it return
+    # FieldAlignedPositions objects, one for each region. Compute the
+    # weights for each one and use masked arrays or weights of -1 to
+    # mark the external nodes. Also return lists of indicies for
+    # accessing the internal and external edges.
+    initial_outermost_points = FrozenCoordSet(
         itertools.chain.from_iterable(
             itertools.chain.from_iterable(
                 get_region_flux_surface_boundary_points(region, system)[1:]
@@ -678,24 +675,74 @@ def _handle_edge_nodes(
             _merge_connections,
             (
                 get_all_rectangular_mesh_connections(
+                    # Only want to check corners of elements
                     SliceCoords(
-                        region.Rxy.corners,
-                        region.Zxy.corners,
+                        region.Rxy.corners[::order, ::order],
+                        region.Zxy.corners[::order, ::order],
                         system,
                     )
                 )
                 for region in hypnotoad_poloidal_mesh.regions.values()
             ),
         )
-        external_nodes, outermost_nodes = find_external_points(
-            initial_outermost_nodes, connections, wall, in_tokamak_test
+        # Only check those outermost points which are also corners
+        #
+        # FIXME: It would be more efficient to store these as region
+        # names and coordinates rather than as SliceCoord
+        # objects. However, difficult to work out how to handle the
+        # points that are in more than one region... I guess I could
+        # work out the name of the adjacent region and indices for it
+        # and store both somehow.
+        external_corners, outermost_corners = find_external_points(
+            cast(
+                FrozenCoordSet,
+                initial_outermost_points & FrozenCoordSet(connections.keys()),
+            ),
+            connections,
+            wall,  # , in_tokamak_test
         )
+
+        if order > 1:
+            outermost_nodes = CoordSet(outermost_corners)
+            for region in hypnotoad_poloidal_mesh.regions.values():
+                # Create a mask indicating which nodes on the mesh are on an outermost edge
+                outermost_array = np.full_like(region.Rxy.corners, False)
+                # Mark the outermost corners
+                outermost_array[::order, ::order] = np.vectorize(
+                    lambda x1, x2: SliceCoord(x1, x2, system) in outermost_corners
+                )(
+                    region.Rxy.corners[::order, ::order],
+                    region.Zxy.corners[::order, ::order],
+                )
+                n1, n2 = region.Rxy.corners.shape
+                i1 = np.arange(n1).reshape((n1, 1))
+                i2 = np.arange(n2).reshape((1, n2))
+                lower_corners1 = i1 // order * order
+                upper_corners1 = np.maximum(lower_corners1 + 1, n1)
+                lower_corners2 = i2 // order * order
+                upper_corners2 = np.maximum(lower_corners2 + 1, n2)
+                # Outermost edge nodes are ones for which both of the corresponding corners have been marked outermost
+                mask = (
+                    outermost_array[lower_corners1, i2]
+                    & outermost_array[upper_corners1, i2]
+                ) | (
+                    outermost_array[i1, lower_corners2]
+                    & outermost_array[i1, upper_corners2]
+                )
+                for R, Z in np.nditer(
+                    region.Rxy.corners[mask], region.Zxy.corners[mask]
+                ):
+                    outermost_nodes.add(
+                        SliceCoord(cast(float, R), cast(float, Z), system)
+                    )
+            else:
+                outermost_nodes = outermost_corners
 
         def corners_within_vessel(
             corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
         ) -> bool:
             return FrozenCoordSet(c for c in corners if c is not None).isdisjoint(
-                external_nodes
+                external_corners
             )
 
     else:
@@ -705,10 +752,11 @@ def _handle_edge_nodes(
         ) -> bool:
             return True
 
-        external_nodes = FrozenCoordSet()
-        outermost_nodes = initial_outermost_nodes
+        external_corners = FrozenCoordSet()
+        outermost_nodes = initial_outermost_points
 
-    steps = np.flip(np.linspace(0.0, 1.0, alignment_steps + 1, endpoint=False))
+    # Work out the weights for the internal nodes too
+    steps = np.linspace(0.0, 1.0, alignment_steps * order, endpoint=False)
     connections2 = reduce(
         _merge_connections,
         (
@@ -722,6 +770,9 @@ def _handle_edge_nodes(
             for region in hypnotoad_poloidal_mesh.regions.values()
         ),
     )
+    # FIXME: It would be more efficient to do this as arrays of
+    # weights (since that's what we'll need to produce eventually
+    # anyway).
     vertex_weights = CoordMap(
         dict(
             itertools.chain.from_iterable(
@@ -729,7 +780,7 @@ def _handle_edge_nodes(
                 for w, points in zip(
                     steps,
                     _find_internal_neighbours(
-                        outermost_nodes, external_nodes, connections2
+                        outermost_nodes, external_corners, connections2
                     ),
                 )
             )
@@ -919,7 +970,7 @@ def hypnotoad_mesh(
     hypnotoad_poloidal_mesh: HypnoMesh,
     extrusion_limits: tuple[float, float] = (0.0, 2 * np.pi),
     n: int = 10,
-    spatial_interp_resolution: int = 11,
+    order: int = 3,
     subdivisions: int = 1,
     max_aspect_ratio: float = 100,
     mesh_to_core: bool = False,
@@ -952,9 +1003,9 @@ def hypnotoad_mesh(
         direction (in radians).
     n
         Number of layers to generate in the x3 direction
-    spatial_interp_resolution
-        Number of points used to interpolate distances along the field
-        line.
+    order
+        The order of accuracy to use to describe curved elements. Element
+        edges will be made up of `order + 1` points.
     subdivisions
         Depth of cells in x3-direction in each layer.
     max_aspect_ratio
@@ -1025,35 +1076,38 @@ def hypnotoad_mesh(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    tracer = FieldTracer(
-        equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium, system),
-        spatial_interp_resolution,
-    )
-    min_dist_squared = min_distance_to_wall * min_distance_to_wall
-
-    outermost_weight = alignment_steps / (alignment_steps + 1)
-
-    def whole_line_in_tokamak(start: SliceCoord, wall: Sequence[WallSegment]) -> bool:
-        if (
-            point_in_tokamak(start, wall)
-            and min(seg.min_distance_squared(start) for seg in wall) >= min_dist_squared
-        ):
-            line = FieldAlignedCurve(tracer, start, dx3, start_weight=outermost_weight)
-            return all(
-                point_in_tokamak(p.to_slice_coord(), wall)
-                for p in control_points(line, spatial_interp_resolution).iter_points()
-            )
-        return False
+    tracer = equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium, system)
 
     eqdsk_wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
     corners_within_vessel, vertex_weights = _handle_edge_nodes(
         hypnotoad_poloidal_mesh,
         eqdsk_wall,
+        order,
         restrict_to_vessel,
-        whole_line_in_tokamak,
         alignment_steps,
         system,
     )
+
+    make_weights = np.vectorize(
+        lambda R, Z: vertex_weights.get(SliceCoord(R, Z, system), 1.0)
+    )
+
+    blocks = [
+        (
+            subdividable_field_aligned_positions(
+                SliceCoords(r.Rxy.corners, r.Zxy.corners, system),
+                dx3,
+                tracer,
+                make_weights(r.Rxy.corners, r.Zxy.corners),
+                order,
+                subdivisions,
+            ),
+            r.equilibriumRegion.name.endswith("core")
+            and r.connections["inner"] is None,
+        )
+        for r in hypnotoad_poloidal_mesh.regions.values()
+    ]
+
     factory = ElementBuilder(
         hypnotoad_poloidal_mesh, tracer, dx3, vertex_weights, system
     )
@@ -1061,8 +1115,8 @@ def hypnotoad_mesh(
     main_elements = [
         factory.make_element(*corners)
         for corners in itertools.chain.from_iterable(
-            _iter_element_corners(region, max_aspect_ratio, system)
-            for region in hypnotoad_poloidal_mesh.regions.values()
+            _iter_element_nodes(nodes, merge, max_aspect_ratio, order)
+            for nodes, merge in blocks
         )
         if corners_within_vessel(corners)
     ]
