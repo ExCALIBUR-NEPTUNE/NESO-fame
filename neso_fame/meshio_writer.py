@@ -310,31 +310,6 @@ def _meshio_hex_point_order(points: Coords) -> Iterator[Coord]:
         for i in range(1, n - 1):
             yield points[coord(i)]
 
-    # for i in range(1, n - 1):
-    #     yield points[i, 0, 0]
-    # for i in range(1, n - 1):
-    #     yield points[0, i, 0]
-    # for i in range(1, n - 1):
-    #     yield points[0, 0, i]
-    # for i in range(1, n - 1):
-    #     yield points[-1, i, 0]
-    # for i in range(1, n - 1):
-    #     yield points[-1, 0, i]
-    # for i in range(n - 2, 0, -1):
-    #     yield points[i, -1, 0]
-    # for i in range(1, n - 1):
-    #     yield points[-1, -1, i]
-    # for i in range(1, n - 1):
-    #     yield points[0, -1, i]
-    # for i in range(1, n - 1):
-    #     yield points[i, 0, -1]
-    # for i in range(1, n - 1):
-    #     yield points[0, i, -1]
-    # for i in range(1, n - 1):
-    #     yield points[-1, i, -1]
-    # for i in range(n - 2, 0, -1):
-    #     yield points[i, -1, -1]
-
     # FIXME: Will the normals of these be in the right direction?
     yield from _meshio_quad_point_order(
         Coords(*(x[1:-1, 1:-1, 0] for x in points), points.system)  # type: ignore
@@ -397,25 +372,6 @@ def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
     ]:
         for i in range(1, n - 1):
             yield points[coord(i)]
-
-    # for i in range(1, n - 1):
-    #     yield points[i, 0, 0]
-    # for i in range(1, n - 1):
-    #     yield points[0, i, 0]
-    # for i in range(1, n - 1):
-    #     yield points[0, 0, i]
-    # for i in range(1, n - 1):
-    #     yield points[n - i - 1, i, 0]
-    # for i in range(1, n - 1):
-    #     yield points[-1, 0, i]
-    # for i in range(1, n - 1):
-    #     yield points[0, -1, i]
-    # for i in range(1, n - 1):
-    #     yield points[i, 0, -1]
-    # for i in range(1, n - 1):
-    #     yield points[0, i, -1]
-    # for i in range(1, n - 1):
-    #     yield points[n - i - 1, i, -1]
 
     # FIXME: Will the normals of these be in the right direction?
     # FIXME: I've taken my best guess at the ordering of the
@@ -561,7 +517,16 @@ class MeshioData:
 
     def quad(self, quad: Quad, cellsets: frozenset[str]) -> int:
         """Add a 2D element representing a quad and return the integer ID for it."""
-        return 0
+        shape = _ELEMENT_TYPES[order(quad) - 1]["quad"]
+        coords = quad.nodes.coords
+        points = tuple(
+            self.point(p.to_cartesian(), shape, cellsets)
+            for p in _meshio_quad_point_order(coords)
+        )
+        cell_list = self._cells[shape, cellsets]
+        cell_list.append(points)
+        cell_id = len(cell_list) - 1
+        return cell_id
 
     def solid(self, solid: Prism, cellsets: frozenset[str]) -> int:
         """Add a 3D element representing to the mesh and return the integer ID for it."""
@@ -636,6 +601,7 @@ def meshio_2d_elements(mesh: QuadMesh) -> meshio.Mesh:
     public meshio
 
     """
+    print("Converting 2D elements")
     result = MeshioData()
     for i, layer in enumerate(mesh.layers()):
         sets = frozenset({f"Layer {i}"})
@@ -700,23 +666,26 @@ def meshio_elements(mesh: Mesh) -> meshio.Mesh:
 def write_meshio(
     mesh: Mesh,
     filename: str,
+    file_format: str,
 ) -> None:
-    """Create a Nektar++ MeshGraph object and write it to the disk.
+    """Create a MeshIO mesh object and write it to the disk.
 
     Parameters
     ----------
     mesh
         The mesh to be converted to Nektar++ format.
     filename
-        The name of the file to write the mesh to. The format is
-        determined from the extension.
+        The name of the file to write the mesh to.
+    file_format
+        The meshio mesh format to use for the output.
 
     Group
     -----
     public meshio
 
     """
-    pass
+    output = meshio_elements(mesh)
+    output.write(filename, file_format)
 
 
 def write_poloidal_mesh(
@@ -724,7 +693,7 @@ def write_poloidal_mesh(
     filename: str,
     file_format: str,
 ) -> None:
-    """Create a Nektar++ MeshGraph object for the underlying poloidal mesh.
+    """Create a MeshIO mesh object for the underlying poloidal mesh and write to the disk.
 
     This can be useful to visualise the mesh from which the 3D one is extruded.
 

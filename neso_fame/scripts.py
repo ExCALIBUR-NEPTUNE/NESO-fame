@@ -8,13 +8,18 @@ import click
 import numpy as np
 import yaml
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
-from meshio._helpers import reader_map  # type: ignore
+from meshio._helpers import _writer_map  # type: ignore
 
 from neso_fame.coordinates import CoordinateSystem, SliceCoords
 from neso_fame.fields import straight_field
 from neso_fame.generators import field_aligned_2d, field_aligned_3d, hypnotoad_mesh
 from neso_fame.hypnotoad_interface import eqdsk_equilibrium
-from neso_fame.meshio_writer import write_poloidal_mesh as write_meshio_poloidal
+from neso_fame.meshio_writer import (
+    write_meshio,
+)
+from neso_fame.meshio_writer import (
+    write_poloidal_mesh as write_meshio_poloidal,
+)
 from neso_fame.nektar_writer import (
     nektar_3d_element,
     write_nektar,
@@ -120,10 +125,14 @@ def _mesh_provenance() -> str:
     show_default=True,
 )
 @click.option(
-    "--compress",
-    is_flag=True,
-    default=False,
-    help="Use the compressed XML format for the mesh",
+    "-f",
+    "--out-format",
+    type=click.Choice(["nektar", "znektar"] + list(_writer_map)),
+    default="nektar",
+    show_default=True,
+    help="The output format for the mesh. `nektar` is the Nektar++ "
+    "XML format, `znektar` is the compressed Nektar++ format, and all "
+    "other obptions are the same as for the meshio library.",
 )
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_2d(
@@ -135,7 +144,7 @@ def simple_2d(
     angle: float,
     periodic: bool,
     align_bounds: bool,
-    compress: bool,
+    out_format: str,
     meshfile: str,
 ) -> None:
     """Generate a simple 2D Cartesian mesh aligned to straight field lines.
@@ -159,13 +168,18 @@ def simple_2d(
         straight_field(-angle * np.pi / 180.0),
         (-x1_extent[1], -x1_extent[0]),
         layers,
-        2,
+        1,
         subdivisions=nx1 // layers,
         conform_to_bounds=not align_bounds,
     )
-    write_nektar(m, meshfile, 2, layers > 1 or periodic, periodic, compress)
-    with open(meshfile, "a") as f:
-        f.write(_mesh_provenance())
+    if out_format in ["nektar", "znektar"]:
+        write_nektar(
+            m, meshfile, 2, layers > 1 or periodic, periodic, out_format.startswith("z")
+        )
+        with open(meshfile, "a") as f:
+            f.write(_mesh_provenance())
+    else:
+        write_meshio(m, meshfile, out_format)
 
 
 @simple.command("3d")
@@ -255,10 +269,14 @@ def simple_2d(
     show_default=True,
 )
 @click.option(
-    "--compress",
-    is_flag=True,
-    default=False,
-    help="Use the compressed XML format for the mesh",
+    "-f",
+    "--out-format",
+    type=click.Choice(["nektar", "znektar"] + list(_writer_map)),
+    default="nektar",
+    show_default=True,
+    help="The output format for the mesh. `nektar` is the Nektar++ "
+    "XML format, `znektar` is the compressed Nektar++ format, and all "
+    "other obptions are the same as for the meshio library.",
 )
 @click.argument("meshfile", type=click.Path(dir_okay=False, writable=True))
 def simple_3d(
@@ -272,7 +290,7 @@ def simple_3d(
     angle1: float,
     angle2: float,
     periodic: bool,
-    compress: bool,
+    out_format: str,
     meshfile: str,
 ) -> None:
     """Generate a simple 3D Cartesian mesh aligned to straight field lines.
@@ -310,12 +328,17 @@ def simple_3d(
         elements,
         (-x1_extent[1], -x1_extent[0]),
         layers,
-        2,
+        1,
         nx1 // layers,
     )
-    write_nektar(m, meshfile, 3, layers > 1 or periodic, periodic, compress)
-    with open(meshfile, "a") as f:
-        f.write(_mesh_provenance())
+    if out_format in ["nektar", "znektar"]:
+        write_nektar(
+            m, meshfile, 3, layers > 1 or periodic, periodic, out_format.startswith("z")
+        )
+        with open(meshfile, "a") as f:
+            f.write(_mesh_provenance())
+    else:
+        write_meshio(m, meshfile, out_format)
 
 
 @click.command("hypnotoad")
@@ -409,12 +432,12 @@ def simple_3d(
 @click.option(
     "-f",
     "--out-format",
-    type=click.Choice(["nektar", "znektar"] + list(reader_map)),
+    type=click.Choice(["nektar", "znektar"] + list(_writer_map)),
     default="nektar",
     show_default=True,
     help="The output format for the mesh. `nektar` is the Nektar++ "
     "XML format, `znektar` is the compressed Nektar++ format, and all "
-    "other obptions are the same as for the meshio library.",
+    "other options are the same as for the meshio library.",
 )
 @click.option(
     "--config",
