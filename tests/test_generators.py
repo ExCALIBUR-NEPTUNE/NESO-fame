@@ -685,7 +685,7 @@ def test_iterate_and_merge_elements() -> None:
     hypno_region.equilibriumRegion.name = "core"
     hypno_region.connections = {"inner": None}
     elements = frozenset(
-        generators._iter_element_nodes(hypno_region, 10, CoordinateSystem.CYLINDRICAL)
+        generators._iter_elements(hypno_region, 10, CoordinateSystem.CYLINDRICAL)
     )
 
     def coord(R: float, Z: float) -> SliceCoord:

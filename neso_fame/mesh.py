@@ -221,7 +221,12 @@ class FieldAlignedPositions(LazilyOffsetable):
     than a copy of the scalar."""
 
     def __getitem__(
-        self, idx: int | slice | tuple[int | slice, ...]
+        self,
+        idx: int
+        | slice
+        | npt.NDArray
+        | Sequence[int]
+        | tuple[int | slice | npt.NDArray | Sequence[int], ...],
     ) -> FieldAlignedPositions:
         """Slice the start-points of the data, returning the specificed subset.
 
@@ -259,11 +264,31 @@ class FieldAlignedPositions(LazilyOffsetable):
             np.flip(alignments, axis),
             self.subdivision,
             self.num_divisions,
-            np.flip(self._x1, axis),
-            np.flip(self._x2, axis),
+            np.flip(self._x1, axis - 1 if axis is not None and axis < 0 else axis),
+            np.flip(self._x2, axis - 1 if axis is not None and axis < 0 else axis),
             np.flip(
                 self._computed, axis - 1 if axis is not None and axis < 0 else axis
             ),
+        )
+
+    def transpose(self) -> FieldAlignedPositions:
+        """Transposes the axes of the start-points."""
+        x1, x2, alignments = np.broadcast_arrays(
+            self.start_points.x1, self.start_points.x2, self.alignments
+        )
+        axes = tuple(range(x1.ndim))[::-1]
+        return FieldAlignedPositions(
+            SliceCoords(
+                np.transpose(x1, axes), np.transpose(x2, axes), self.start_points.system
+            ),
+            self.x3,
+            self.trace,
+            np.transpose(alignments, axes),
+            self.subdivision,
+            self.num_divisions,
+            np.transpose(self._x1, axes),
+            np.transpose(self._x2, axes),
+            np.transpose(self._computed, axes),
         )
 
     @property
@@ -772,6 +797,14 @@ class Prism(LazilyOffsetable):
         yield self.nodes.coords[-1, 0, -1]
         if self.shape == PrismTypes.RECTANGULAR:
             yield self.nodes.coords[-1, -1, -1]
+
+    def poloidal_corners(self) -> Iterator[SliceCoord]:
+        """Return the vertices of cross section of the prism on the starting poloidal plane."""
+        yield self.nodes.start_points[0, 0]
+        yield self.nodes.start_points[0, -1]
+        yield self.nodes.start_points[-1, 0]
+        if self.shape == PrismTypes.RECTANGULAR:
+            yield self.nodes.start_points[-1, -1]
 
     def subdivide(self, num_divisions: int) -> Iterator[Prism]:
         """Split the prism into the specified number of pieces.

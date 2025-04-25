@@ -40,9 +40,9 @@ from neso_fame.hypnotoad_interface import (
     eqdsk_equilibrium,
     equilibrium_trace,
     flux_surface_edge,
-    get_mesh_boundaries,
-    get_region_flux_surface_boundary_points,
-    get_region_perpendicular_boundary_points,
+    get_region_flux_surface_boundary_indices,
+    get_region_perpendicular_boundary_indices,
+    iterate_points,
 )
 from neso_fame.mesh import (
     Quad,
@@ -924,10 +924,19 @@ def test_flux_surface_bounds(region: MeshRegion, dx3: float) -> None:
             )
         )
 
-    for points in get_region_flux_surface_boundary_points(region):
+    for points in get_region_flux_surface_boundary_indices(region):
         check_flux_surface_bound(
             eq,
-            frozenset(itertools.starmap(constructor, itertools.pairwise(points))),
+            frozenset()
+            if points is None
+            else frozenset(
+                itertools.starmap(
+                    constructor,
+                    itertools.pairwise(
+                        iterate_points(region, points, CoordinateSystem.CYLINDRICAL)
+                    ),
+                )
+            ),
             region.name == "core(0)",
         )
 
@@ -948,9 +957,19 @@ def test_perpendicular_bounds(region: MeshRegion, dx3: float) -> None:
             )
         )
 
-    for points in get_region_perpendicular_boundary_points(region):
+    for points in get_region_perpendicular_boundary_indices(region):
         check_perpendicular_bounds(
-            eq, frozenset(itertools.starmap(constructor, itertools.pairwise(points)))
+            eq,
+            frozenset()
+            if points is None
+            else frozenset(
+                itertools.starmap(
+                    constructor,
+                    itertools.pairwise(
+                        iterate_points(region, points, CoordinateSystem.CYLINDRICAL)
+                    ),
+                )
+            ),
         )
 
 
@@ -1024,44 +1043,14 @@ def test_region_bounds(
     mesh_args: MeshArgs, region_name: str, is_boundary: list[bool]
 ) -> None:
     region = get_region(mesh_args, region_name)
-    boundaries = get_region_flux_surface_boundary_points(
+    boundaries = get_region_flux_surface_boundary_indices(
         region
-    ) + get_region_perpendicular_boundary_points(region)
-    assert [len(list(b)) > 0 for b in boundaries] == is_boundary
-
-
-@mark.parametrize(
-    "mesh_args, is_boundary",
-    [
-        (
-            UPPER_SINGLE_NULL,
-            [True, True, False, True, False, False, False, True, True],
-        ),
-        (CONNECTED_DOUBLE_NULL, [True] * 9),
-        (LOWER_DOUBLE_NULL, [True] * 9),
-    ],
-)
-def test_mesh_bounds(mesh_args: Mesh, is_boundary: list[bool]) -> None:
-    def constructor(north: SliceCoord, south: SliceCoord) -> Quad:
-        return Quad(
-            field_aligned_positions(
-                straight_line_across_field(north, south, 1),
-                1.0,
-                simple_trace,
-                np.array(1.0),
-                1,
-            )
-        )
-
-    mesh = to_mesh(mesh_args)
-    eq = mesh.equilibrium
-    bounds = get_mesh_boundaries(mesh, constructor, constructor)
-    assert [len(b) > 0 for b in bounds] == is_boundary
-    check_flux_surface_bound(eq, bounds[0], True)
-    for b in itertools.compress(bounds[1:5], is_boundary[1:5]):
-        check_flux_surface_bound(eq, b, False)
-    for b in itertools.compress(bounds[5:], is_boundary[5:]):
-        check_perpendicular_bounds(eq, b)
+    ) + get_region_perpendicular_boundary_indices(region)
+    assert [
+        len(list(iterate_points(region, b, CoordinateSystem.CYLINDRICAL))) > 0
+        for b in boundaries
+        if b is not None
+    ] == is_boundary
 
 
 equilibrium_opoints_options = shared(sampled_from(sample_mesh_configs), key=1001)

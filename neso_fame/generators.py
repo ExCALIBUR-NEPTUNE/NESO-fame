@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import itertools
 import operator
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from functools import reduce
+from functools import cache, reduce
 from typing import Callable, Optional, TypeVar, cast
-from warnings import warn
 
 import numpy as np
 import numpy.typing as npt
 from hypnotoad import Mesh as HypnoMesh  # type: ignore
+from hypnotoad import MeshRegion, Point2D
 from hypnotoad import MeshRegion as HypnoMeshRegion  # type: ignore
-from hypnotoad import Point2D
+from hypnotoad.cases.tokamak import TokamakEquilibrium
 
 from neso_fame.coordinates import (
     CoordinateSystem,
@@ -24,13 +24,16 @@ from neso_fame.coordinates import (
     SliceCoord,
     SliceCoords,
 )
-from neso_fame.element_builder import ElementBuilder
 from neso_fame.hypnotoad_interface import (
+    connect_to_o_point,
     equilibrium_trace,
-    get_region_flux_surface_boundary_points,
-    get_region_perpendicular_boundary_points,
+    flux_surface_edge,
+    get_region_flux_surface_boundary_indices,
+    get_region_perpendicular_boundary_indices,
+    iterate_points,
 )
 from neso_fame.mesh import (
+    AcrossFieldCurve,
     FieldAlignedPositions,
     FieldTrace,
     GenericMesh,
@@ -44,13 +47,16 @@ from neso_fame.mesh import (
     straight_line_across_field,
     subdividable_field_aligned_positions,
 )
+from neso_fame.vertex_ring import VertexRing
 from neso_fame.wall import (
     Connections,
+    WallSegment,
     adjust_wall_resolution,
     find_external_points,
     get_all_rectangular_mesh_connections,
     get_immediate_rectangular_mesh_connections,
     periodic_pairwise,
+    point_in_tokamak,
     wall_points_to_segments,
 )
 
@@ -459,27 +465,16 @@ def _merge_connections(left: Connections, right: Connections) -> Connections:
     return left
 
 
-def _get_element_corners(
-    x: npt.NDArray,
-) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
-    return x[:-1, :-1], x[:-1, 1:], x[1:, :-1], x[1:, 1:]
-
-
-def _element_nodes(
-    nodes: FieldAlignedPositions, order: int
-) -> Iterator[FieldAlignedPositions]:
+def _iterate_prisms(nodes: FieldAlignedPositions, order: int) -> Iterator[Prism]:
     n1, n2 = nodes.poloidal_shape
-    return map(
-        nodes.__getitem__,
-        (
-            (
-                slice(i * order, (i + 1) * order + 1),
-                slice(j * order, (j + 1) * order + 1),
-            )
-            for i, j in itertools.product(
-                range((n1 - 1) // order), range((n2 - 1) // order)
-            )
-        ),
+    return (
+        Prism(
+            PrismTypes.RECTANGULAR,
+            nodes[i * order : (i + 1) * order + 1, j * order : (j + 1) * order + 1],
+        )
+        for i, j in itertools.product(
+            range((n1 - 1) // order), range((n2 - 1) // order)
+        )
     )
 
 
@@ -509,7 +504,7 @@ def _iter_merge_elements(
     nodes: FieldAlignedPositions,
     order: int,
     max_aspect_ratio: float,
-) -> tuple[int, Iterator[FieldAlignedPositions]]:
+) -> tuple[int, Iterator[Prism]]:
     """Iterate over elements, merging those that are too narrow.
 
     Always starts looking from index [0, 0]
@@ -521,13 +516,16 @@ def _iter_merge_elements(
     def inner_func(
         count: int,
         prev_merge_start: int,
-        prev_elements: Iterator[FieldAlignedPositions],
-    ) -> tuple[int, Iterator[FieldAlignedPositions]]:
-        def iterate_column(merge_start: int | None) -> Iterator[FieldAlignedPositions]:
+        prev_elements: Iterator[Prism],
+    ) -> tuple[int, Iterator[Prism]]:
+        def iterate_column(merge_start: int | None) -> Iterator[Prism]:
             # Handle elements that don't need to be merged
             for i in range(0, prev_merge_start - order, order):
-                yield nodes[i : i + order + 1, count * order : (count + 1) * order + 1]
-            # TODO: Deal with weird warped rectangle
+                yield Prism(
+                    PrismTypes.RECTANGULAR,
+                    nodes[i : i + order + 1, count * order : (count + 1) * order + 1],
+                )
+            # FIXME: Can this handle the case where we merge elements at the very end?
             if prev_merge_start > 0 and prev_merge_start != merge_start:
                 narrow_element_points = nodes[
                     prev_merge_start : prev_merge_start + count + 1,
@@ -537,6 +535,9 @@ def _iter_merge_elements(
                     prev_merge_start : prev_merge_start + count + 1,
                     : (count + 1) * order + 1 : count + 1,
                 ]
+                # FIXME: Linear interpolation is a bit of a hack, as
+                # it won't ensure interior points stay on the same
+                # flux surfaces.
                 starts = SliceCoords(
                     narrow_element_points.start_points.x1 * one_minus_weights
                     + wide_element_points.start_points.x1 * weights,
@@ -544,13 +545,16 @@ def _iter_merge_elements(
                     + wide_element_points.start_points.x2 * weights,
                     nodes.start_points.system,
                 )
-                return field_aligned_positions(
-                    starts,
-                    nodes.x3[-1] - nodes.x3[1],
-                    nodes.trace,
-                    narrow_element_points.alignments * one_minus_weights
-                    + wide_element_points.alignments * weights,
-                    len(nodes.x3) - 1,
+                yield Prism(
+                    PrismTypes.RECTANGULAR,
+                    field_aligned_positions(
+                        starts,
+                        nodes.x3[-1] - nodes.x3[1],
+                        nodes.trace,
+                        narrow_element_points.alignments * one_minus_weights
+                        + wide_element_points.alignments * weights,
+                        len(nodes.x3) - 1,
+                    ),
                 )
             # Handle elements that are merged into adjacent ones
             for i in range(
@@ -558,14 +562,35 @@ def _iter_merge_elements(
                 nodes.poloidal_shape[0] if merge_start is None else merge_start,
                 order,
             ):
-                yield nodes[i : i + order + 1, : (count + 1) * order + 1 : count + 1]
-            # Return triangle
-            # FIXME: This only makes sense to do if returning Prism objects. Also, should I mask it somehow?
-            if merge_start is not None:
-                yield nodes[
-                    merge_start : merge_start + order + 1,
-                    : (count + 1) * order + 1 : count + 1,
-                ]
+                yield Prism(
+                    PrismTypes.RECTANGULAR,
+                    nodes[i : i + order + 1, : (count + 1) * order + 1 : count + 1],
+                )
+            # If this column reach a point where its elements become
+            # too narrow then it will be merged too. Return the
+            # triangle that will start that merge.
+            if merge_start == prev_merge_start:
+                assert merge_start is not None
+                yield Prism(
+                    PrismTypes.TRIANGULAR,
+                    nodes[
+                        np.arange(merge_start, merge_start + order + 1).reshape(
+                            (order + 1, 1)
+                        ),
+                        np.arange(count * order, 0, -count).reshape((order + 1, 1))
+                        + np.arange(order + 1),
+                    ],
+                )
+                pass
+            elif merge_start is not None:
+                # FIXME: Doesn't account for possibility of prev_merge_start == merge_start. In that case I think we'll need to create a new array.
+                yield Prism(
+                    PrismTypes.TRIANGULAR,
+                    nodes[
+                        merge_start : merge_start + order + 1,
+                        : (count + 1) * order + 1 : count + 1,
+                    ],
+                )
 
         # FIXME: Not sure I'm quite getting the right number of elements from each here
         column_starts = nodes.start_points.get[:prev_merge_start:order, count * order]
@@ -599,36 +624,190 @@ def _iter_merge_elements(
     return inner_func(0, 0, iter([]))
 
 
-def _iter_element_nodes(
-    nodes: FieldAlignedPositions,
-    merge: bool,
-    max_aspect_ratio: float,
+def _element_iterator_factory(
+    dx3: float,
+    vertex_weights: CoordMap[SliceCoord, float],
     order: int,
-) -> Iterator[FieldAlignedPositions]:
-    """Iterate over the elements, returning the nodes making up each one.
+    subdivisions: int,
+    system: CoordinateSystem,
+    eq: TokamakEquilibrium,
+    max_aspect_ratio: float,
+    corners_within_vessel: Callable[[Prism], bool],
+    mesh_to_core: bool,
+) -> Callable[[MeshRegion], tuple[Iterator[Prism], Iterator[Quad]]]:
+    """Produce a function for iterating over elements and inner boundaries of a region.
 
-    This will merge elements radiating from the X-point if they are too oblong.
+    This function will merge elements radiating from the X-point if they are
+    too oblong, if the region is in the core.
+
     """
-    # Need to ensure the first coordinate is indexed away from the x-point
-    nodes = nodes[::-1, :]
-    if merge:
-        half = nodes.poloidal_shape[1] // 2
-        start, left = _iter_merge_elements(
-            nodes[:, : half + 1], order, max_aspect_ratio
-        )
-        negative_end, right = _iter_merge_elements(
-            nodes[:, half:].flip(1),
+    tracer = equilibrium_trace(eq, system)
+    # FIXME: This is inefficient. Would be better to construct the
+    # arrays directly and avoid the vertex_weights dict
+    make_weights = np.vectorize(
+        lambda R, Z: vertex_weights.get(SliceCoord(R, Z, system), 1.0)
+    )
+
+    def _iter_elements(
+        region: MeshRegion,
+    ) -> tuple[Iterator[Prism], Iterator[Quad]]:
+        nodes = subdividable_field_aligned_positions(
+            # Need to ensure the first coordinate is indexed away from the x-point
+            SliceCoords(
+                region.Rxy.corners[::-1, :], region.Zxy.corners[::-1, :], system
+            ),
+            dx3,
+            tracer,
+            make_weights(region.Rxy.corners, region.Zxy.corners),
             order,
-            max_aspect_ratio,
+            subdivisions,
         )
-        end: int | None = None if negative_end == 0 else -negative_end
-        return itertools.chain(
-            left,
-            _element_nodes(nodes[:, start:end], order),
-            map(operator.methodcaller("flip", 1), right),
+        centre_core_bound = get_region_flux_surface_boundary_indices(region)[0]
+        nodes = nodes[::-1, :]
+        if centre_core_bound is None:
+            return filter(corners_within_vessel, _iterate_prisms(nodes, order)), iter(
+                []
+            )
+        else:
+            half = nodes.poloidal_shape[1] // 2
+            start_count, left = _iter_merge_elements(
+                nodes[:, : half + 1], order, max_aspect_ratio
+            )
+            start = start_count * order
+            end_count, right = _iter_merge_elements(
+                nodes[:, half:].flip(1),
+                order,
+                max_aspect_ratio,
+            )
+            end: int | None = None if end_count == 0 else -end_count * order
+            main_elements = filter(
+                corners_within_vessel,
+                itertools.chain(
+                    left,
+                    _iterate_prisms(nodes[:, start:end], order),
+                    map(operator.methodcaller("flip", 1), right),
+                ),
+            )
+            core_bound = nodes[centre_core_bound]
+            first_bound = (
+                core_bound[: start + 1 : start_count + 1] if start > 0 else None
+            )
+            last_bound = core_bound[end :: end_count + 1] if end is not None else None
+            main_bound = core_bound[start:end]
+            if mesh_to_core:
+                return itertools.chain(
+                    main_elements,
+                    _iter_prisms_to_core(first_bound, order, eq),
+                    _iter_prisms_to_core(main_bound, order, eq),
+                    _iter_prisms_to_core(last_bound, order, eq),
+                ), iter([])
+            else:
+                return main_elements, (
+                    Quad(points)
+                    for points in itertools.chain(
+                        [first_bound],
+                        (
+                            main_bound[i : i + order + 1]
+                            for i in range(main_bound.poloidal_shape[0] // order)
+                        ),
+                        [last_bound],
+                    )
+                    if points is not None
+                )
+
+    return _iter_elements
+
+
+def _iter_prisms_to_core(
+    nodes: FieldAlignedPositions | None,
+    order: int,
+    eq: TokamakEquilibrium,
+) -> Iterator[Prism]:
+    """Iterate over prisms connecting the inner boundary to the core."""
+    if nodes is None:
+        return
+    assert np.all(nodes.alignments == 1.0)
+    assert len(nodes.poloidal_shape) == 1
+    n = nodes.poloidal_shape[0] // order
+    alignments = np.ones((order + 1, order + 1))
+    alignments[-1, 0] = 0.0
+    # Get edges of triangles, connecting to the O-point
+    connectors = [
+        connect_to_o_point(eq, start, order)
+        for start in nodes.start_points.get[::order].iter_points()
+    ]
+    # Create prisms in groups of two, so that they can share memory more efficiently
+    for i in range(n // 2):
+        edge1 = nodes[2 * i * order : (2 * i + 1) * order + 1]
+        edge2 = nodes[(2 * i + 1) * order : 2 * (i + 1) * order + 1]
+        c1 = connectors[2 * i]
+        c2 = connectors[2 * i + 1]
+        c3 = connectors[2 * (i + 1)]
+        R_starts = np.empty((order + 1, order + 1))
+        Z_starts = np.empty((order + 1, order + 1))
+        R_starts[0, :] = edge1.start_points.x1
+        Z_starts[0, :] = edge1.start_points.x2
+        R_starts[:, -1] = edge2.start_points.x1
+        Z_starts[:, -1] = edge2.start_points.x2
+        R_starts[:, 0] = c1.x1
+        Z_starts[:, 0] = c1.x2
+        R_starts[-1, :] = c3.x1
+        R_starts[-1, :] = c3.x2
+        np.fill_diagonal(np.fliplr(R_starts), c2.x1)
+        np.fill_diagonal(np.fliplr(Z_starts), c2.x2)
+        # Fill in the interior points of the triangles
+        for j in range(1, order - 1):
+            points1 = flux_surface_edge(eq, c1[j], c2[j], order - j)
+            points2 = flux_surface_edge(eq, c2[j], c3[j], order - j)
+            R_starts[j, 1 : order - j] = points1.x1[:-1]
+            Z_starts[j, 1 : order - j] = points1.x2[:-1]
+            R_starts[j + 1 : -1, -j - 1] = points2.x1[:-1]
+            Z_starts[j + 1 : -1, -j - 1] = points2.x2[:-1]
+        triangle_nodes = field_aligned_positions(
+            SliceCoords(R_starts, Z_starts, nodes.start_points.system),
+            nodes.x3[-1] - nodes.x3[1],
+            nodes.trace,
+            alignments,
+            len(nodes.x3) - 1,
         )
-    else:
-        return _element_nodes(nodes, order)
+        # Precompute coordinates on the shared edge. These are stored
+        # along a diagonal and Numpy doesn't currently return
+        # writeable views of diagonals. This prevents caching of the
+        # coordinates calculated for the quad emenating from that
+        # edge. Instead we compute them now when accessing elements in
+        # a way that will return writeable views.
+        for i in range(order + 1):
+            triangle_nodes[i, -i - 1].coords
+        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes)
+        # For second prism, we need to transpose and then flip horizontally and vertically
+        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes.transpose().flip(0).flip(1))
+
+    # If there are an odd number of triangles, create the last one
+    if n % 2 == 1:
+        edge1 = nodes[-order - 1 :]
+        c1 = connectors[-2]
+        c2 = connectors[-1]
+        R_starts = np.empty((order + 1, order + 1))
+        Z_starts = np.empty((order + 1, order + 1))
+        R_starts[0, :] = edge1.start_points.x1
+        Z_starts[0, :] = edge1.start_points.x2
+        R_starts[:, 0] = c1.x1
+        Z_starts[:, 0] = c1.x2
+        np.fill_diagonal(np.fliplr(R_starts), c2.x1)
+        np.fill_diagonal(np.fliplr(Z_starts), c2.x2)
+        # Fill in the interior points of the triangles
+        for j in range(1, order - 1):
+            points1 = flux_surface_edge(eq, c1[j], c2[j], order - j)
+            R_starts[j, 1 : order - j] = points1.x1[:-1]
+            Z_starts[j, 1 : order - j] = points1.x2[:-1]
+        triangle_nodes = field_aligned_positions(
+            SliceCoords(R_starts, Z_starts, nodes.start_points.system),
+            nodes.x3[-1] - nodes.x3[1],
+            nodes.trace,
+            alignments,
+            len(nodes.x3) - 1,
+        )
+        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes)
 
 
 def _find_internal_neighbours(
@@ -645,28 +824,47 @@ def _find_internal_neighbours(
     yield from _find_internal_neighbours(new_outermost, new_external, connections)
 
 
+# FIXME: I think I can actually handle each region individually for
+# this, which would make things _a lot_ simpler and faster. Only
+# slightly tricky thing I'll need to worry about is if elements on one
+# side of the region boundary are inside and the other are not. I'll
+# need a bit of extra logic to make sure the relevant edges on the
+# boundary are marked as outermost.
 def _handle_edge_nodes(
     hypnotoad_poloidal_mesh: HypnoMesh,
     wall_points: Iterable[Point2D],
     order: int,
     restrict_to_vessel: bool,
-    # in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
+    in_tokamak_test: Callable[[SliceCoord, Sequence[WallSegment]], bool],
     alignment_steps: int,
     system: CoordinateSystem,
-) -> tuple[Callable[[Corners], bool], CoordMap[SliceCoord, float]]:
-    """Work out which nodes fall outside the vessle and degree of field-alignment."""
+) -> tuple[
+    Callable[[Prism], bool], CoordMap[SliceCoord, float], FrozenCoordSet[SliceCoord]
+]:
+    """Work out which nodes fall outside the vessle.
+
+    Returns a function to test for whether an element is inside the
+    vessel, a map indicating the required degree of field-alignment
+    for each node, and a set of all the corners making up the outer
+    edge of the remaining mesh.
+
+    """
     # FIXME: Would probably be better to rework this to have it return
     # FieldAlignedPositions objects, one for each region. Compute the
     # weights for each one and use masked arrays or weights of -1 to
     # mark the external nodes. Also return lists of indicies for
     # accessing the internal and external edges.
+
+    # FIXME: Should only get the corners, somehow
     initial_outermost_points = FrozenCoordSet(
         itertools.chain.from_iterable(
             itertools.chain.from_iterable(
-                get_region_flux_surface_boundary_points(region, system)[1:]
-                + get_region_perpendicular_boundary_points(region, system)
-                for region in hypnotoad_poloidal_mesh.regions.values()
+                iterate_points(region, index, CoordinateSystem.CYLINDRICAL)
+                for index in get_region_flux_surface_boundary_indices(region)[1:]
+                + get_region_perpendicular_boundary_indices(region)
+                if index is not None
             )
+            for region in hypnotoad_poloidal_mesh.regions.values()
         )
     )
     wall = wall_points_to_segments(wall_points)
@@ -699,7 +897,8 @@ def _handle_edge_nodes(
                 initial_outermost_points & FrozenCoordSet(connections.keys()),
             ),
             connections,
-            wall,  # , in_tokamak_test
+            wall,
+            in_tokamak_test,
         )
 
         if order > 1:
@@ -738,17 +937,15 @@ def _handle_edge_nodes(
             else:
                 outermost_nodes = outermost_corners
 
-        def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
-        ) -> bool:
-            return FrozenCoordSet(c for c in corners if c is not None).isdisjoint(
-                external_corners
+        def corners_within_vessel(element: Prism) -> bool:
+            return not any(
+                point in external_corners for point in element.poloidal_corners()
             )
 
     else:
 
         def corners_within_vessel(
-            corners: tuple[SliceCoord, SliceCoord, SliceCoord, Optional[SliceCoord]],
+            _: Prism,
         ) -> bool:
             return True
 
@@ -786,7 +983,7 @@ def _handle_edge_nodes(
             )
         )
     )
-    return corners_within_vessel, vertex_weights
+    return corners_within_vessel, vertex_weights, outermost_nodes
 
 
 def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
@@ -811,40 +1008,52 @@ def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh) -> float:
     )
 
 
+def _quad_interpolate(
+    north: npt.NDArray, east: npt.NDArray, south: npt.NDArray, west: npt.NDArray
+) -> npt.NDArray:
+    s, t = _quad_control_points(len(north) - 1)
+    return (
+        (north - north[0] * (1 - s)) * t
+        + (south - south[-1] * s) * (1 - t)
+        + (east - east[-1] * t) * s
+        + (west - west[0] * (1 - t)) * (1 - s)
+    )
+
+
 def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
     """Combine two triangular prisms into a hexahedron."""
-    if len(p1.sides) != 3:
+    if p1.shape != PrismTypes.TRIANGULAR:
         raise ValueError("First element is not a triangular prism")
-    if len(p2.sides) != 3:
+    if p2.shape != PrismTypes.TRIANGULAR:
         raise ValueError("Second element is not a triangular prism")
-    common_face = set(p1.sides) & set(p2.sides)
+    sides1 = {_quad_points(s): s for s in p1}
+    sides2 = {_quad_points(s): s for s in p2}
+
+    common_face = set(sides1) & set(sides2)
     n = len(common_face)
     if n == 0:
         raise ValueError("Prisms do not share a face on which to join")
     if n > 1:
         raise ValueError("Prisms share more than one face; unclear how to join")
     join_on = next(iter(common_face))
-    north, potential_east = (face for face in p1.sides if face != join_on)
-    north_points = FrozenCoordSet(north.shape([0.0, 1.0]).iter_points())
-    potential_east_points = FrozenCoordSet(
-        potential_east.shape([0.0, 1.0]).iter_points()
+    (north_points, north), (potential_east_points, potential_east) = (
+        item for item in sides1.items() if item[0] != join_on
     )
-    q2_1, q2_2 = (face for face in p2.sides if face != join_on)
-    if len(FrozenCoordSet(q2_1.shape([0.0, 1.0]).iter_points()) & north_points) == 0:
+    (q2_1_points, q2_1), (q2_2_points, q2_2) = (
+        item for item in sides2.items() if item[0] != join_on
+    )
+    if len(q2_1_points & north_points) == 0:
         south = q2_1
         potential_west = q2_2
+        potential_west_points = q2_2_points
     else:
         south = q2_2
         potential_west = q2_1
+        potential_west_points = q2_1_points
     # Choose east and west segments to ensure a positive Jacobian
     vertex0 = next(iter(north_points - potential_east_points))
     vertex1 = next(iter(potential_east_points - north_points))
-    vertex3 = next(
-        iter(
-            FrozenCoordSet(potential_west.shape([0.0, 1.0]).iter_points())
-            - north_points
-        )
-    )
+    vertex3 = next(iter(potential_west_points - north_points))
     jacobian = (vertex1.x2 - vertex0.x2) * (vertex3.x1 - vertex0.x1) - (
         vertex1.x1 - vertex0.x1
     ) * (vertex3.x2 - vertex0.x2)
@@ -854,13 +1063,61 @@ def _merge_prisms(p1: Prism, p2: Prism) -> Prism:
     else:
         east = potential_west
         west = potential_east
-    return Prism((north, south, east, west))
+
+    # Make sure all quads are going in proper directions in  the poloidal plane
+    # TODO: See if I can combine this with checking the Jacobian, etc.
+    north_nodes = north.nodes
+    if north_nodes.start_points[-1].approx_eq(east.nodes.start_points[-1]):
+        east_nodes = east.nodes
+    else:
+        east_nodes = east.nodes[::-1]
+    if east_nodes.start_points[0].approx_eq(south.nodes.start_points[-1]):
+        south_nodes = south.nodes
+    else:
+        south_nodes = south.nodes[::-1]
+    if north_nodes.start_points[0].approx_eq(west.nodes.start_points[-1]):
+        west_nodes = west.nodes
+    else:
+        west_nodes = west.nodes[::-1]
+
+    R_starts = _quad_interpolate(
+        north_nodes.start_points.x1,
+        east_nodes.start_points.x1,
+        south_nodes.start_points.x1,
+        west_nodes.start_points.x1,
+    )
+    Z_starts = _quad_interpolate(
+        north_nodes.start_points.x1,
+        east_nodes.start_points.x1,
+        south_nodes.start_points.x1,
+        west_nodes.start_points.x1,
+    )
+    alignments = _quad_interpolate(
+        north_nodes.alignments,
+        east_nodes.alignments,
+        south_nodes.alignments,
+        west_nodes.alignments,
+    )
+    return Prism(
+        PrismTypes.RECTANGULAR,
+        field_aligned_positions(
+            SliceCoords(R_starts, Z_starts, p1.nodes.start_points.system),
+            p1.nodes.x3[-1] - p1.nodes.x3[1],
+            p1.nodes.trace,
+            alignments,
+            len(p1.nodes.x3) - 1,
+        ),
+    )
+
+
+def _quad_points(q: Quad) -> frozenset[SliceCoord]:
+    return frozenset({q.nodes.start_points[0], q.nodes.start_points[-1]})
 
 
 def _validate_wall_elements(
     boundary_faces: frozenset[Quad],
     elements: Sequence[Prism],
-    quad_to_elements: Callable[[Quad], list[Prism]],
+    sides_to_elements: dict[frozenset[SliceCoord], list[Prism]],
     validate: Callable[[Prism], bool],
 ) -> tuple[list[Prism], frozenset[Quad]]:
     """Return the elements with any self-intersections removed from boundaries.
@@ -878,9 +1135,9 @@ def _validate_wall_elements(
     elements
         All the elements being checked, plus adacent ones with which
         they may be combined.
-    quad_to_elements
-        A function that maps between a quad and thes elements which
-        have it as a face.
+    sides_to_elements
+        A dictionary mapping between a the pair of vertices defining an
+        edge and the elements which have it as a face.
     validate
         Function to check whether a given prism has a positive Jacobian
         (i.e., is not self-intersecting)
@@ -892,78 +1149,133 @@ def _validate_wall_elements(
     changed to prevent self-intersecting elements.
 
     """
-    # FIXME: My refactor of how I represent meshes will mean I pretty much need to rewrite this.
-    # TODO: Should I validate internal elements too? If I flatten one
-    # then that could end up makign a further element invalid, which
-    # sounds unpleasant to have to deal with...
+    # TODO: Should I refactor to validate internal elements too? If I
+    # flatten one then that could end up making a further element
+    # invalid, which sounds unpleasant to have to deal with...
+    #
     # FIXME: Hashing elements and faces like this can end up hashing
     # SliceCoord objects. This means there is no room for floating
     # point differences. So far that has not been a problem, but it
     # might become one.
-    new_elements = set(elements)
-    new_faces = set(boundary_faces)
+    new_elements = {frozenset(elem.poloidal_corners()): elem for elem in elements}
+    new_faces = {_quad_points(face): face for face in boundary_faces}
     for prism in elements:
         # If element not in new_elements, it has already been
         # processed. If it is already valid there is no need to do
         # anything.
-        if prism not in new_elements or validate(prism):
+        corners = frozenset(prism.poloidal_corners())
+        if corners not in new_elements or validate(prism):
             continue
         # Try merging with adjacent triangles (which haven't already
         # been merged with another element, which would remove them
         # from new_elements)
-
-        # FIXME: Will need to change how I map faces to elements; just use pairs of points?
         merge_candidates = frozenset(
             item
             for item in itertools.chain.from_iterable(
                 (
                     (_merge_prisms(prism, p), p)
-                    for p in quad_to_elements(q)
-                    if len(p.sides) == 3 and p in new_elements and p != prism
+                    for p in sides_to_elements[q]
+                    if p in new_elements and p != prism
                 )
-                for q in prism.sides
+                for q in map(_quad_points, prism)
             )
             if validate(item[0])
         )
-        # If that works, swap it for `prism` in `new_elements`
+        # If that works, swap it for `prism` in
+        # `new_elements`. Otherwise, convert the sides of the prism to
+        # be flat (in the poloidal plane)
         if len(merge_candidates) != 0:
             # Will need to replace this element
-            new_elements.remove(prism)
             assert len(merge_candidates) == 1  # Doesn't make sense otherwise
+            del new_elements[corners]
             new_hex, old_prism = next(iter(merge_candidates))
-            new_elements.remove(old_prism)
-            new_elements.add(new_hex)
+            del new_elements[frozenset(old_prism.poloidal_corners())]
+            new_elements[frozenset(new_hex.poloidal_corners())] = new_hex
         else:
-            # Otherwise, convert the sides of the prism to be flat (in the poloidal plane)
-            face_map = {f: f.make_flat_quad() for f in prism}
-            # FIXME: This isn't detecting elements on the main plasma mesh...
-            adjacent_elements = frozenset(
-                itertools.chain.from_iterable(
-                    (element for element in quad_to_elements(q) if element != prism)
-                    for q in face_map
-                )
+            # Note: We don't need worry about faces between adjacent
+            # elements no longer lining up. Curved faces will always
+            # be on either the edge of the Tokamak vessel or the edge
+            # of the plasma mesh. If the former, there will be no
+            # adjecent element to worry about. If the latter, there is
+            # nothing we can do about it right now without causing
+            # further elements to become invalid, so they are ignored.
+            # It is unlikely they'd actually be invalid anyway.
+            flat_prism = prism.make_flat_faces()
+            new_elements[frozenset(prism.poloidal_corners())] = flat_prism
+            new_faces.update(
+                {
+                    points: flat_face
+                    for face, flat_face in zip(prism, flat_prism)
+                    if (points := _quad_points(face)) in boundary_faces
+                }
             )
-            # Don't fix elements that would require you to modify a
-            # hex, as that would probably result in the hex becoming
-            # self-intersecting.
-            if any(len(element.sides) == 4 for element in adjacent_elements):
-                warn("Can not fix negative Jacobian in prism without modifying a hex")
-                continue
-            # Will need to replace this element
-            new_elements.remove(prism)
-            new_elements.add(Prism(tuple(face_map.values())))
-            # Replace the boundary faces for this prism with the flattened ones
-            new_faces -= {old for old in face_map if old in boundary_faces}
-            new_faces |= {new for old, new in face_map.items() if old in boundary_faces}
-            # Update surrounding prisms to use the flattened faces
-            for p in adjacent_elements:
-                # FIXME: Could this result in element with curved
-                # sides that were previously found to be OK not being
-                # modified properly?
-                if p in new_elements:
-                    new_elements.remove(p)
-                    new_elements.add(Prism(tuple(face_map.get(q, q) for q in p.sides)))
-    return list(new_elements), frozenset(new_faces)
+    return list(new_elements.values()), frozenset(new_faces.values())
+
+
+@cache
+def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
+    x1, x2 = np.meshgrid(
+        np.linspace(0.0, 1.0, order + 1),
+        np.linspace(0.0, 1.0, order + 1),
+        indexing="ij",
+        sparse=True,
+    )
+    return x1, x2
+
+
+@cache
+def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
+    x1sq, x2 = _quad_control_points(order)
+    x1 = np.empty(np.broadcast(x1sq, x2).shape)
+    x1[:, :-1] = x1sq / (1 - x2[:, :-1])
+    # Handle NaNs at top of triangle
+    x1[0, -1] = 1
+    x1[1:, -1] = 1.1
+    x1_m = np.ma.masked_greater(x1, 1.0)
+    return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
+
+
+def _edges_to_prism(side1: Quad, side2: Quad) -> Prism:
+    """Construct a prism from the 2 edges, with a straight line between the unconnected vertices."""
+    # Order sides so first one is linear, plus ensure east and west sides start at south
+    s1_1 = side1.nodes.start_points[0]
+    s1_2 = side1.nodes.start_points[-1]
+    s2_1 = side2.nodes.start_points[0]
+    s2_2 = side2.nodes.start_points[-1]
+
+    if s1_1.approx_eq(s2_1):
+        west = side1.nodes[::-1]
+        east = side2.nodes[::-1]
+    elif s1_1.approx_eq(s2_2):
+        west = side1.nodes
+        east = side2.nodes[::-1]
+    elif s1_2.approx_eq(s2_1):
+        west = side1.nodes[::-1]
+        east = side2.nodes
+    elif s1_2.approx_eq(s2_2):
+        west = side1.nodes
+        east = side2.nodes
+    else:
+        raise RuntimeError("Sides of triangular prism do not share an edge.")
+
+    n = east.order
+    s, _ = _triangle_control_points(n)
+    s2 = 1 - s
+    real_x1 = east.start_points.x1 * s2 + west.start_points.x1 * s
+    real_x2 = east.start_points.x2 * s2 + west.start_points.x2 * s
+    alignments = east.alignments * s2 + west.alignments * s
+    return Prism(
+        PrismTypes.TRIANGULAR,
+        field_aligned_positions(
+            SliceCoords(real_x1, real_x2, side1.nodes.start_points.system),
+            side1.nodes.x3[-1] - side1.nodes.x3[0],
+            side1.nodes.trace,
+            alignments,
+            len(side1.nodes.x3) - 1,
+            side1.nodes.subdivision,
+            side1.nodes.num_divisions,
+        ),
+    )
 
 
 def hypnotoad_mesh(
@@ -1066,6 +1378,8 @@ def hypnotoad_mesh(
     generator
 
     """
+    # TODO: Probably can just check Jacobian of elements by
+    # calculating it manually for each sub-quad/sub-hex now, right?
     if mesh_to_wall and not restrict_to_vessel:
         raise ValueError(
             "If mesh_to_wall is true then restrict_to_vessel must be true as well."
@@ -1076,83 +1390,113 @@ def hypnotoad_mesh(
     x3_mid = np.linspace(
         extrusion_limits[0] + 0.5 * dx3, extrusion_limits[1] - 0.5 * dx3, n
     )
-    tracer = equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium, system)
+    min_dist_squared = min_distance_to_wall * min_distance_to_wall
 
     eqdsk_wall = hypnotoad_poloidal_mesh.equilibrium.wall[:-1]
-    corners_within_vessel, vertex_weights = _handle_edge_nodes(
+    corners_within_vessel, vertex_weights, outermost_corners = _handle_edge_nodes(
         hypnotoad_poloidal_mesh,
         eqdsk_wall,
         order,
         restrict_to_vessel,
+        lambda start, wall: point_in_tokamak(start, wall)
+        and min(seg.min_distance_squared(start) for seg in wall) >= min_dist_squared,
         alignment_steps,
         system,
     )
-
-    make_weights = np.vectorize(
-        lambda R, Z: vertex_weights.get(SliceCoord(R, Z, system), 1.0)
+    iter_elements = _element_iterator_factory(
+        dx3,
+        vertex_weights,
+        order,
+        subdivisions,
+        system,
+        hypnotoad_poloidal_mesh.equilibrium,
+        max_aspect_ratio,
+        corners_within_vessel,
+        mesh_to_core,
     )
 
-    blocks = [
-        (
-            subdividable_field_aligned_positions(
-                SliceCoords(r.Rxy.corners, r.Zxy.corners, system),
-                dx3,
-                tracer,
-                make_weights(r.Rxy.corners, r.Zxy.corners),
-                order,
-                subdivisions,
-            ),
-            r.equilibriumRegion.name.endswith("core")
-            and r.connections["inner"] is None,
-        )
-        for r in hypnotoad_poloidal_mesh.regions.values()
-    ]
-
-    factory = ElementBuilder(
-        hypnotoad_poloidal_mesh, tracer, dx3, vertex_weights, system
+    main_elements_iter: Iterator[Prism]
+    inner_bounds_iter: Iterator[Quad]
+    main_elements_iter, inner_bounds_iter = map(
+        itertools.chain.from_iterable,
+        zip(*(iter_elements(r) for r in hypnotoad_poloidal_mesh.regions.values())),
     )
+    main_elements = list(main_elements_iter)
+    inner_bounds = frozenset(inner_bounds_iter)
 
-    main_elements = [
-        factory.make_element(*corners)
-        for corners in itertools.chain.from_iterable(
-            _iter_element_nodes(nodes, merge, max_aspect_ratio, order)
-            for nodes, merge in blocks
-        )
-        if corners_within_vessel(corners)
+    # Don't use a FrozenCoordSet, as these are very inefficient to
+    # hash on. However, this might result in points not being exactly
+    # the same. Ideally would use whatever value is stored in
+    # outermost_corners.
+    possible_plasma_edges = [
+        (frozenset({p1, p2}), q)
+        for q in itertools.chain.from_iterable(main_elements)
+        if (p1 := q.nodes.start_points[0]) in outermost_corners
+        and (p2 := q.nodes.start_points[-1]) in outermost_corners
     ]
-    # Probably more efficient just to iterate over inner regions
-    if mesh_to_core:
-        core_elements = list(
-            itertools.starmap(
-                factory.make_prism_to_centre,
-                periodic_pairwise(factory.innermost_vertices()),
-            )
-        )
-        inner_bounds: frozenset[Quad] = frozenset()
-    else:
-        core_elements = []
-        inner_bounds = frozenset(factory.innermost_quads())
+    # Construct a mapping between end-points of outermost plasma mesh edges
+    # and the corresponding quads.
+    #
+    # If there are any duplicate edges then that indicates they aren't
+    # really outermost and should be dropped.
+    edge_count = Counter(item[0] for item in possible_plasma_edges)
+    plasma_edges = dict(
+        edge for edge in possible_plasma_edges if edge_count[edge[0]] == 1
+    )
+    # Get the ordered list of vertices making up the outermost edge of the plasma mesh
+    op = hypnotoad_poloidal_mesh.equilibrium.o_point
+    o_point = SliceCoord(op.R, op.Z, system)
+    ordered_outermost_vertices: VertexRing = reduce(
+        lambda ring, item: ring.add_vertices(*item, o_point),
+        plasma_edges,
+        VertexRing([]),
+    )
+    # FIXME: Avoid creating a second of these
+    tracer = equilibrium_trace(hypnotoad_poloidal_mesh.equilibrium, system)
+
     if mesh_to_wall:
         # FIXME: Not capturing the curves of the outermost hypnotoad quads now, for some reason.
 
         # FIXME: Assemble coordinate pairs and mapping between these pairs and the list of Coords defining the curve
-        plasma_points = [tuple(p) for p in factory.outermost_vertices()]
+        plasma_points = [tuple(p) for p in ordered_outermost_vertices]
         # FIXME: Assemble list of Coords (one for each wall segment) and also coordinate pairs?
         if wall_resolution is not None:
             target = _average_poloidal_spacing(hypnotoad_poloidal_mesh)
-            wall: list[Point2D] = adjust_wall_resolution(
-                eqdsk_wall,
-                target * wall_resolution,
-                angle_threshold=wall_angle_threshold,
-                register_segment=factory.make_wall_quad_for_prism,
+            wall_segments: list[AcrossFieldCurve] = list(
+                adjust_wall_resolution(
+                    eqdsk_wall,
+                    target * wall_resolution,
+                    order,
+                    angle_threshold=wall_angle_threshold,
+                    system=system,
+                )
             )
+            wall = [seg[0] for seg in wall_segments]
+            wall_quads = {
+                frozenset({seg[0], seg[-1]}): Quad(
+                    subdividable_field_aligned_positions(
+                        seg, dx3, tracer, np.array(0.0), order, subdivisions
+                    )
+                )
+                for seg in wall_segments
+            }
         else:
             wall = eqdsk_wall
+            wall_quads = {
+                frozenset({p1, p2}): Quad(
+                    subdividable_field_aligned_positions(
+                        straight_line_across_field(p1, p2, order),
+                        dx3,
+                        tracer,
+                        np.array(0.0),
+                        order,
+                        subdivisions,
+                    )
+                )
+                for p1, p2 in periodic_pairwise(wall)
+            }
         wall_points = [tuple(p) for p in wall]
         # Should be fine to require exact equality when comparing wall coordinates
-        wall_coord_pairs = frozenset(
-            periodic_pairwise(SliceCoord(p[0], p[1], system) for p in wall_points)
-        )
         n = len(wall_points)
         import meshpy.triangle as triangle  # type: ignore
 
@@ -1171,38 +1515,72 @@ def hypnotoad_mesh(
         wall_mesh_coords = SliceCoords(
             wall_mesh_points[:, 0], wall_mesh_points[:, 1], system
         )
-        initial: tuple[list[Prism], frozenset[Quad]] = ([], frozenset())
-        # FIXME: Take coordinate pairs, check if either of them correspond to curves and use those or else just use the pair. If any of the pairs are from the wall, create a boundary item as well.
-        initial_wall_elements, initial_outer_bounds = reduce(
-            lambda left, right: (left[0] + [right[0]], left[1] | right[1]),
-            (
-                factory.make_outer_prism(
-                    wall_mesh_coords[i],
-                    wall_mesh_coords[j],
-                    wall_mesh_coords[k],
-                    wall_coord_pairs,
+
+        def get_prism_edge(p1: SliceCoord, p2: SliceCoord) -> tuple[Quad, bool]:
+            key = frozenset({p1, p2})
+            if key in plasma_edges:
+                return plasma_edges[key], False
+            if key in wall_quads:
+                return wall_quads[key], False
+            return Quad(
+                subdividable_field_aligned_positions(
+                    straight_line_across_field(p1, p2, order),
+                    dx3,
+                    tracer,
+                    np.array(0.0),
+                    order,
+                    subdivisions,
                 )
-                for i, j, k in triangles
-            ),
-            initial,
-        )
+            ), True
+
+        def make_outer_prism(p1: SliceCoord, p2: SliceCoord, p3: SliceCoord) -> Prism:
+            q1, q1_new = get_prism_edge(p1, p2)
+            q2, q2_new = get_prism_edge(p2, p3)
+            q3, q3_new = get_prism_edge(p3, p1)
+            # Make sure any pre-existing quads representing the plasma
+            # mesh or the wall are used, to preserve any curvature.
+            if q1_new:
+                return _edges_to_prism(q2, q3)
+            elif q2_new:
+                return _edges_to_prism(q1, q3)
+            elif q3_new:
+                return _edges_to_prism(q1, q2)
+            else:
+                raise RuntimeError(
+                    "Can not construct prism when all sides are on the vessel wall or edge of the plasma mesh."
+                )
+
+        initial_wall_elements = {
+            make_outer_prism(
+                (p1 := wall_mesh_coords[i]),
+                (p2 := wall_mesh_coords[j]),
+                (p3 := wall_mesh_coords[k]),
+            ): [frozenset({p1, p2}), frozenset({p2, p3}), frozenset({p3, p1})]
+            for i, j, k in triangles
+        }
+        sides_to_elements: dict[frozenset[SliceCoord], list[Prism]] = {}
+        for k, v in initial_wall_elements.items():
+            for p in v:
+                sides_to_elements.setdefault(p, []).append(k)
+
+        initial_outer_bounds = frozenset(wall_quads.values())
         if validator is not None:
             wall_elements, outer_bounds = _validate_wall_elements(
                 initial_outer_bounds,
-                initial_wall_elements,
-                factory.get_element_for_quad,
+                list(initial_wall_elements),
+                sides_to_elements,
                 validator,
             )
         else:
-            wall_elements = initial_wall_elements
+            wall_elements = list(initial_wall_elements)
             outer_bounds = initial_outer_bounds
     else:
         wall_elements = []
-        outer_bounds = frozenset(factory.outermost_quads())
+        outer_bounds = frozenset(plasma_edges.values())
 
     return GenericMesh(
         MeshLayer(
-            core_elements + main_elements + wall_elements,
+            main_elements + wall_elements,
             [inner_bounds, outer_bounds],
             subdivisions=subdivisions,
         ),
