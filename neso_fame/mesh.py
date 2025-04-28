@@ -728,7 +728,8 @@ class PrismTypes(Enum):
     """The different cross-sections which a Prism can have."""
 
     TRIANGULAR = 3
-    RECTANGULAR = 4
+    REVERSED_TRIANGULAR = 4
+    RECTANGULAR = 5
 
 
 @dataclass(frozen=True)
@@ -759,6 +760,11 @@ class Prism(LazilyOffsetable):
             yield Quad(self.nodes[0, :])
             yield Quad(self.nodes[:, 0])
             yield Quad(self.nodes.diagonal)
+        elif self.shape == PrismTypes.REVERSED_TRIANGULAR:
+            n = self.nodes.flip(1)
+            yield Quad(n[0, :])
+            yield Quad(n.diagonal)
+            yield Quad(n[0, :])
         elif self.shape == PrismTypes.RECTANGULAR:
             yield Quad(self.nodes[0, :])
             yield Quad(self.nodes[-1, :])
@@ -789,21 +795,24 @@ class Prism(LazilyOffsetable):
         """Return the points corresponding to the vertices of the hexahedron."""
         yield self.nodes.coords[0, 0, 0]
         yield self.nodes.coords[0, -1, 0]
-        yield self.nodes.coords[-1, 0, 0]
-        if self.shape == PrismTypes.RECTANGULAR:
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
+            yield self.nodes.coords[-1, 0, 0]
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
             yield self.nodes.coords[-1, -1, 0]
         yield self.nodes.coords[0, 0, -1]
         yield self.nodes.coords[0, -1, -1]
-        yield self.nodes.coords[-1, 0, -1]
-        if self.shape == PrismTypes.RECTANGULAR:
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
+            yield self.nodes.coords[-1, 0, -1]
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
             yield self.nodes.coords[-1, -1, -1]
 
     def poloidal_corners(self) -> Iterator[SliceCoord]:
         """Return the vertices of cross section of the prism on the starting poloidal plane."""
         yield self.nodes.start_points[0, 0]
         yield self.nodes.start_points[0, -1]
-        yield self.nodes.start_points[-1, 0]
-        if self.shape == PrismTypes.RECTANGULAR:
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
+            yield self.nodes.start_points[-1, 0]
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
             yield self.nodes.start_points[-1, -1]
 
     def subdivide(self, num_divisions: int) -> Iterator[Prism]:
@@ -825,10 +834,11 @@ class Prism(LazilyOffsetable):
         """Create a new prism where sides don't curve in the poloidal plane."""
         s = np.linspace(0.0, 1.0, self.nodes.start_points.shape[0])
         s1, s2 = np.meshgrid(s, s, copy=False, sparse=True)
-        if self.shape == PrismTypes.TRIANGULAR:
-            north = self.nodes.start_points[0, 0]
-            east = self.nodes.start_points[0, -1]
-            south = self.nodes.start_points[-1, 0]
+        if self.shape == PrismTypes.TRIANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
+            nodes = self.nodes.flip(1) if self.shape == PrismTypes.REVERSED_TRIANGULAR else self.nodes
+            north = nodes.start_points[0, 0]
+            east = nodes.start_points[0, -1]
+            south = nodes.start_points[-1, 0]
             ns = (1.0 - s1) * (1.0 - s2)
             es = s1 * (1.0 - s2)
             ss = s2
@@ -853,9 +863,7 @@ class Prism(LazilyOffsetable):
             )
         else:
             assert_never(self.shape)
-        return Prism(
-            self.shape,
-            field_aligned_positions(
+        new_nodes =           field_aligned_positions(
                 starts,
                 self.nodes.x3[-1] - self.nodes.x3[0],
                 self.nodes.trace,
@@ -863,8 +871,9 @@ class Prism(LazilyOffsetable):
                 self.nodes.order,
                 self.nodes.subdivision,
                 self.nodes.num_divisions,
-            ),
         )
+        return Prism(
+            self.shape, new_nodes.flip(1) if self.shape == PrismTypes.REVERSED_TRIANGULAR else new_nodes)
 
 
 E = TypeVar("E", Quad, Prism)

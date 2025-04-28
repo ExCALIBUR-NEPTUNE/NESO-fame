@@ -504,14 +504,18 @@ def _iter_merge_elements(
     nodes: FieldAlignedPositions,
     order: int,
     max_aspect_ratio: float,
+    flip: bool,
 ) -> tuple[int, Iterator[Prism]]:
     """Iterate over elements, merging those that are too narrow.
 
     Always starts looking from index [0, 0]
     """
     # TODO check this is the right shape for broadcasting
-    weights = np.linspace(0.0, 1.0, order + 1)
+    weights = np.linspace(0.0, 1.0, order + 1).reshape((order +1, 1))
     one_minus_weights = 1 - weights
+
+    def maybe_flip(nds: FieldAlignedPositions) -> FieldAlignedPositions:
+        return nds.flip(1) if flip else nds
 
     def inner_func(
         count: int,
@@ -519,20 +523,21 @@ def _iter_merge_elements(
         prev_elements: Iterator[Prism],
     ) -> tuple[int, Iterator[Prism]]:
         def iterate_column(merge_start: int | None) -> Iterator[Prism]:
+            print(f"Previous merge start: {prev_merge_start}, Merge start: {merge_start}")
             # Handle elements that don't need to be merged
             for i in range(0, prev_merge_start - order, order):
                 yield Prism(
                     PrismTypes.RECTANGULAR,
-                    nodes[i : i + order + 1, count * order : (count + 1) * order + 1],
+                    maybe_flip(nodes[i : i + order + 1, count * order : (count + 1) * order + 1]),
                 )
-            # FIXME: Can this handle the case where we merge elements at the very end?
+            # FIXME: Can this handle the case where we merge elements at the very end? Nope...
             if prev_merge_start > 0 and prev_merge_start != merge_start:
                 narrow_element_points = nodes[
-                    prev_merge_start : prev_merge_start + count + 1,
+                    prev_merge_start - order: prev_merge_start + 1,
                     count * order : (count + 1) * order + 1,
                 ]
                 wide_element_points = nodes[
-                    prev_merge_start : prev_merge_start + count + 1,
+                    prev_merge_start - order : prev_merge_start + 1,
                     : (count + 1) * order + 1 : count + 1,
                 ]
                 # FIXME: Linear interpolation is a bit of a hack, as
@@ -547,49 +552,49 @@ def _iter_merge_elements(
                 )
                 yield Prism(
                     PrismTypes.RECTANGULAR,
-                    field_aligned_positions(
+                    maybe_flip(field_aligned_positions(
                         starts,
                         nodes.x3[-1] - nodes.x3[1],
                         nodes.trace,
                         narrow_element_points.alignments * one_minus_weights
                         + wide_element_points.alignments * weights,
                         len(nodes.x3) - 1,
-                    ),
+                    )),
                 )
             # Handle elements that are merged into adjacent ones
+            # FIXME: This will return a quad where there should be a triangle in the first row. prev_merge_start doesn't work well...
             for i in range(
-                prev_merge_start + order,
-                nodes.poloidal_shape[0] if merge_start is None else merge_start,
+                prev_merge_start,
+                nodes.poloidal_shape[0] - 1 if merge_start is None else merge_start - 1,
                 order,
             ):
                 yield Prism(
                     PrismTypes.RECTANGULAR,
-                    nodes[i : i + order + 1, : (count + 1) * order + 1 : count + 1],
+                    maybe_flip(nodes[i : i + order + 1, : (count + 1) * order + 1 : count + 1]),
                 )
             # If this column reach a point where its elements become
             # too narrow then it will be merged too. Return the
             # triangle that will start that merge.
+            # FIXME: This could be a problem in the first row...
             if merge_start == prev_merge_start:
                 assert merge_start is not None
                 yield Prism(
-                    PrismTypes.TRIANGULAR,
-                    nodes[
+                    PrismTypes.REVERSED_TRIANGULAR if flip else PrismTypes.TRIANGULAR,
+                    maybe_flip(nodes[
                         np.arange(merge_start, merge_start + order + 1).reshape(
                             (order + 1, 1)
                         ),
                         np.arange(count * order, 0, -count).reshape((order + 1, 1))
                         + np.arange(order + 1),
-                    ],
+                    ]),
                 )
-                pass
             elif merge_start is not None:
-                # FIXME: Doesn't account for possibility of prev_merge_start == merge_start. In that case I think we'll need to create a new array.
                 yield Prism(
-                    PrismTypes.TRIANGULAR,
-                    nodes[
-                        merge_start : merge_start + order + 1,
+                    PrismTypes.REVERSED_TRIANGULAR if flip else PrismTypes.TRIANGULAR,
+                    maybe_flip(nodes[
+                        merge_start - order : merge_start + 1,
                         : (count + 1) * order + 1 : count + 1,
-                    ],
+                    ]),
                 )
 
         # FIXME: Not sure I'm quite getting the right number of elements from each here
@@ -603,6 +608,7 @@ def _iter_merge_elements(
         ratios = _element_aspect_ratio(
             column_edge, nodes.start_points.get[::order, (count + 1) * order]
         )
+        #breakpoint()
         first_merging = int(np.argmax(ratios > max_aspect_ratio)) * order
         # Deal with case where nothing needs to be merged or have reached the last column
         if (
@@ -663,7 +669,6 @@ def _element_iterator_factory(
             subdivisions,
         )
         centre_core_bound = get_region_flux_surface_boundary_indices(region)[0]
-        nodes = nodes[::-1, :]
         if centre_core_bound is None:
             return filter(corners_within_vessel, _iterate_prisms(nodes, order)), iter(
                 []
@@ -671,13 +676,14 @@ def _element_iterator_factory(
         else:
             half = nodes.poloidal_shape[1] // 2
             start_count, left = _iter_merge_elements(
-                nodes[:, : half + 1], order, max_aspect_ratio
+                nodes[:, : half + 1], order, max_aspect_ratio, False
             )
             start = start_count * order
             end_count, right = _iter_merge_elements(
                 nodes[:, half:].flip(1),
                 order,
                 max_aspect_ratio,
+                True
             )
             end: int | None = None if end_count == 0 else -end_count * order
             main_elements = filter(
@@ -685,7 +691,7 @@ def _element_iterator_factory(
                 itertools.chain(
                     left,
                     _iterate_prisms(nodes[:, start:end], order),
-                    map(operator.methodcaller("flip", 1), right),
+                    right,
                 ),
             )
             core_bound = nodes[centre_core_bound]

@@ -683,22 +683,23 @@ def test_iterate_and_merge_elements() -> None:
     hypno_region.Rxy.corners = R
     hypno_region.Zxy.corners = Z
     hypno_region.equilibriumRegion.name = "core"
-    hypno_region.connections = {"inner": None}
-    elements = frozenset(
-        generators._iter_elements(hypno_region, 10, CoordinateSystem.CYLINDRICAL)
-    )
+    hypno_region.connections = {"inner": None, "outer": None}
+    element_iterator = generators._element_iterator_factory(1., CoordMap(), 1, 1, CoordinateSystem.CYLINDRICAL, MagicMock(), 10., lambda _: True, False)
+    elements, _ =         element_iterator(hypno_region)
 
     def coord(R: float, Z: float) -> SliceCoord:
         return SliceCoord(R, Z, CoordinateSystem.CYLINDRICAL)
 
-    assert elements == {
-        (coord(0.0, 0.0), coord(1.0, 0.0), coord(0.0, 1.0), None),
+    actual = {tuple(elem.poloidal_corners()) for elem in elements}
+    expected = {
+        (coord(0.0, 0.0), coord(1.0, 0.0), coord(0.0, 1.0)),
         (coord(1.0, 0.0), coord(2.0, 0.0), coord(0.0, 1.0), coord(2.0, 1.0)),
         (coord(2.0, 0.0), coord(3.0, 0.0), coord(2.0, 1.0), coord(4.0, 1.0)),
-        (coord(3.0, 0.0), coord(4.0, 0.0), coord(4.0, 1.0), None),
+        (coord(3.0, 0.0), coord(4.0, 0.0), coord(4.0, 1.0)),
         (coord(0.0, 1.0), coord(2.0, 1.0), coord(0.0, 2.0), coord(2.0, 2.0)),
         (coord(2.0, 1.0), coord(4.0, 1.0), coord(2.0, 2.0), coord(4.0, 2.0)),
     }
+    assert actual == expected
 
 
 def test_validate_wall_elements() -> None:
