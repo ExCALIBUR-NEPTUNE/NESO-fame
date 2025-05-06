@@ -43,6 +43,7 @@ from neso_fame.mesh import (
     PrismTypes,
     Quad,
     QuadMesh,
+    edges_to_prism,
     field_aligned_positions,
     straight_line_across_field,
     subdividable_field_aligned_positions,
@@ -1165,17 +1166,19 @@ def _validate_wall_elements(
     # might become one.
     new_elements = {frozenset(elem.poloidal_corners()): elem for elem in elements}
     new_faces = {_quad_points(face): face for face in boundary_faces}
+    bound_face_points = frozenset(map(_quad_points, boundary_faces))
     for prism in elements:
         # If element not in new_elements, it has already been
         # processed. If it is already valid there is no need to do
         # anything.
         corners = frozenset(prism.poloidal_corners())
         if corners not in new_elements or validate(prism):
+            print("Good element: ", corners)
             continue
         # Try merging with adjacent triangles (which haven't already
         # been merged with another element, which would remove them
         # from new_elements)
-        merge_candidates = frozenset(
+        merge_candidates = [
             item
             for item in itertools.chain.from_iterable(
                 (
@@ -1186,7 +1189,7 @@ def _validate_wall_elements(
                 for q in map(_quad_points, prism)
             )
             if validate(item[0])
-        )
+        ]
         # If that works, swap it for `prism` in
         # `new_elements`. Otherwise, convert the sides of the prism to
         # be flat (in the poloidal plane)
@@ -1198,7 +1201,7 @@ def _validate_wall_elements(
             del new_elements[frozenset(old_prism.poloidal_corners())]
             new_elements[frozenset(new_hex.poloidal_corners())] = new_hex
         else:
-            # Note: We don't need worry about faces between adjacent
+            # Note: We don't need to worry about faces between adjacent
             # elements no longer lining up. Curved faces will always
             # be on either the edge of the Tokamak vessel or the edge
             # of the plasma mesh. If the former, there will be no
@@ -1207,81 +1210,15 @@ def _validate_wall_elements(
             # further elements to become invalid, so they are ignored.
             # It is unlikely they'd actually be invalid anyway.
             flat_prism = prism.make_flat_faces()
-            new_elements[frozenset(prism.poloidal_corners())] = flat_prism
+            new_elements[corners] = flat_prism
             new_faces.update(
                 {
                     points: flat_face
                     for face, flat_face in zip(prism, flat_prism)
-                    if (points := _quad_points(face)) in boundary_faces
+                    if (points := _quad_points(face)) in bound_face_points
                 }
             )
     return list(new_elements.values()), frozenset(new_faces.values())
-
-
-@cache
-def _quad_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1, x2 = np.meshgrid(
-        np.linspace(0.0, 1.0, order + 1),
-        np.linspace(0.0, 1.0, order + 1),
-        indexing="ij",
-        sparse=True,
-    )
-    return x1, x2
-
-
-@cache
-def _triangle_control_points(order: int) -> tuple[npt.NDArray, npt.NDArray]:
-    x1sq, x2 = _quad_control_points(order)
-    x1 = np.empty(np.broadcast(x1sq, x2).shape)
-    x1[:, :-1] = x1sq / (1 - x2[:, :-1])
-    # Handle NaNs at top of triangle
-    x1[0, -1] = 1
-    x1[1:, -1] = 1.1
-    x1_m = np.ma.masked_greater(x1, 1.0)
-    return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
-
-
-def _edges_to_prism(side1: Quad, side2: Quad) -> Prism:
-    """Construct a prism from the 2 edges, with a straight line between the unconnected vertices."""
-    # Order sides so first one is linear, plus ensure east and west sides start at south
-    s1_1 = side1.nodes.start_points[0]
-    s1_2 = side1.nodes.start_points[-1]
-    s2_1 = side2.nodes.start_points[0]
-    s2_2 = side2.nodes.start_points[-1]
-
-    if s1_1.approx_eq(s2_1):
-        west = side1.nodes[::-1]
-        east = side2.nodes[::-1]
-    elif s1_1.approx_eq(s2_2):
-        west = side1.nodes
-        east = side2.nodes[::-1]
-    elif s1_2.approx_eq(s2_1):
-        west = side1.nodes[::-1]
-        east = side2.nodes
-    elif s1_2.approx_eq(s2_2):
-        west = side1.nodes
-        east = side2.nodes
-    else:
-        raise RuntimeError("Sides of triangular prism do not share an edge.")
-
-    n = east.order
-    s, _ = _triangle_control_points(n)
-    s2 = 1 - s
-    real_x1 = east.start_points.x1 * s2 + west.start_points.x1 * s
-    real_x2 = east.start_points.x2 * s2 + west.start_points.x2 * s
-    alignments = east.alignments * s2 + west.alignments * s
-    return Prism(
-        PrismTypes.TRIANGULAR,
-        field_aligned_positions(
-            SliceCoords(real_x1, real_x2, side1.nodes.start_points.system),
-            side1.nodes.x3[-1] - side1.nodes.x3[0],
-            side1.nodes.trace,
-            alignments,
-            len(side1.nodes.x3) - 1,
-            side1.nodes.subdivision,
-            side1.nodes.num_divisions,
-        ),
-    )
 
 
 def hypnotoad_mesh(
@@ -1546,11 +1483,11 @@ def hypnotoad_mesh(
             # Make sure any pre-existing quads representing the plasma
             # mesh or the wall are used, to preserve any curvature.
             if q1_new:
-                return _edges_to_prism(q2, q3)
+                return edges_to_prism(q2, q3)
             elif q2_new:
-                return _edges_to_prism(q1, q3)
+                return edges_to_prism(q1, q3)
             elif q3_new:
-                return _edges_to_prism(q1, q2)
+                return edges_to_prism(q1, q2)
             else:
                 raise RuntimeError(
                     "Can not construct prism when all sides are on the vessel wall or edge of the plasma mesh."

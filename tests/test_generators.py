@@ -22,14 +22,18 @@ from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     AcrossFieldCurve,
     FieldAlignedCurve,
+    FieldAlignedPositions,
     Prism,
     PrismMeshLayer,
     PrismTypes,
     Quad,
     control_points,
+    edges_to_prism,
+    straight_line_across_field,
+    subdividable_field_aligned_positions,
 )
 from neso_fame.nektar_writer import nektar_3d_element
-from tests.conftest import simple_trace
+from tests.conftest import make_nodes
 
 from .test_hypnotoad import CONNECTED_DOUBLE_NULL, to_mesh
 
@@ -703,22 +707,14 @@ def test_iterate_and_merge_elements() -> None:
 
 
 def test_validate_wall_elements() -> None:
+    order = 8
     c00 = SliceCoord(0.0, 0.0, CoordinateSystem.CARTESIAN)
     c03 = SliceCoord(0.0, 3.0, CoordinateSystem.CARTESIAN)
     c11 = SliceCoord(1.0, 1.0, CoordinateSystem.CARTESIAN)
     c20 = SliceCoord(2.0, 0.0, CoordinateSystem.CARTESIAN)
     c21 = SliceCoord(2.0, 1.0, CoordinateSystem.CARTESIAN)
-    wall_vertices = frozenset({(c00, c20), (c20, c21)})
-    builder = ElementBuilder(
-        MagicMock(),
-        simple_trace,
-        0.1,
-        CoordMap.empty_slicecoord(float),
-        CoordinateSystem.CARTESIAN,
-    )
-    s = np.linspace(0.0, 1.0, 4)
-    curved_quad = builder.make_wall_quad_for_prism(
-        AcrossFieldCurve(
+    s = np.linspace(1.0, 0.0, order + 1)
+    curved_quad = Quad(make_nodes(AcrossFieldCurve(
             SliceCoords(
                 2 * np.asarray(s),
                 np.interp(
@@ -726,30 +722,38 @@ def test_validate_wall_elements() -> None:
                 ),
                 CoordinateSystem.CARTESIAN,
             )
-        )
-    )
-    p1, b1 = builder.make_outer_prism(c00, c20, c11, wall_vertices)
-    p2, b2 = builder.make_outer_prism(c20, c21, c11, wall_vertices)
-    p3, b3 = builder.make_outer_prism(c00, c11, c03, wall_vertices)
-    prisms = [p1, p2, p3]
-    bounds = b1 | b2 | b3
-    assert curved_quad in bounds
+    ), order))
+    quad1 = Quad(make_nodes(straight_line_across_field(c00, c11, order), order))
+    quad2 = Quad(make_nodes(straight_line_across_field(c11, c03, order), order))
+    quad3 = Quad(make_nodes(straight_line_across_field(c11, c20, order), order))
+    quad4 = Quad(make_nodes(straight_line_across_field(c20, c21, order), order))
+    p1 = edges_to_prism(quad3, curved_quad)
+    p2 = edges_to_prism(quad2, quad1)
+    p3 = edges_to_prism(quad4, quad3)
     new_prisms, new_bounds = generators._validate_wall_elements(
-        bounds,
-        prisms,
-        builder.get_element_for_quad,
-        lambda x: next(iter(nektar_3d_element(x, 8, 3, -1)[0])).IsValid(),
+        frozenset({curved_quad, quad4}),
+        [p1, p2, p3],
+        {frozenset({c00, c20}): [p1],
+         frozenset({c11, c03}): [p2],
+         frozenset({c00, c03}): [p2],
+         frozenset({c00, c11}): [p1, p2],
+         frozenset({c20, c11}): [p1, p3],
+         frozenset({c20, c21}): [p3],
+         frozenset({c11, c21}): [p3],
+         },
+        lambda x: next(iter(nektar_3d_element(x, 3, -1)[0])).IsValid(),
     )
-    p1_flat = p1.make_flat_faces()
-    assert p1 not in new_prisms
-    assert p1_flat in new_prisms
-    assert p2 in new_prisms
-    assert p3 in new_prisms
-    assert curved_quad not in new_bounds
-    assert curved_quad.make_flat_quad() in new_bounds
-    assert len(bounds) == len(new_bounds)
-    assert len(bounds & new_bounds) == 1
-    assert len(frozenset(p1_flat) & new_bounds) == 1
+    cq_flat = curved_quad.make_flat_quad()
+    p1_flat = edges_to_prism(quad3, cq_flat)
+    assert sum(p1.approx_eq(p) for p in new_prisms) == 0
+    assert sum(p1_flat.approx_eq(p) for p in new_prisms) == 1
+    assert sum(p2.approx_eq(p) for p in new_prisms) == 1
+    assert sum(p3.approx_eq(p) for p in new_prisms) ==1
+    assert sum(quad4.approx_eq(b) for b in new_bounds) ==1
+    assert sum(curved_quad.approx_eq(b) for b in new_bounds) == 0
+    assert sum(cq_flat.approx_eq(b) for b in new_bounds) == 1
+    assert len(new_bounds) == 2
+    assert sum(q1.approx_eq(q2) for q1, q2 in itertools.product(p1_flat, new_bounds)) == 1
 
 
 def test_extruding_hypnotoad_mesh() -> None:
