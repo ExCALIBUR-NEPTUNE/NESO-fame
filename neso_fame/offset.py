@@ -178,9 +178,9 @@ class LazyOffset(Generic[T]):
 
     def __getitem__(self, index: Any) -> Any:
         """Try to index the wrapped object and offset the result."""
-        if not isinstance(self.obj, Sequence):
+        if not hasattr(self.obj, "__getitem__"):
             self._raise_type_error("subscriptable")
-        return self._wrap(self.obj[index])
+        return self._wrap(cast(Sequence, self.obj)[index])
 
     def __next__(self) -> Any:
         """Try to get the next item of a wrapped iterator and offset the result."""
@@ -214,4 +214,6 @@ def Offset(obj: T, x3_offset: float) -> T:
     offset
 
     """
+    if x3_offset == 0:
+        return obj
     return cast(T, LazyOffset(obj, x3_offset))

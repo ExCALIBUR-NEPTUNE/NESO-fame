@@ -148,7 +148,9 @@ class SliceCoords:
         """Iterate over the points held in this object."""
         if np.broadcast(self.x1, self.x2).size == 0:
             return
-        for x1, x2 in np.nditer([self.x1, self.x2], order="C"):
+        for x1, x2, mask in np.nditer([self.x1, self.x2, np.ma.mask_or(np.ma.getmask(self.x1), np.ma.getmask(self.x2))], order="C"):
+            if mask:
+                continue
             yield SliceCoord(float(x1), float(x2), self.system)
 
     def __iter__(self) -> Iterator[npt.NDArray]:
@@ -303,7 +305,9 @@ class Coords:
         """Iterate over the points held in this object."""
         if np.broadcast(self.x1, self.x2, self.x3).size == 0:
             return
-        for x1, x2, x3 in np.nditer([self.x1, self.x2, self.x3], order="C"):
+        for x1, x2, x3, mask in np.nditer([self.x1, self.x2, self.x3, np.ma.mask_or(np.ma.mask_or(np.ma.getmask(self.x1), np.ma.getmask(self.x2)), np.ma.getmask(self.x3))], order="C"):
+            if mask:
+                continue
             yield Coord(float(x1), float(x2), float(x3), self.system)
 
     def offset(self, dx3: npt.ArrayLike) -> "Coords":

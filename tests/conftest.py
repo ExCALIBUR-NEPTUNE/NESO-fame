@@ -1536,3 +1536,14 @@ def simple_trace(
         ),
         np.asarray(x3),
     )
+
+
+def make_nodes(start_points: coordinates.SliceCoords, order: int) -> mesh.FieldAlignedPositions:
+    return mesh.subdividable_field_aligned_positions(
+            start_points,
+            1.,
+            simple_trace,
+            np.array(0.),
+            order,
+            1
+    )
