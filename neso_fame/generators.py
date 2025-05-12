@@ -584,11 +584,12 @@ def _iter_merge_elements(
             # triangle that will start that merge.
             if merge_start is not None:
                 end = (count + 1) * order
+                edge1 = nodes[merge_start - order : merge_start + 1, 0]
                 if merge_start == prev_merge_start:
-                    edge1 = merge_sides[prev_merge_start]
+                    inner_edge = merge_sides[prev_merge_start]
                     bottom_edge = nodes[merge_start - order, count * order : end + 1]
                 else:
-                    edge1 = nodes[merge_start - order : merge_start + 1, 0]
+                    inner_edge = edge1
                     bottom_edge = nodes[merge_start - order, : end + 1 : count + 1]
                 edge2 = nodes[merge_start - order : merge_start + 1, end]
                 new_edge = field_aligned_positions_like(
@@ -608,7 +609,7 @@ def _iter_merge_elements(
                     PrismTypes.REVERSED_TRIANGULAR if flip else PrismTypes.TRIANGULAR,
                     maybe_flip(
                         sides_to_prism(
-                            edge1,
+                            inner_edge,
                             new_edge,
                             bottom_edge,
                         )
