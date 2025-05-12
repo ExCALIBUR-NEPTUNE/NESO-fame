@@ -727,14 +727,12 @@ GeomMap = (
     sampled_from([2, 3]),
     booleans(),
     booleans(),
-    booleans(),
 )
 def test_nektar_mesh(
     mesh: Mesh,
     spatial_dim: int,
     write_movement: bool,
     periodic: bool,
-    compressed: bool,
 ) -> None:
     # FIXME: Somehow I'm getting a mesh layer that is subdivided without increasing its number of points in the x3-direction accordingly
     num_element_types = (
@@ -746,9 +744,7 @@ def test_nektar_mesh(
         mesh,
         spatial_dim if issubclass(mesh.reference_layer.element_type, Quad) else 3,
     )
-    meshgraph = nektar_writer.nektar_mesh(
-        elements, 2, 2, write_movement, periodic, compressed
-    )
+    meshgraph = nektar_writer.nektar_mesh(elements, 2, 2, write_movement, periodic)
     actual_segments = meshgraph.GetAllSegGeoms()
     actual_triangles = meshgraph.GetAllTriGeoms()
     actual_quads = meshgraph.GetAllQuadGeoms()

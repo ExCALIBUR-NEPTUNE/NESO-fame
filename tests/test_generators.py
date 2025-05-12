@@ -28,7 +28,7 @@ from neso_fame.mesh import (
     PrismTypes,
     Quad,
     control_points,
-    edges_to_prism,
+    quads_to_prism,
     straight_line_across_field,
     subdividable_field_aligned_positions,
 )
@@ -688,8 +688,18 @@ def test_iterate_and_merge_elements() -> None:
     hypno_region.Zxy.corners = Z
     hypno_region.equilibriumRegion.name = "core"
     hypno_region.connections = {"inner": None, "outer": None}
-    element_iterator = generators._element_iterator_factory(1., CoordMap(), 1, 1, CoordinateSystem.CYLINDRICAL, MagicMock(), 10., lambda _: True, False)
-    elements, _ =         element_iterator(hypno_region)
+    element_iterator = generators._element_iterator_factory(
+        1.0,
+        CoordMap(),
+        1,
+        1,
+        CoordinateSystem.CYLINDRICAL,
+        MagicMock(),
+        10.0,
+        lambda _: True,
+        False,
+    )
+    elements, _ = element_iterator(hypno_region)
 
     def coord(R: float, Z: float) -> SliceCoord:
         return SliceCoord(R, Z, CoordinateSystem.CYLINDRICAL)
@@ -714,59 +724,65 @@ def test_validate_wall_elements() -> None:
     c20 = SliceCoord(2.0, 0.0, CoordinateSystem.CARTESIAN)
     c21 = SliceCoord(2.0, 1.0, CoordinateSystem.CARTESIAN)
     s = np.linspace(1.0, 0.0, order + 1)
-    curved_quad = Quad(make_nodes(AcrossFieldCurve(
-            SliceCoords(
-                2 * np.asarray(s),
-                np.interp(
-                    2 * np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]
-                ),
-                CoordinateSystem.CARTESIAN,
-            )
-    ), order))
+    curved_quad = Quad(
+        make_nodes(
+            AcrossFieldCurve(
+                SliceCoords(
+                    2 * np.asarray(s),
+                    np.interp(
+                        2 * np.asarray(s), [c00.x1, 0.1, c20.x1], [c00.x2, 0.5, c20.x2]
+                    ),
+                    CoordinateSystem.CARTESIAN,
+                )
+            ),
+            order,
+        )
+    )
     quad1 = Quad(make_nodes(straight_line_across_field(c00, c11, order), order))
     quad2 = Quad(make_nodes(straight_line_across_field(c11, c03, order), order))
     quad3 = Quad(make_nodes(straight_line_across_field(c11, c20, order), order))
     quad4 = Quad(make_nodes(straight_line_across_field(c20, c21, order), order))
-    p1 = edges_to_prism(quad3, curved_quad)
-    p2 = edges_to_prism(quad2, quad1)
-    p3 = edges_to_prism(quad4, quad3)
+    p1 = quads_to_prism(quad3, curved_quad)
+    p2 = quads_to_prism(quad2, quad1)
+    p3 = quads_to_prism(quad4, quad3)
     new_prisms, new_bounds = generators._validate_wall_elements(
         frozenset({curved_quad, quad4}),
         [p1, p2, p3],
-        {frozenset({c00, c20}): [p1],
-         frozenset({c11, c03}): [p2],
-         frozenset({c00, c03}): [p2],
-         frozenset({c00, c11}): [p1, p2],
-         frozenset({c20, c11}): [p1, p3],
-         frozenset({c20, c21}): [p3],
-         frozenset({c11, c21}): [p3],
-         },
+        {
+            frozenset({c00, c20}): [p1],
+            frozenset({c11, c03}): [p2],
+            frozenset({c00, c03}): [p2],
+            frozenset({c00, c11}): [p1, p2],
+            frozenset({c20, c11}): [p1, p3],
+            frozenset({c20, c21}): [p3],
+            frozenset({c11, c21}): [p3],
+        },
         lambda x: next(iter(nektar_3d_element(x, 3, -1)[0])).IsValid(),
     )
     cq_flat = curved_quad.make_flat_quad()
-    p1_flat = edges_to_prism(quad3, cq_flat)
+    p1_flat = quads_to_prism(quad3, cq_flat)
     assert sum(p1.approx_eq(p) for p in new_prisms) == 0
     assert sum(p1_flat.approx_eq(p) for p in new_prisms) == 1
     assert sum(p2.approx_eq(p) for p in new_prisms) == 1
-    assert sum(p3.approx_eq(p) for p in new_prisms) ==1
-    assert sum(quad4.approx_eq(b) for b in new_bounds) ==1
+    assert sum(p3.approx_eq(p) for p in new_prisms) == 1
+    assert sum(quad4.approx_eq(b) for b in new_bounds) == 1
     assert sum(curved_quad.approx_eq(b) for b in new_bounds) == 0
     assert sum(cq_flat.approx_eq(b) for b in new_bounds) == 1
     assert len(new_bounds) == 2
-    assert sum(q1.approx_eq(q2) for q1, q2 in itertools.product(p1_flat, new_bounds)) == 1
+    assert (
+        sum(q1.approx_eq(q2) for q1, q2 in itertools.product(p1_flat, new_bounds)) == 1
+    )
 
 
 def test_extruding_hypnotoad_mesh() -> None:
-    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+    order = 4
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL, order)
     eq = hypno_mesh.equilibrium
     # Extrude only a very short distance to keep run-times quick
     # FIXME: Will need to specify order (8), once I've finished refactoring this function
-    mesh = generators.hypnotoad_mesh(hypno_mesh, (0.0, 0.001 * np.pi), 3, 21)
+    mesh = generators.hypnotoad_mesh(hypno_mesh, (0.0, 0.001 * np.pi), 3, order)
     actual_nodes = FrozenCoordSet(
-        itertools.chain.from_iterable(
-            (q.nodes.start_points[0], q.nodes.start_points[-1])
-            for q in itertools.chain.from_iterable(mesh)
-        )
+        itertools.chain.from_iterable(p.nodes.start_points.iter_points() for p in mesh)
     )
     expected_nodes = FrozenCoordSet(
         itertools.chain.from_iterable(
@@ -803,13 +819,17 @@ def test_extruding_hypnotoad_mesh() -> None:
         assert all(s > 0 for s in sizes)
 
 
-def test_extruding_hypnotoad_mesh_fill_core() -> None:
-    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+ORDERS = [1, 2, 3]
+
+
+@pytest.mark.parametrize("order", ORDERS)
+def test_extruding_hypnotoad_mesh_fill_core(order: int) -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL, order)
     eq = hypno_mesh.equilibrium
     # Extrude only a very short distance to keep run-times quick
     # FIXME: Set order of accuracy to 2
     mesh = generators.hypnotoad_mesh(
-        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, mesh_to_core=True
+        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, order, mesh_to_core=True
     )
     tri_prisms = [p for p in mesh if p.shape == PrismTypes.TRIANGULAR]
     # Check triangles have been created at the centre of the mesh
@@ -818,26 +838,27 @@ def test_extruding_hypnotoad_mesh_fill_core() -> None:
     o_point = SliceCoord(eq.o_point.R, eq.o_point.Z, CoordinateSystem.CYLINDRICAL)
 
     def get_axis_edge(prism: Prism) -> FieldAlignedCurve:
-        curves = frozenset(q.north for q in prism) | frozenset(q.south for q in prism)
+        curves = {q.nodes.start_points[0]: q.nodes[0] for q in prism} | {
+            q.nodes.start_points[-1]: q.nodes[-1] for q in prism
+        }
         assert len(curves) == 3
-        axis_curve = [c for c in curves if c.start_points.to_coord() == o_point]
-        assert len(axis_curve) == 1
-        acurve = axis_curve[0]
-        return acurve
+        return FieldAlignedCurve(curves[o_point])
 
     # Check all the triangles have one corner that is at the o-point
-    axis_curve = get_axis_edge(tri_prisms[0]).coords
-    assert axis_curve[1].to_slice_coord() == o_point
-    assert axis_curve[2].to_slice_coord() == o_point
+    axis_curve = get_axis_edge(tri_prisms[0]).coords.to_slice_coords()
+    assert len(axis_curve) == order + 1
+    assert np.all(axis_curve.x1 == o_point.x1)
+    assert np.all(axis_curve.x2 == o_point.x2)
 
 
+@pytest.mark.parametrize("order", ORDERS)
 @pytest.mark.filterwarnings("ignore:Multiple vertex rings")
-def test_extruding_hypnotoad_mesh_enforce_bounds() -> None:
-    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+def test_extruding_hypnotoad_mesh_enforce_bounds(order: int) -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL, order)
     eq = hypno_mesh.equilibrium
     # Extrude only a very short distance to keep run-times quick
     mesh = generators.hypnotoad_mesh(
-        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, 11, restrict_to_vessel=True
+        hypno_mesh, (0.0, 0.001 * np.pi / 3), 1, order, restrict_to_vessel=True
     )
     Rmin = min(p.R for p in eq.wall)
     Rmax = max(p.R for p in eq.wall)
@@ -856,14 +877,15 @@ def test_extruding_hypnotoad_mesh_enforce_bounds() -> None:
     assert all(map(in_domain, mesh))
 
 
-def test_extruding_hypnotoad_mesh_to_wall() -> None:
-    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+@pytest.mark.parametrize("order", ORDERS)
+def test_extruding_hypnotoad_mesh_to_wall(order: int) -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL, order)
     # Extrude only a very short distance to keep run-times quick
     mesh = generators.hypnotoad_mesh(
         hypno_mesh,
         (0.0, 0.001 * np.pi / 3),
         1,
-        11,
+        order,
         restrict_to_vessel=True,
         mesh_to_core=True,
         mesh_to_wall=True,
@@ -902,14 +924,15 @@ def test_extruding_hypnotoad_mesh_to_wall() -> None:
     # slow. I almost wonder if it's caught in an infinite loop?
 
 
-def test_extruding_hypnotoad_mesh_to_wall_remesh() -> None:
-    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL)
+@pytest.mark.parametrize("order", ORDERS)
+def test_extruding_hypnotoad_mesh_to_wall_remesh(order: int) -> None:
+    hypno_mesh = to_mesh(CONNECTED_DOUBLE_NULL, order)
     # Extrude only a very short distance to keep run-times quick
     mesh = generators.hypnotoad_mesh(
         hypno_mesh,
         (0.0, 0.0001 * np.pi / 3),
         1,
-        11,
+        order,
         restrict_to_vessel=True,
         mesh_to_core=True,
         mesh_to_wall=True,

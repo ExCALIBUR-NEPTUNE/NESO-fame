@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, cast, overload
+from warnings import warn
 
 import numpy as np
 import numpy.typing as npt
@@ -655,6 +656,14 @@ def connect_to_o_point(
     hypnotoad
 
     """
+    if order == 1:
+        return AcrossFieldCurve(
+            SliceCoords(
+                np.array([start.x1, eq.o_point.R]),
+                np.array([start.x2, eq.o_point.Z]),
+                start.system,
+            )
+        )
     psi_start = float(eq.psi_func(start.x1, start.x2, grid=False))
     psi_end = float(eq.psi_func(eq.o_point.R, eq.o_point.Z, grid=False))
     diff = psi_end - psi_start
@@ -663,6 +672,7 @@ def connect_to_o_point(
     def f(_: npt.NDArray, x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
         dpsidR = eq.psi_func(x[0], x[1], dx=1, grid=False)
         dpsidZ = eq.psi_func(x[0], x[1], dy=1, grid=False)
+        # Don't take the square root, because we want this normalised to psi
         norm = dpsidR * dpsidR + dpsidZ * dpsidZ
         return -sign * dpsidR / norm, -sign * dpsidZ / norm
 
@@ -671,11 +681,18 @@ def connect_to_o_point(
         (0.0, diff),
         [start.x1, start.x2],
         method="DOP853",
+        # dense_output=True,
         rtol=5e-14,
         atol=1e-14,
         t_eval=np.linspace(0, diff, order, endpoint=False),
         vectorized=False,
     )
+    if result.status != 0:
+        message = "Integration failed: " + result.message
+        if result.t[-1] != (order - 1) * diff / order:
+            raise RuntimeError(message)
+        else:
+            warn(message, RuntimeWarning)
 
     return AcrossFieldCurve(
         SliceCoords(

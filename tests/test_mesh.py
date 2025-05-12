@@ -940,45 +940,52 @@ def test_prism_make_flat_idempotent(p: mesh.Prism, n: int) -> None:
             == expected
         )
 
+
 def test_curved_prism_make_flat() -> None:
     start_points = mesh.SliceCoords(
         np.ma.masked_less(
-        [
-            [-1., -0.5, 0., 0.5, 1.],
-            [-0.75, -0.25, 0.25, 0.75, -10.],
-            [-0.5, 0., 0.5, -10., -10.],
-            [-0.25, 0.25, -10., -10., -10.],
-            [0., -10., -10., -10., -10.],
-        ],
-        0.,
+            [
+                [-1.0, -0.5, 0.0, 0.5, 1.0],
+                [-0.75, -0.25, 0.25, 0.75, -10.0],
+                [-0.5, 0.0, 0.5, -10.0, -10.0],
+                [-0.25, 0.25, -10.0, -10.0, -10.0],
+                [0.0, -10.0, -10.0, -10.0, -10.0],
+            ],
+            0.0,
         ),
-    np.ma.masked_less(
-        [
-            [0., 0., 0., 0., 0.],
-            [0.4375, 0.4375, 0.4375, 0.4375, -10.],
-            [0.75, 0.75, 0.75, -10., -10.],
-            [0.9375, 0.9375, -10., -10., -10.],
-            [1., -10., -10., -10., -10.],
-        ],
-        0.,
-    ),
-        coordinates.CoordinateSystem.CYLINDRICAL
+        np.ma.masked_less(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.4375, 0.4375, 0.4375, 0.4375, -10.0],
+                [0.75, 0.75, 0.75, -10.0, -10.0],
+                [0.9375, 0.9375, -10.0, -10.0, -10.0],
+                [1.0, -10.0, -10.0, -10.0, -10.0],
+            ],
+            0.0,
+        ),
+        coordinates.CoordinateSystem.CYLINDRICAL,
     )
-    prism = mesh.Prism(mesh.PrismTypes.TRIANGULAR, mesh.field_aligned_positions(start_points, 1., simple_trace, np.array(0.), 4))
+    prism = mesh.Prism(
+        mesh.PrismTypes.TRIANGULAR,
+        mesh.field_aligned_positions(start_points, 1.0, simple_trace, np.array(0.0), 4),
+    )
     flat_prism = prism.make_flat_faces()
     expected_x2 = np.ma.masked_less(
         [
-            [0., 0., 0., 0., 0.],
-            [0.25, 0.25, 0.25, 0.25, -10.],
-            [0.5, 0.5, 0.5, -10., -10.],
-            [0.75, 0.75, -10., -10., -10.],
-            [1., -10., -10., -10., -10.],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.25, 0.25, 0.25, 0.25, -10.0],
+            [0.5, 0.5, 0.5, -10.0, -10.0],
+            [0.75, 0.75, -10.0, -10.0, -10.0],
+            [1.0, -10.0, -10.0, -10.0, -10.0],
         ],
-        0.,
+        0.0,
     )
-    np.testing.assert_allclose(flat_prism.nodes.start_points.x1, start_points.x1, 1e-8, 1e-8)
-    np.testing.assert_allclose(flat_prism.nodes.start_points.x2, expected_x2, 1e-8, 1e-8)
-
+    np.testing.assert_allclose(
+        flat_prism.nodes.start_points.x1, start_points.x1, 1e-8, 1e-8
+    )
+    np.testing.assert_allclose(
+        flat_prism.nodes.start_points.x2, expected_x2, 1e-8, 1e-8
+    )
 
 
 @given(mesh_arguments)
@@ -1292,61 +1299,108 @@ def test_order(
 
 def test_straight_edges_to_prism() -> None:
     order = 4
-    q1 = mesh.Quad(make_nodes(mesh.straight_line_across_field(mesh.SliceCoord(0., 0., coordinates.CoordinateSystem.CYLINDRICAL), mesh.SliceCoord(0., 1., coordinates.CoordinateSystem.CYLINDRICAL), order), order))
-    q2 = mesh.Quad(make_nodes(mesh.straight_line_across_field(mesh.SliceCoord(0., 1., coordinates.CoordinateSystem.CYLINDRICAL), mesh.SliceCoord(1., 0., coordinates.CoordinateSystem.CYLINDRICAL), order), order))
-    prism = mesh.edges_to_prism(q1, q2)
+    q1 = mesh.Quad(
+        make_nodes(
+            mesh.straight_line_across_field(
+                mesh.SliceCoord(0.0, 0.0, coordinates.CoordinateSystem.CYLINDRICAL),
+                mesh.SliceCoord(0.0, 1.0, coordinates.CoordinateSystem.CYLINDRICAL),
+                order,
+            ),
+            order,
+        )
+    )
+    q2 = mesh.Quad(
+        make_nodes(
+            mesh.straight_line_across_field(
+                mesh.SliceCoord(0.0, 1.0, coordinates.CoordinateSystem.CYLINDRICAL),
+                mesh.SliceCoord(1.0, 0.0, coordinates.CoordinateSystem.CYLINDRICAL),
+                order,
+            ),
+            order,
+        )
+    )
+    prism = mesh.quads_to_prism(q1, q2)
     expected_x1 = np.ma.masked_less(
         [
-            [0., 0.25, 0.5, 0.75, 1.0],
-            [0., 0.25, 0.5, 0.75, -10.],
-            [0., 0.25, 0.5, -10., -10.],
-            [0., 0.25, -10., -10., -10.],
-            [0., -10., -10., -10., -10.],
-        ], 0.
+            [0.0, 0.25, 0.5, 0.75, 1.0],
+            [0.0, 0.25, 0.5, 0.75, -10.0],
+            [0.0, 0.25, 0.5, -10.0, -10.0],
+            [0.0, 0.25, -10.0, -10.0, -10.0],
+            [0.0, -10.0, -10.0, -10.0, -10.0],
+        ],
+        0.0,
     )
     expected_x2 = np.ma.masked_less(
         [
-            [0., 0.0, 0.0, 0.0, 0.0],
-            [0.25, 0.25, 0.25, 0.25, -10.],
-            [0.5, 0.5, 0.5, -10., -10.],
-            [0.75, 0.75, -10., -10., -10.],
-            [1., -10., -10., -10., -10.],
-        ], 0.
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.25, 0.25, 0.25, 0.25, -10.0],
+            [0.5, 0.5, 0.5, -10.0, -10.0],
+            [0.75, 0.75, -10.0, -10.0, -10.0],
+            [1.0, -10.0, -10.0, -10.0, -10.0],
+        ],
+        0.0,
     )
-    np.testing.assert_allclose(prism.nodes.start_points.x1, expected_x1, rtol=1e-8, atol=1e-8)
-    np.testing.assert_allclose(prism.nodes.start_points.x2, expected_x2, rtol=1e-8, atol=1e-8)
-    np.testing.assert_allclose(prism.nodes.alignments, 0., rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(
+        prism.nodes.start_points.x1, expected_x1, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(
+        prism.nodes.start_points.x2, expected_x2, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(prism.nodes.alignments, 0.0, rtol=1e-8, atol=1e-8)
+
 
 def test_curved_edges_to_prism() -> None:
     order = 4
     x1 = np.linspace(-1, 0, order + 1)
     x2 = np.linspace(0, 1, order + 1)
-    q1 = mesh.Quad(make_nodes(mesh.AcrossFieldCurve(mesh.SliceCoords(x1, 1 - x1*x1, coordinates.CoordinateSystem.CYLINDRICAL)), order))
-    q2 = mesh.Quad(make_nodes(mesh.AcrossFieldCurve(mesh.SliceCoords(x2, 1 - x2 * x2, coordinates.CoordinateSystem.CYLINDRICAL)), order))
-    prism = mesh.edges_to_prism(q1, q2)
+    q1 = mesh.Quad(
+        make_nodes(
+            mesh.AcrossFieldCurve(
+                mesh.SliceCoords(
+                    x1, 1 - x1 * x1, coordinates.CoordinateSystem.CYLINDRICAL
+                )
+            ),
+            order,
+        )
+    )
+    q2 = mesh.Quad(
+        make_nodes(
+            mesh.AcrossFieldCurve(
+                mesh.SliceCoords(
+                    x2, 1 - x2 * x2, coordinates.CoordinateSystem.CYLINDRICAL
+                )
+            ),
+            order,
+        )
+    )
+    prism = mesh.quads_to_prism(q1, q2)
     expected_x1 = np.ma.masked_less(
         [
-            [-1., -0.5, 0., 0.5, 1.],
-            [-0.75, -0.25, 0.25, 0.75, -10.],
-            [-0.5, 0., 0.5, -10., -10.],
-            [-0.25, 0.25, -10., -10., -10.],
-            [0., -10., -10., -10., -10.],
+            [-1.0, -0.5, 0.0, 0.5, 1.0],
+            [-0.75, -0.25, 0.25, 0.75, -10.0],
+            [-0.5, 0.0, 0.5, -10.0, -10.0],
+            [-0.25, 0.25, -10.0, -10.0, -10.0],
+            [0.0, -10.0, -10.0, -10.0, -10.0],
         ],
-        0.,
+        0.0,
     )
     expected_x2 = np.ma.masked_less(
         [
-            [0., 0., 0., 0., 0.],
-            [0.4375, 0.4375, 0.4375, 0.4375, -10.],
-            [0.75, 0.75, 0.75, -10., -10.],
-            [0.9375, 0.9375, -10., -10., -10.],
-            [1., -10., -10., -10., -10.],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.4375, 0.4375, 0.4375, 0.4375, -10.0],
+            [0.75, 0.75, 0.75, -10.0, -10.0],
+            [0.9375, 0.9375, -10.0, -10.0, -10.0],
+            [1.0, -10.0, -10.0, -10.0, -10.0],
         ],
-        0.,
+        0.0,
     )
-    np.testing.assert_allclose(prism.nodes.start_points.x1, expected_x1, rtol=1e-8, atol=1e-8)
-    np.testing.assert_allclose(prism.nodes.start_points.x2, expected_x2, rtol=1e-8, atol=1e-8)
-    np.testing.assert_allclose(prism.nodes.alignments, 0., rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(
+        prism.nodes.start_points.x1, expected_x1, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(
+        prism.nodes.start_points.x2, expected_x2, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(prism.nodes.alignments, 0.0, rtol=1e-8, atol=1e-8)
 
 
 @settings(report_multiple_bugs=False)
@@ -1355,7 +1409,7 @@ def test_edges_to_prism(p: mesh.Prism, i: int, j: int) -> None:
     sides = list(p)
     q1 = sides[i]
     q2 = sides[j]
-    new_prism = mesh.edges_to_prism(q1, q2)
+    new_prism = mesh.quads_to_prism(q1, q2)
     assert new_prism.shape == mesh.PrismTypes.TRIANGULAR
     prism_points = coordinates.FrozenCoordSet(new_prism.nodes.coords.iter_points())
     q1_points = coordinates.FrozenCoordSet(q1.nodes.coords.iter_points())

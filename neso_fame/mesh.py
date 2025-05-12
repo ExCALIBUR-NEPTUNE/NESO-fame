@@ -20,6 +20,8 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 from _pytest.compat import assert_never
+from scipy.interpolate import lagrange
+
 from typing_extensions import Self
 
 from neso_fame.coordinates import (
@@ -163,7 +165,12 @@ def field_aligned_positions(
         np.full(start_array.shape + (1,), False),
     )
 
-def field_aligned_positions_like(positions_like: FieldAlignedPositions, start_points: SliceCoords, alignments: npt.NDArray) -> FieldAlignedPositions:
+
+def field_aligned_positions_like(
+    positions_like: FieldAlignedPositions,
+    start_points: SliceCoords,
+    alignments: npt.NDArray,
+) -> FieldAlignedPositions:
     """Construct a :class:`~neso_fame.mesh.FieldAlignedPositions` similar to the first argument.
 
     The new object will have the same magnetic field, x3 extent,
@@ -201,17 +208,20 @@ def field_aligned_positions_like(positions_like: FieldAlignedPositions, start_po
         )
     n = len(positions_like.x3)
     shape = shape_array.shape + (n,)
-    return Offset(FieldAlignedPositions(
-        start_points,
-        positions_like.x3,
-        positions_like.trace,
-        alignments,
-        positions_like.subdivision,
-        positions_like.num_divisions,
-        np.empty(shape),
-        np.empty(shape),
-        np.full(start_array.shape + (1,), False),
-    ), positions_like.x3_offset)
+    return Offset(
+        FieldAlignedPositions(
+            start_points,
+            positions_like.x3,
+            positions_like.trace,
+            alignments,
+            positions_like.subdivision,
+            positions_like.num_divisions,
+            np.empty(shape),
+            np.empty(shape),
+            np.full(start_array.shape + (1,), False),
+        ),
+        positions_like.x3_offset,
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -299,7 +309,9 @@ class FieldAlignedPositions(LazilyOffsetable):
             self._computed[idx],
         )
 
-    def approx_eq(self, other: FieldAlignedPositions, rtol: float = 1e-9, atol: float = 1e-9) -> bool:
+    def approx_eq(
+        self, other: FieldAlignedPositions, rtol: float = 1e-9, atol: float = 1e-9
+    ) -> bool:
         """Check equality within the the tolerance."""
         c1 = self.coords
         c2 = other.coords
@@ -307,7 +319,7 @@ class FieldAlignedPositions(LazilyOffsetable):
             bool,
             np.allclose(c1.x1, c2.x1, rtol, atol)
             and np.allclose(c1.x2, c2.x2, rtol, atol)
-            and np.allclose(c1.x3, c2.x3, rtol, atol)
+            and np.allclose(c1.x3, c2.x3, rtol, atol),
         )
 
     def flip(self, axis: None | int = None) -> FieldAlignedPositions:
@@ -338,6 +350,7 @@ class FieldAlignedPositions(LazilyOffsetable):
             self.start_points.x1, self.start_points.x2, self.alignments
         )
         axes = tuple(range(x1.ndim))[::-1]
+        axes2 = axes + (len(axes),)
         return FieldAlignedPositions(
             SliceCoords(
                 np.transpose(x1, axes), np.transpose(x2, axes), self.start_points.system
@@ -347,9 +360,9 @@ class FieldAlignedPositions(LazilyOffsetable):
             np.transpose(alignments, axes),
             self.subdivision,
             self.num_divisions,
-            np.transpose(self._x1, axes),
-            np.transpose(self._x2, axes),
-            np.transpose(self._computed, axes),
+            np.transpose(self._x1, axes2),
+            np.transpose(self._x2, axes2),
+            np.transpose(self._computed, axes2),
         )
 
     @property
@@ -367,7 +380,7 @@ class FieldAlignedPositions(LazilyOffsetable):
     def __len__(self) -> int:
         """Get the number of poloidal points contained by this object."""
         return np.prod(self.poloidal_shape, dtype=int)
-    
+
     # TODO: Add a hash and/or equality operator based on the locations, shape, and size of arrays in memory (plus subdivisions)
     @cached_property
     def order(self) -> int:
@@ -450,8 +463,20 @@ class FieldAlignedPositions(LazilyOffsetable):
                     self._x2[idx] = positions.x2
                     self._computed[idx] = True
         sl = slice(self._x3_start, self._x3_start + self.order + 1)
-        if np.ma.is_masked(self.start_points.x1) or np.ma.is_masked(self.start_points.x2):
-            mask = np.moveaxis(np.broadcast_to(np.ma.mask_or(np.ma.getmask(self.start_points.x1), np.ma.getmask(self.start_points.x2)), self.poloidal_shape + (self.order + 1,)), 0, -1)
+        if np.ma.is_masked(self.start_points.x1) or np.ma.is_masked(
+            self.start_points.x2
+        ):
+            mask = np.moveaxis(
+                np.broadcast_to(
+                    np.ma.mask_or(
+                        np.ma.getmask(self.start_points.x1),
+                        np.ma.getmask(self.start_points.x2),
+                    ),
+                    (self.order + 1,) + self.poloidal_shape,
+                ),
+                0,
+                -1,
+            )
             x1 = np.ma.masked_array(self._x1[..., sl], mask)
             x2 = np.ma.masked_array(self._x2[..., sl], mask)
         else:
@@ -841,7 +866,7 @@ class Prism(LazilyOffsetable):
             n = self.nodes.flip(1)
             yield Quad(n[0, :])
             yield Quad(n.diagonal)
-            yield Quad(n[0, :])
+            yield Quad(n[:, 0])
         elif self.shape == PrismTypes.RECTANGULAR:
             yield Quad(self.nodes[0, :])
             yield Quad(self.nodes[-1, :])
@@ -859,7 +884,9 @@ class Prism(LazilyOffsetable):
         nodes aren't masked.
 
         """
-        return self.shape == other.shape and self.nodes.approx_eq(other.nodes, rtol, atol)
+        return self.shape == other.shape and self.nodes.approx_eq(
+            other.nodes, rtol, atol
+        )
 
     @cached_property
     def near(self) -> UnalignedShape:
@@ -885,13 +912,19 @@ class Prism(LazilyOffsetable):
         yield self.nodes.coords[0, -1, 0]
         if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
             yield self.nodes.coords[-1, 0, 0]
-        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
+        if (
+            self.shape == PrismTypes.RECTANGULAR
+            or self.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             yield self.nodes.coords[-1, -1, 0]
         yield self.nodes.coords[0, 0, -1]
         yield self.nodes.coords[0, -1, -1]
         if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
             yield self.nodes.coords[-1, 0, -1]
-        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
+        if (
+            self.shape == PrismTypes.RECTANGULAR
+            or self.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             yield self.nodes.coords[-1, -1, -1]
 
     def poloidal_corners(self) -> Iterator[SliceCoord]:
@@ -900,7 +933,10 @@ class Prism(LazilyOffsetable):
         yield self.nodes.start_points[0, -1]
         if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
             yield self.nodes.start_points[-1, 0]
-        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
+        if (
+            self.shape == PrismTypes.RECTANGULAR
+            or self.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             yield self.nodes.start_points[-1, -1]
 
     def subdivide(self, num_divisions: int) -> Iterator[Prism]:
@@ -920,9 +956,16 @@ class Prism(LazilyOffsetable):
 
     def make_flat_faces(self) -> Prism:
         """Create a new prism where sides don't curve in the poloidal plane."""
-        if self.shape == PrismTypes.TRIANGULAR or self.shape == PrismTypes.REVERSED_TRIANGULAR:
+        if (
+            self.shape == PrismTypes.TRIANGULAR
+            or self.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             # FIXME: I need to use the adjusted triangle control points
-            nodes = self.nodes.flip(1) if self.shape == PrismTypes.REVERSED_TRIANGULAR else self.nodes
+            nodes = (
+                self.nodes.flip(1)
+                if self.shape == PrismTypes.REVERSED_TRIANGULAR
+                else self.nodes
+            )
             # north = nodes.start_points[0, 0]
             # east = nodes.start_points[0, -1]
             # south = nodes.start_points[-1, 0]
@@ -938,7 +981,9 @@ class Prism(LazilyOffsetable):
             east = nodes.start_points[0, -1]
             west = nodes.start_points[0, 0]
             # FIXME: These still aren't the triangle points
-            ns, es, ws = _triangle_linear_interp_weights(self.nodes.start_points.shape[0] - 1)
+            ns, es, ws = _triangle_linear_interp_weights(
+                self.nodes.start_points.shape[0] - 1
+            )
             starts = SliceCoords(
                 north.x1 * ns + east.x1 * es + west.x1 * ws,
                 north.x2 * ns + east.x2 * es + west.x2 * ws,
@@ -963,16 +1008,20 @@ class Prism(LazilyOffsetable):
         else:
             assert_never(self.shape)
         new_nodes = field_aligned_positions(
-                starts,
-                self.nodes.x3[-1] - self.nodes.x3[0],
-                self.nodes.trace,
-                self.nodes.alignments,
-                self.nodes.order,
-                self.nodes.subdivision,
-                self.nodes.num_divisions,
+            starts,
+            self.nodes.x3[-1] - self.nodes.x3[0],
+            self.nodes.trace,
+            self.nodes.alignments,
+            self.nodes.order,
+            self.nodes.subdivision,
+            self.nodes.num_divisions,
         )
         return Prism(
-            self.shape, new_nodes.flip(1) if self.shape == PrismTypes.REVERSED_TRIANGULAR else new_nodes)
+            self.shape,
+            new_nodes.flip(1)
+            if self.shape == PrismTypes.REVERSED_TRIANGULAR
+            else new_nodes,
+        )
 
 
 E = TypeVar("E", Quad, Prism)
@@ -1222,7 +1271,6 @@ mesh
 """
 
 
-
 @cache
 def _triangle_coordinates(order: int) -> tuple[npt.NDArray, npt.NDArray]:
     s = np.linspace(0.0, 1.0, order + 1)
@@ -1235,12 +1283,21 @@ def _triangle_coordinates(order: int) -> tuple[npt.NDArray, npt.NDArray]:
     x1_m = np.ma.masked_greater(x1, 1.0000001)
     return x1_m, np.ma.array(np.broadcast_to(x2, x1.shape), mask=x1_m.mask)
 
-@cache
-def _triangle_linear_interp_weights(order: int) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
-    s1, s2 = _triangle_coordinates(order)
-    return s2, s1 * (1.0 - s2), (1.0 - s1) * (1.0 - s2) 
 
-def _interpolate_triangle(east: npt.NDArray, west: npt.NDArray, order: int) -> npt.NDArray:
+@cache
+def _triangle_linear_interp_weights(
+    order: int,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    s1, s2 = _triangle_coordinates(order)
+    return s2, s1 * (1.0 - s2), (1.0 - s1) * (1.0 - s2)
+
+
+def _interpolate_triangle(
+    east: npt.NDArray,
+    west: npt.NDArray,
+    south: npt.NDArray | None = None,
+    order: int = 1,
+) -> npt.NDArray:
     if east.ndim < 1:
         east = east.reshape((1,))
     if west.ndim < 1:
@@ -1250,44 +1307,119 @@ def _interpolate_triangle(east: npt.NDArray, west: npt.NDArray, order: int) -> n
     southwest = west[0]
     s1, s2 = _triangle_coordinates(order)
     ns, es, ws = _triangle_linear_interp_weights(order)
-    return north * ns + southeast * es + southwest * ws + (np.expand_dims(east, 1) - southeast * (1 - s2) - north * s2) * s1 + (np.expand_dims(west, 1) - southwest * (1 - s2) - north * s2)* (1 - s1)
+    # FIXME: this won't give a fully smooth mapping for internal
+    # points, see "Spectral/hp Element Methods for CFD". Probably good
+    # enough for what we're doing though... If only one side is curved
+    # then could make that the base of the triangle and get a
+    # better-behaved mapping. This won't actually matter for Nektar++
+    # meshes, mind you. I assume that inaccuracies caused by
+    # discretisation will smooth things out for the meshes that do
+    # make use of the internal poi9nts.
+    result = (
+        north * ns
+        + southeast * es
+        + southwest * ws
+        + (np.expand_dims(east, 1) - southeast * (1 - s2) - north * s2) * s1
+        + (np.expand_dims(west, 1) - southwest * (1 - s2) - north * s2) * (1 - s1)
+    )
+    if south is not None:
+        interp = lagrange(s1[0], south - southwest * (1 - s1[0]) - southeast * s1[0])
+        result += interp(s1) * (1 - s2)
+    return result
 
 
-def edges_to_prism(side1: Quad, side2: Quad) -> Prism:
-    """Construct a prism from the 2 faces, with a flat plane connecting them."""
-    if side1.nodes.start_points.system != side2.nodes.start_points.system:
-        raise RuntimeError("Can not create a prism from quads with different coordinate systems.")
-    
+def quads_to_prism(side1: Quad, side2: Quad, side3: Quad | None = None) -> Prism:
+    """
+    Construct a prism from the faces.
+
+    If only two faces are given then they will be connected with a flat plane.
+    """
+    return Prism(
+        PrismTypes.TRIANGULAR,
+        sides_to_prism(
+            side1.nodes, side2.nodes, side3.nodes if side3 is not None else None
+        ),
+    )
+
+
+def sides_to_prism(
+    side1: FieldAlignedPositions,
+    side2: FieldAlignedPositions,
+    side3: FieldAlignedPositions | None = None,
+) -> FieldAlignedPositions:
+    """
+    Construct a prism from the faces.
+
+    If only two faces are given then they will be connected with a flat plane.
+    """
+    if side1.start_points.system != side2.start_points.system:
+        raise RuntimeError(
+            "Can not create a prism from quads with different coordinate systems."
+        )
+
     # Order sides so first one is linear, plus ensure east and west sides start at south
-    s1_1 = side1.nodes.start_points[0]
-    s1_2 = side1.nodes.start_points[-1]
-    s2_1 = side2.nodes.start_points[0]
-    s2_2 = side2.nodes.start_points[-1]
+    s1_1 = side1.start_points[0]
+    s1_2 = side1.start_points[-1]
+    s2_1 = side2.start_points[0]
+    s2_2 = side2.start_points[-1]
 
     if s1_1.approx_eq(s2_1):
-        west = side1.nodes[::-1]
-        east = side2.nodes[::-1]
+        west = side1[::-1]
+        east = side2[::-1]
     elif s1_1.approx_eq(s2_2):
-        west = side1.nodes[::-1]
-        east = side2.nodes
+        west = side1[::-1]
+        east = side2
     elif s1_2.approx_eq(s2_1):
-        west = side1.nodes
-        east = side2.nodes[::-1]
+        west = side1
+        east = side2[::-1]
     elif s1_2.approx_eq(s2_2):
-        west = side1.nodes
-        east = side2.nodes
+        west = side1
+        east = side2
     else:
         raise RuntimeError("Sides of triangular prism do not share an edge.")
 
+    if side3 is not None:
+        if side3.start_points.system != side2.start_points.system:
+            raise RuntimeError(
+                "Can not create a prism from quads with different coordinate systems."
+            )
+        s3_1 = side3.start_points[0]
+        s3_2 = side3.start_points[-1]
+        if s3_1.approx_eq(west.start_points[0]) and s3_2.approx_eq(
+            east.start_points[0]
+        ):
+            south = side3
+        elif s3_1.approx_eq(east.start_points[0]) and s3_2.approx_eq(
+            west.start_points[0]
+        ):
+            south = side3[::-1]
+        else:
+            breakpoint()
+            raise RuntimeError("Sides of triangular prism do not all connect")
+    else:
+        south = None
+
     order = west.poloidal_shape[0] - 1
-    real_x1 = _interpolate_triangle(east.start_points.x1, west.start_points.x1, order)
-    real_x2 = _interpolate_triangle(east.start_points.x2, west.start_points.x2, order)
-    alignments = _interpolate_triangle(east.alignments, west.alignments, order)
-    # FIXME: This isn't handling offsets properly. Think I need a field_aligned_positions_like function.
-    return Prism(
-        PrismTypes.TRIANGULAR,
-        field_aligned_positions_like(side1.nodes,
-            SliceCoords(real_x1, real_x2, side1.nodes.start_points.system),
-            alignments,
-        ),
+    real_x1 = _interpolate_triangle(
+        east.start_points.x1,
+        west.start_points.x1,
+        south.start_points.x1 if south is not None else None,
+        order,
+    )
+    real_x2 = _interpolate_triangle(
+        east.start_points.x2,
+        west.start_points.x2,
+        south.start_points.x2 if south is not None else None,
+        order,
+    )
+    alignments = _interpolate_triangle(
+        east.alignments,
+        west.alignments,
+        south.alignments if south is not None else None,
+        order,
+    )
+    return field_aligned_positions_like(
+        side1,
+        SliceCoords(real_x1, real_x2, side1.start_points.system),
+        alignments,
     )

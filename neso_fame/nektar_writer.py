@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import cache, reduce
 from operator import attrgetter, or_
 from typing import Optional, cast
+from typing_extensions import assert_never
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
@@ -431,7 +432,10 @@ def nektar_poloidal_face(
 
     """
     sides = list(solid)
-    if solid.shape == PrismTypes.TRIANGULAR:
+    if (
+        solid.shape == PrismTypes.TRIANGULAR
+        or solid.shape == PrismTypes.REVERSED_TRIANGULAR
+    ):
         north, north_termini = nektar_edge(
             poloidal_curve(sides[0]), spatial_dim, layer_id
         )
@@ -465,7 +469,7 @@ def nektar_poloidal_face(
         edges = (north, east, south, west)
         nek_shape = _nektar_quad(edges, None)
     else:
-        raise ValueError(f"Can not handle unknown shape {solid.shape}.")
+        assert_never(solid.shape)
     return frozenset({nek_shape}), frozenset(edges), points
 
 
@@ -486,7 +490,10 @@ def nektar_end_shape(
 
     """
     sides = list(shape)
-    if shape.shape == PrismTypes.TRIANGULAR:
+    if (
+        shape.shape == PrismTypes.TRIANGULAR
+        or shape.shape == PrismTypes.REVERSED_TRIANGULAR
+    ):
         north, north_termini = nektar_edge(sides[0], spatial_dim, layer_id)
         east, east_termini = nektar_edge(sides[1], spatial_dim, layer_id)
         south, south_termini = nektar_edge(sides[2], spatial_dim, layer_id)
@@ -506,7 +513,7 @@ def nektar_end_shape(
         edges = (north, east, south, west)
         nek_shape = _nektar_quad(edges, None)
     else:
-        raise ValueError(f"Can not handle unkown shape {shape.shape} sides.")
+        assert_never(shape.shape)
     return frozenset({nek_shape}), frozenset(edges), points
 
 
@@ -966,7 +973,9 @@ def nektar_mesh(
         composites[k] = far
         if write_movement and (i != n - 1 or periodic_interfaces):
             near_interface = SD.Interface(2 * i, nektar_composite_map({j: near}), False)
-            far_interface = SD.Interface(2 * i + 1, nektar_composite_map({k: far}), False)
+            far_interface = SD.Interface(
+                2 * i + 1, nektar_composite_map({k: far}), False
+            )
             movement.AddInterface(f"Interface {i}", far_interface, near_interface)
     print("Assigning boundary composites")
     for i, bound in enumerate(elements.bounds(), m + 2 * n):

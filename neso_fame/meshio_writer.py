@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from functools import cache
 from typing import DefaultDict, TypedDict, TypeVar, cast, overload
+from typing_extensions import assert_never
 
 import meshio  # type: ignore
 import numpy as np
@@ -191,7 +192,7 @@ def _meshio_triangle_point_order(
     """Iterate through points in order expected by meshio and gmsh.
 
     Input coords are expected to be a 2-D array with indices
-    corresponding to rows/columns of points on the quad.
+    corresponding to rows/columns of points on the triangle.
 
     """
     if len(points) == 0:
@@ -216,6 +217,46 @@ def _meshio_triangle_point_order(
         if n > 3:
             yield from _meshio_triangle_point_order(
                 type(points)(*(x[1:-2, 1:-2] for x in points), points.system)  # type: ignore
+            )
+
+
+@overload
+def _meshio_reversed_triangle_point_order(
+    points: SliceCoords,
+) -> Iterator[SliceCoord]: ...
+@overload
+def _meshio_reversed_triangle_point_order(points: Coords) -> Iterator[Coord]: ...
+def _meshio_reversed_triangle_point_order(
+    points: SliceCoords | Coords,
+) -> Iterator[SliceCoord | Coord]:
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 2-D array with indices
+    corresponding to rows/columns of points on the triangle.
+
+    """
+    if len(points) == 0:
+        return
+    shape = points.x1.shape
+    if len(shape) != 2 or shape[0] != shape[1]:
+        raise RuntimeError("Points must be in a square")
+    n = shape[0]
+    if len(points) == 1:
+        yield points.to_coord()
+        return
+    yield points[0, 0]
+    yield points[-1, -1]
+    yield points[0, -1]
+    if n > 2:
+        for i in range(1, n - 1):
+            yield points[i, i]
+        for i in range(1, n - 1):
+            yield points[i, -1]
+        for i in range(1, n - 1):
+            yield points[0, i]
+        if n > 3:
+            yield from _meshio_reversed_triangle_point_order(
+                type(points)(*(x[2:-1, 2:-1] for x in points), points.system)  # type: ignore
             )
 
 
@@ -484,14 +525,15 @@ class MeshioData:
 
         """
         # FIXME: Will need to have a different cellblock for each layer
-        if solid.shape == PrismTypes.TRIANGULAR:
+        if (
+            solid.shape == PrismTypes.TRIANGULAR
+            or solid.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             shape = _ELEMENT_TYPES[order(solid) - 1]["triangle"]
         elif solid.shape == PrismTypes.RECTANGULAR:
             shape = _ELEMENT_TYPES[order(solid) - 1]["quad"]
         else:
-            raise NotImplementedError(
-                "Currently only triangular and rectangular prisms are supported."
-            )
+            assert_never(solid.shape)
         coords = solid.nodes.start_points
         points = tuple(
             self.point(p, shape, cellsets)
@@ -499,6 +541,10 @@ class MeshioData:
                 _meshio_quad_point_order(coords)
                 if solid.shape == PrismTypes.RECTANGULAR
                 else _meshio_triangle_point_order(coords)
+                if solid.shape == PrismTypes.TRIANGULAR
+                else _meshio_reversed_triangle_point_order(coords)
+                if solid.shape == PrismTypes.REVERSED_TRIANGULAR
+                else assert_never(solid.shape)
             )
         )
         cell_list = self._cells[shape, cellsets]

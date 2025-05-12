@@ -488,15 +488,19 @@ def hypnotoad(
     if not isinstance(options, dict):
         raise RuntimeError("Hypnotoad YAML file must contain a dictionary.")
     print(f"Reading G-EQDSK from {geqdsk} and constructing equilibrium...")
+    for key in options:
+        if key.startswith("nx_") or key.startswith("ny_"):
+            options[key] *= order
     eq = eqdsk_equilibrium(geqdsk, options)
     print("Building 2D poloidal mesh...")
+    print(options)
     hypno_mesh = HypnoMesh(eq, options)
     print("Extruding 2D mesh along magnetic field lines...")
     mesh = hypnotoad_mesh(
         hypno_mesh,
         toroidal_limits,
         layers,
-        21,
+        order,
         n // layers,
         max_ratio,
         core,
@@ -506,7 +510,7 @@ def hypnotoad(
         wall_resolution,
         wall_angle_threshold,
         alignment_steps,
-        lambda x: next(iter(nektar_3d_element(x, order, 3, -1)[0])).IsValid(),
+        lambda x: next(iter(nektar_3d_element(x, 3, -1)[0])).IsValid(),
     )
     periodic = toroidal_limits[0] % (2 * np.pi) == toroidal_limits[1] % (2 * np.pi)
     print("Converting mesh to output format and writing to disk...")

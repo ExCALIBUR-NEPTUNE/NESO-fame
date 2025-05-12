@@ -784,7 +784,14 @@ def test_flux_surface_edges(
 # Building meshes is expensive, so use caching to avoid having to do
 # it more than once
 @cache
-def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mesh:
+def to_mesh(
+    args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]], order: int = 1
+) -> Mesh:
+    def update_resolution(arg: tuple[str, Any]) -> tuple[str, Any]:
+        if arg[0].startswith("nx_") or arg[0].startswith("ny_"):
+            return arg[0], arg[1] * order
+        return arg
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", "divide by zero", RuntimeWarning, "hypnotoad.core.equilibrium"
@@ -801,7 +808,11 @@ def to_mesh(args: tuple[tuple[OPoint, ...], tuple[tuple[str, Any], ...]]) -> Mes
             DeprecationWarning,
             "hypnotoad.utils.critical",
         )
-        eq = create_equilibrium(o_points=args[0], make_regions=True, options=args[1])
+        eq = create_equilibrium(
+            o_points=args[0],
+            make_regions=True,
+            options=tuple(map(update_resolution, args[1])),
+        )
         m = Mesh(
             eq,
             {"follow_perpendicular_rtol": 1e-10, "follow_perpendicular_atol": 1e-10}
