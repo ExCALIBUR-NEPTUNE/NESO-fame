@@ -593,6 +593,8 @@ def _nektar_prism(
         ordered_sides,
         init,
     )
+    # if solid.shape == PrismTypes.TRIANGULAR:
+    #     breakpoint()
     nek_solid = SD.PrismGeom(_solid_count, faces)
     return frozenset({nek_solid}), frozenset(faces), segments, points
 
@@ -618,10 +620,13 @@ def nektar_3d_element(
     """
     if solid.shape == PrismTypes.RECTANGULAR:
         return _nektar_hexahedron(solid, spatial_dim, layer_id)
-    elif solid.shape == PrismTypes.TRIANGULAR:
+    elif (
+        solid.shape == PrismTypes.TRIANGULAR
+        or solid.shape == PrismTypes.REVERSED_TRIANGULAR
+    ):
         return _nektar_prism(solid, spatial_dim, layer_id)
     else:
-        raise ValueError(f"Unrecognized element shape {solid.shape}.")
+        assert_never(solid.shape)
 
 
 def _combine_2d_items(

@@ -398,7 +398,7 @@ def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
     yield points[0, 0, -1]
     yield points[-1, 0, -1]
     yield points[0, -1, -1]
-    if n <= 2:
+    if n < 2:
         return
     for coord in [
         lambda i: (i, 0, 0),
@@ -436,6 +436,71 @@ def _meshio_prism_point_order(points: Coords) -> Iterator[Coord]:
     )
     yield from _meshio_prism_point_order(
         Coords(*(x[1:-2, 1:-2, 1:-1] for x in points), points.system)  # type: ignore
+    )
+
+
+def _meshio_reversed_prism_point_order(points: Coords) -> Iterator[Coord]:
+    """Iterate through points in order expected by meshio and gmsh.
+
+    Input coords are expected to be a 3-D array with indices
+    corresponding to rows/columns/etc. of points in the prism. The
+    triangular cross section is in the first two coordinates.
+
+    """
+    if len(points) == 0:
+        return
+    shape = points.x1.shape
+    if len(shape) != 3 or shape[0] != shape[1] or shape[0] != shape[2]:
+        raise RuntimeError("Points must be in a cube")
+    n = shape[0]
+    if len(points) == 1:
+        yield points.to_coord()
+        return
+    yield points[0, 0, 0]
+    yield points[-1, -1, 0]
+    yield points[0, -1, 0]
+    yield points[0, 0, -1]
+    yield points[-1, -1, -1]
+    yield points[0, -1, -1]
+    # FIXME: Shouldn't this just be < 2
+    if n < 2:
+        return
+    for coord in [
+        lambda i: (i, i, 0),
+        lambda i: (0, i, 0),
+        lambda i: (0, 0, i),
+        lambda i: (n - i - 1, -1, 0),
+        lambda i: (-1, -1, i),
+        lambda i: (0, -1, i),
+        lambda i: (i, i, -1),
+        lambda i: (0, i, -1),
+        lambda i: (n - i - 1, -1, -1),
+    ]:
+        for i in range(1, n - 1):
+            yield points[coord(i)]
+
+    # FIXME: Will the normals of these be in the right direction?
+    # FIXME: I've taken my best guess at the ordering of the
+    # triangular faces, based on analogy to hex, but not certain it's
+    # right.
+    yield from _meshio_reversed_triangle_point_order(
+        Coords(*(x[1:-1, 1:-1, 0] for x in points), points.system)  # type: ignore
+    )
+    # FIXME: This is the complicated face that is going diagonally through data. Not 100% sure I got it right.
+    yield from _meshio_quad_point_order(
+        Coords(*(x.diagonal()[1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[0, 1:-1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_quad_point_order(
+        Coords(*(x[1:-1, -1, 1:-1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_reversed_triangle_point_order(
+        Coords(*(x[1:-1, 1:-1, -1] for x in points), points.system)  # type: ignore
+    )
+    yield from _meshio_reversed_prism_point_order(
+        Coords(*(x[1:-2, 2:-1, 1:-1] for x in points), points.system)  # type: ignore
     )
 
 
@@ -554,12 +619,36 @@ class MeshioData:
 
     def end_shape(
         self,
-        shape: UnalignedShape,
+        unaligned_shape: UnalignedShape,
         cellsets: frozenset[str] = frozenset(),
     ) -> int:
         """Add a 2D element representing a poloidal face and return the integer ID for it."""
-        # FIXME: This will require a bit of rethinking about how best to represent shape data in teh fame mesh. In particular, we want to avoid re-integrating the whole shape to get the data at the end. This applies for the 2D-case with quad ends too, actually. Makes me wonder if my attempt to avoid specifying the order until output is a good idea. Perhaps should just do it from the start. Then can specify shape of elements using arrays of points. Plus can use hypnotoad to compute the point once (relatively) cheaply. Would need to change technique for merging thin elements though, which I think would be complicated.
-        return 0
+        if (
+            unaligned_shape.shape == PrismTypes.TRIANGULAR
+            or unaligned_shape.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
+            shape = _ELEMENT_TYPES[order(unaligned_shape) - 1]["triangle"]
+        elif unaligned_shape.shape == PrismTypes.RECTANGULAR:
+            shape = _ELEMENT_TYPES[order(unaligned_shape) - 1]["quad"]
+        else:
+            assert_never(unaligned_shape.shape)
+        coords = unaligned_shape.nodes
+        points = tuple(
+            self.point(p, shape, cellsets)
+            for p in (
+                _meshio_quad_point_order(coords)
+                if unaligned_shape.shape == PrismTypes.RECTANGULAR
+                else _meshio_triangle_point_order(coords)
+                if unaligned_shape.shape == PrismTypes.TRIANGULAR
+                else _meshio_reversed_triangle_point_order(coords)
+                if unaligned_shape.shape == PrismTypes.REVERSED_TRIANGULAR
+                else assert_never(unaligned_shape.shape)
+            )
+        )
+        cell_list = self._cells[shape, cellsets]
+        cell_list.append(points)
+        cell_id = len(cell_list) - 1
+        return cell_id
 
     def quad(self, quad: Quad, cellsets: frozenset[str]) -> int:
         """Add a 2D element representing a quad and return the integer ID for it."""
@@ -576,7 +665,33 @@ class MeshioData:
 
     def solid(self, solid: Prism, cellsets: frozenset[str]) -> int:
         """Add a 3D element representing to the mesh and return the integer ID for it."""
-        return 0
+        # FIXME: Will need to have a different cellblock for each layer
+        if (
+            solid.shape == PrismTypes.TRIANGULAR
+            or solid.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
+            shape = _ELEMENT_TYPES[order(solid) - 1]["prism"]
+        elif solid.shape == PrismTypes.RECTANGULAR:
+            shape = _ELEMENT_TYPES[order(solid) - 1]["hexahedron"]
+        else:
+            assert_never(solid.shape)
+        coords = solid.nodes.coords
+        points = tuple(
+            self.point(p, shape, cellsets)
+            for p in (
+                _meshio_hex_point_order(coords)
+                if solid.shape == PrismTypes.RECTANGULAR
+                else _meshio_prism_point_order(coords)
+                if solid.shape == PrismTypes.TRIANGULAR
+                else _meshio_reversed_prism_point_order(coords)
+                if solid.shape == PrismTypes.REVERSED_TRIANGULAR
+                else assert_never(solid.shape)
+            )
+        )
+        cell_list = self._cells[shape, cellsets]
+        cell_list.append(points)
+        cell_id = len(cell_list) - 1
+        return cell_id
 
     def meshio(self) -> meshio.Mesh:
         """Create a meshio mesh object from the stored data."""

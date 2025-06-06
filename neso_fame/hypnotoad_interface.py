@@ -32,6 +32,7 @@ from .mesh import (
     Quad,
 )
 
+
 Integrand = Callable[[npt.ArrayLike, npt.NDArray], tuple[npt.ArrayLike, ...]]
 r"""A (possibly vector) function producing a derivative with respect to `t`.
 
@@ -174,7 +175,6 @@ def _process_integrate_vectorize_inputs(
         pos_limit,
         neg_limit,
     )
-
 
 def _handle_integration(
     func: Integrand,

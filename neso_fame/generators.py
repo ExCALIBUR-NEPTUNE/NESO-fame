@@ -523,7 +523,6 @@ def _iter_merge_elements(
     ) -> tuple[int, Iterator[Prism]]:
         def iterate_column(merge_start: int | None) -> Iterator[Prism]:
             # Handle elements that don't need to be merged
-            print("Merge start", merge_start, "Previous merge start", prev_merge_start)
             for i in range(0, prev_merge_start - order, order):
                 yield Prism(
                     PrismTypes.RECTANGULAR,
@@ -606,14 +605,14 @@ def _iter_merge_elements(
                 )
                 merge_sides[merge_start] = new_edge
                 yield Prism(
-                    PrismTypes.REVERSED_TRIANGULAR if flip else PrismTypes.TRIANGULAR,
-                    maybe_flip(
-                        sides_to_prism(
-                            inner_edge,
-                            new_edge,
-                            bottom_edge,
-                        )
-                    ),
+                    PrismTypes.TRIANGULAR,
+                    sides_to_prism(inner_edge, new_edge, bottom_edge.flip()).transpose()
+                    if flip
+                    else sides_to_prism(
+                        new_edge,
+                        inner_edge,
+                        bottom_edge,
+                    ).transpose(),
                 )
 
         column_starts = nodes.start_points.get[:prev_merge_start:order, count * order]
@@ -674,12 +673,14 @@ def _element_iterator_factory(
     def _iter_elements(
         region: MeshRegion,
     ) -> tuple[Iterator[Prism], Iterator[Quad]]:
+        # Reverse the order of the second index, to ensure positive Jacobians
+        idx = (slice(None), slice(None, None, -1))
         nodes = subdividable_field_aligned_positions(
             # Need to ensure the first coordinate is indexed away from the x-point
-            SliceCoords(region.Rxy.corners, region.Zxy.corners, system),
+            SliceCoords(region.Rxy.corners[idx], region.Zxy.corners[idx], system),
             dx3,
             tracer,
-            make_weights(region.Rxy.corners, region.Zxy.corners),
+            make_weights(region.Rxy.corners[idx], region.Zxy.corners[idx]),
             order,
             subdivisions,
         )
@@ -747,91 +748,22 @@ def _iter_prisms_to_core(
     assert np.all(nodes.alignments == 1.0)
     assert len(nodes.poloidal_shape) == 1
     n = (nodes.poloidal_shape[0] - 1) // order
-    alignments = np.ones((order + 1, order + 1))
-    alignments[-1, 0] = 0.0
+    alignments = np.ones(order + 1)
+    alignments[-1] = 0.0
     # Get edges of triangles, connecting to the O-point
     connectors = [
-        connect_to_o_point(eq, start, order)
+        field_aligned_positions_like(
+            nodes, connect_to_o_point(eq, start, order), alignments)
         for start in nodes.start_points.get[::order].iter_points()
     ]
-    # Create prisms in groups of two, so that they can share memory more efficiently
-    for i in range(n // 2):
-        edge1 = nodes[2 * i * order : (2 * i + 1) * order + 1]
-        edge2 = nodes[(2 * i + 1) * order : 2 * (i + 1) * order + 1]
-        c1 = connectors[2 * i]
-        c2 = connectors[2 * i + 1]
-        c3 = connectors[2 * (i + 1)]
-        R_starts = np.empty((order + 1, order + 1))
-        Z_starts = np.empty((order + 1, order + 1))
-        R_starts[0, :] = edge1.start_points.x1
-        Z_starts[0, :] = edge1.start_points.x2
-        R_starts[:, -1] = edge2.start_points.x1
-        Z_starts[:, -1] = edge2.start_points.x2
-        R_starts[:, 0] = c1.x1
-        Z_starts[:, 0] = c1.x2
-        R_starts[-1, ::-1] = c3.x1
-        Z_starts[-1, ::-1] = c3.x2
-        np.fill_diagonal(np.fliplr(R_starts), c2.x1)
-        np.fill_diagonal(np.fliplr(Z_starts), c2.x2)
-        # Fill in the interior points of the triangles
-        # FIXME: I'm evenly spacing the internal points along the flux
-        # surface, while those at the lower boundary are unevenly
-        # spaced by hypnotoad.
-        for j in range(1, order - 1):
-            points1 = flux_surface_edge(eq, c1[j], c2[j], order - j - 1)
-            points2 = flux_surface_edge(eq, c2[j], c3[j], order - j - 1)
-            R_starts[j, 1 : order - j] = points1.x1[:-1]
-            Z_starts[j, 1 : order - j] = points1.x2[:-1]
-            R_starts[j + 1 : -1, -j - 1] = points2.x1[:-1]
-            Z_starts[j + 1 : -1, -j - 1] = points2.x2[:-1]
-        triangle_nodes = field_aligned_positions(
-            SliceCoords(R_starts, Z_starts, nodes.start_points.system),
-            nodes.x3[-1] - nodes.x3[1],
-            nodes.trace,
-            alignments,
-            len(nodes.x3) - 1,
+    for i in range(n):
+        edge1 = nodes[i * order : (i + 1) * order + 1]
+        c1 = connectors[i]
+        c2 = connectors[i + 1]
+        yield Prism(
+            PrismTypes.TRIANGULAR,
+            sides_to_prism(c1, c2, edge1).transpose()
         )
-        # Precompute coordinates on the shared edge. These are stored
-        # along a diagonal and Numpy doesn't currently return
-        # writeable views of diagonals. This prevents caching of the
-        # coordinates calculated for the quad emenating from that
-        # edge. Instead we compute them now when accessing elements in
-        # a way that will return writeable views.
-        for i in range(order + 1):
-            triangle_nodes[i, -i - 1].coords
-        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes)
-        # For second prism, we need to transpose and then flip horizontally and vertically
-        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes.transpose().flip(0).flip(1))
-
-    # If there are an odd number of triangles, create the last one
-    if n > 0 and n % 2 == 1:
-        edge1 = nodes[-order - 1 :]
-        c1 = connectors[-2]
-        c2 = connectors[-1]
-        R_starts = np.empty((order + 1, order + 1))
-        Z_starts = np.empty((order + 1, order + 1))
-        R_starts[0, :] = edge1.start_points.x1
-        Z_starts[0, :] = edge1.start_points.x2
-        R_starts[:, 0] = c1.x1
-        Z_starts[:, 0] = c1.x2
-        np.fill_diagonal(np.fliplr(R_starts), c2.x1)
-        np.fill_diagonal(np.fliplr(Z_starts), c2.x2)
-        # Fill in the interior points of the triangles
-        # FIXME: I'm evenly spacing the internal points along the flux
-        # surface, while those at the lower boundary are unevenly
-        # spaced by hypnotoad.
-        for j in range(1, order - 1):
-            points1 = flux_surface_edge(eq, c1[j], c2[j], order - j - 1)
-            R_starts[j, 1 : order - j] = points1.x1[:-1]
-            Z_starts[j, 1 : order - j] = points1.x2[:-1]
-        triangle_nodes = field_aligned_positions(
-            SliceCoords(R_starts, Z_starts, nodes.start_points.system),
-            nodes.x3[-1] - nodes.x3[1],
-            nodes.trace,
-            alignments,
-            len(nodes.x3) - 1,
-        )
-        yield Prism(PrismTypes.TRIANGULAR, triangle_nodes)
 
 
 def _find_internal_neighbours(
@@ -1520,6 +1452,8 @@ def hypnotoad_mesh(
             q3, q3_new = get_prism_edge(p3, p1)
             # Make sure any pre-existing quads representing the plasma
             # mesh or the wall are used, to preserve any curvature.
+
+            # FIXME: This will usually result in edges being flipped, which means duplicate faces and Nektar++ errors. The Jacobian is coming out positive, though!
             if q1_new:
                 return quads_to_prism(q2, q3)
             elif q2_new:

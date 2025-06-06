@@ -581,10 +581,19 @@ elements
 """
 
 
-def order(element: AcrossFieldCurve | Curve | FieldAlignedCurve | Quad | Prism) -> int:
+def order(
+    element: AcrossFieldCurve
+    | Curve
+    | FieldAlignedCurve
+    | Quad
+    | UnalignedShape
+    | Prism,
+) -> int:
     """Get the order of accuracy used to represent the element."""
     if isinstance(element, (SliceCoords, Coords)):
         return len(element) - 1
+    elif isinstance(element, UnalignedShape):
+        return element.nodes.shape[0] - 1
     return element.order
 
 
@@ -798,13 +807,9 @@ class UnalignedShape(LazilyOffsetable):
 
     def __iter__(self) -> Iterator[Curve]:
         """Iterate over the edges of the polygon."""
-        yield Curve(self.nodes.get[0, :])
-        if self.shape == PrismTypes.RECTANGULAR:
-            yield Curve(self.nodes.get[-1, :])
-        yield Curve(self.nodes.get[:, 0])
-        if self.shape == PrismTypes.RECTANGULAR:
-            yield Curve(self.nodes.get[:, -1])
-        else:
+        if self.shape == PrismTypes.TRIANGULAR:
+            yield Curve(self.nodes.get[0, :])
+            yield Curve(self.nodes.get[:, 0])
             x1, x2, x3 = np.broadcast_arrays(
                 self.nodes.x1, self.nodes.x2, self.nodes.x3
             )
@@ -816,13 +821,38 @@ class UnalignedShape(LazilyOffsetable):
                     self.nodes.system,
                 )
             )
+        elif self.shape == PrismTypes.REVERSED_TRIANGULAR:
+            yield Curve(self.nodes.get[0, :])
+            yield Curve(self.nodes.get[:, -1])
+            x1, x2, x3 = np.broadcast_arrays(
+                self.nodes.x1, self.nodes.x2, self.nodes.x3
+            )
+            yield Curve(
+                Coords(
+                    x1.diagonal(),
+                    x2.diagonal(),
+                    x3.diagonal(),
+                    self.nodes.system,
+                )
+            )
+        elif self.shape == PrismTypes.RECTANGULAR:
+            yield Curve(self.nodes.get[0, :])
+            yield Curve(self.nodes.get[-1, :])
+            yield Curve(self.nodes.get[:, 0])
+            yield Curve(self.nodes.get[:, -1])
+        else:
+            assert_never(self.shape)
 
     def corners(self) -> Iterator[Coord]:
         """Return the points corresponding to the vertices of the polygon."""
         yield self.nodes[0, 0]
         yield self.nodes[0, -1]
-        yield self.nodes[-1, 0]
-        if self.shape == PrismTypes.RECTANGULAR:
+        if self.shape == PrismTypes.RECTANGULAR or self.shape == PrismTypes.TRIANGULAR:
+            yield self.nodes[-1, 0]
+        if (
+            self.shape == PrismTypes.RECTANGULAR
+            or self.shape == PrismTypes.REVERSED_TRIANGULAR
+        ):
             yield self.nodes[-1, -1]
 
 
@@ -864,9 +894,9 @@ class Prism(LazilyOffsetable):
             yield Quad(self.nodes.diagonal)
         elif self.shape == PrismTypes.REVERSED_TRIANGULAR:
             n = self.nodes.flip(1)
-            yield Quad(n[0, :])
-            yield Quad(n.diagonal)
+            yield Quad(n[0, ::-1])
             yield Quad(n[:, 0])
+            yield Quad(n.diagonal)
         elif self.shape == PrismTypes.RECTANGULAR:
             yield Quad(self.nodes[0, :])
             yield Quad(self.nodes[-1, :])
@@ -1363,16 +1393,21 @@ def sides_to_prism(
     s2_1 = side2.start_points[0]
     s2_2 = side2.start_points[-1]
 
+    # FIXME: flipping things like this causes duplicate faces in Nektar++
     if s1_1.approx_eq(s2_1):
+        print("**********Flipping east and west")
         west = side1[::-1]
         east = side2[::-1]
     elif s1_1.approx_eq(s2_2):
+        print("**********Flipping west")
         west = side1[::-1]
         east = side2
     elif s1_2.approx_eq(s2_1):
+        print("**********Flipping east")
         west = side1
         east = side2[::-1]
     elif s1_2.approx_eq(s2_2):
+        print("**********Not flipping either side")
         west = side1
         east = side2
     else:
@@ -1385,15 +1420,14 @@ def sides_to_prism(
             )
         s3_1 = side3.start_points[0]
         s3_2 = side3.start_points[-1]
-        if s3_1.approx_eq(west.start_points[0]) and s3_2.approx_eq(
-            east.start_points[0]
-        ):
-            south = side3
-        elif s3_1.approx_eq(east.start_points[0]) and s3_2.approx_eq(
+        # FIXME: Reversing this can cause duplicate edges in Nektar++
+        south = side3
+        if s3_1.approx_eq(east.start_points[0]) and s3_2.approx_eq(
             west.start_points[0]
         ):
-            south = side3[::-1]
-        else:
+            east, west = west, east
+        elif not (s3_1.approx_eq(west.start_points[0]) and s3_2.approx_eq(
+            east.start_points[0])):
             breakpoint()
             raise RuntimeError("Sides of triangular prism do not all connect")
     else:
