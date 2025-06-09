@@ -17,12 +17,10 @@ from neso_fame.coordinates import (
     SliceCoord,
     SliceCoords,
 )
-from neso_fame.element_builder import ElementBuilder
 from neso_fame.fields import straight_field
 from neso_fame.mesh import (
     AcrossFieldCurve,
     FieldAlignedCurve,
-    FieldAlignedPositions,
     Prism,
     PrismMeshLayer,
     PrismTypes,
@@ -30,7 +28,6 @@ from neso_fame.mesh import (
     control_points,
     quads_to_prism,
     straight_line_across_field,
-    subdividable_field_aligned_positions,
 )
 from neso_fame.nektar_writer import nektar_3d_element
 from tests.conftest import make_nodes

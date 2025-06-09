@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import itertools
-import operator
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from functools import cache, reduce
+from functools import reduce
 from typing import Callable, Optional, TypeVar, cast
 
 import numpy as np
@@ -27,7 +26,6 @@ from neso_fame.coordinates import (
 from neso_fame.hypnotoad_interface import (
     connect_to_o_point,
     equilibrium_trace,
-    flux_surface_edge,
     get_region_flux_surface_boundary_indices,
     get_region_perpendicular_boundary_indices,
     iterate_points,
@@ -43,9 +41,10 @@ from neso_fame.mesh import (
     PrismTypes,
     Quad,
     QuadMesh,
-    quads_to_prism,
     field_aligned_positions,
     field_aligned_positions_like,
+    quads_to_prism,
+    _quad_coordinates,
     sides_to_prism,
     straight_line_across_field,
     subdividable_field_aligned_positions,
@@ -753,17 +752,15 @@ def _iter_prisms_to_core(
     # Get edges of triangles, connecting to the O-point
     connectors = [
         field_aligned_positions_like(
-            nodes, connect_to_o_point(eq, start, order), alignments)
+            nodes, connect_to_o_point(eq, start, order), alignments
+        )
         for start in nodes.start_points.get[::order].iter_points()
     ]
     for i in range(n):
         edge1 = nodes[i * order : (i + 1) * order + 1]
         c1 = connectors[i]
         c2 = connectors[i + 1]
-        yield Prism(
-            PrismTypes.TRIANGULAR,
-            sides_to_prism(c1, c2, edge1).transpose()
-        )
+        yield Prism(PrismTypes.TRIANGULAR, sides_to_prism(c1, c2, edge1).transpose())
 
 
 def _find_internal_neighbours(
@@ -966,7 +963,7 @@ def _average_poloidal_spacing(hypnotoad_poloidal_mesh: HypnoMesh, order: int) ->
 def _quad_interpolate(
     north: npt.NDArray, east: npt.NDArray, south: npt.NDArray, west: npt.NDArray
 ) -> npt.NDArray:
-    s, t = _quad_control_points(len(north) - 1)
+    s, t = _quad_coordinates(len(north) - 1)
     return (
         (north - north[0] * (1 - s)) * t
         + (south - south[-1] * s) * (1 - t)
@@ -1453,7 +1450,6 @@ def hypnotoad_mesh(
             # Make sure any pre-existing quads representing the plasma
             # mesh or the wall are used, to preserve any curvature.
 
-            # FIXME: This will usually result in edges being flipped, which means duplicate faces and Nektar++ errors. The Jacobian is coming out positive, though!
             if q1_new:
                 return quads_to_prism(q2, q3)
             elif q2_new:

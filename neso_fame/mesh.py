@@ -6,7 +6,7 @@ import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property, cache
+from functools import cache, cached_property
 from typing import (
     Generic,
     NewType,
@@ -21,7 +21,6 @@ import numpy as np
 import numpy.typing as npt
 from _pytest.compat import assert_never
 from scipy.interpolate import lagrange
-
 from typing_extensions import Self
 
 from neso_fame.coordinates import (
@@ -1300,6 +1299,11 @@ mesh
 
 """
 
+@cache
+def _quad_coordinates(order: int) -> tuple[npt.NDArray, npt.NDArray]:
+    s = np.linspace(0., 1., order + 1)
+    x1, x2 = np.meshgrid(s, copy=False, sparse=True)
+    return x1, x2
 
 @cache
 def _triangle_coordinates(order: int) -> tuple[npt.NDArray, npt.NDArray]:
@@ -1426,8 +1430,10 @@ def sides_to_prism(
             west.start_points[0]
         ):
             east, west = west, east
-        elif not (s3_1.approx_eq(west.start_points[0]) and s3_2.approx_eq(
-            east.start_points[0])):
+        elif not (
+            s3_1.approx_eq(west.start_points[0])
+            and s3_2.approx_eq(east.start_points[0])
+        ):
             breakpoint()
             raise RuntimeError("Sides of triangular prism do not all connect")
     else:

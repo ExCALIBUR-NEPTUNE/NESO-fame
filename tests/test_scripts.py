@@ -8,7 +8,6 @@ import yaml
 from click.testing import CliRunner
 from hypnotoad.geqdsk._geqdsk import write as write_geqdsk  # type: ignore
 
-from neso_fame.mesh import straight_line_across_field
 from neso_fame.scripts import hypnotoad, simple
 from tests.conftest import simple_trace
 from tests.test_hypnotoad import CONNECTED_DOUBLE_NULL, LOWER_SINGLE_NULL, eqdsk_data

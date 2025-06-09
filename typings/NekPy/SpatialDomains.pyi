@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import MutableSequence, Sequence, MutableMapping
+from collections.abc import MutableMapping, MutableSequence, Sequence
 from enum import Enum
 from typing import Generic, Iterator, Optional, TypeVar, overload
-from typing_extensions import Self
 
 from NekPy import LibUtilities
+from typing_extensions import Self
 
 class Geometry:
     def GetCoordim(self) -> int: ...
@@ -173,7 +173,7 @@ class MeshGraphIO:
     def Write(
         self, outfile: str, defaultExp: bool = ..., metadata: FieldMetaDataMap = ...
     ) -> None: ...
-    def SetMeshGraph(self, mesh: MeshGraph): ...
+    def SetMeshGraph(self, mesh: MeshGraph) -> None: ...
     @classmethod
     def Create(cls, output_type: str) -> Self: ...
 

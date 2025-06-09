@@ -3,11 +3,11 @@
 from collections.abc import Iterator
 from functools import cache
 from typing import DefaultDict, TypedDict, TypeVar, cast, overload
-from typing_extensions import assert_never
 
 import meshio  # type: ignore
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import assert_never
 
 from .coordinates import Coord, Coords, SliceCoord, SliceCoords, coord_cache
 from .mesh import (

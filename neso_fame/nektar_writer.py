@@ -3,13 +3,13 @@
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from functools import cache, reduce
+from functools import cache, reduce, wraps
 from operator import attrgetter, or_
-from typing import Optional, cast
-from typing_extensions import assert_never
+from typing import Optional, cast, ParamSpec, TypeVar, Callable, Concatenate
 
 import NekPy.LibUtilities as LU
 import NekPy.SpatialDomains as SD
+from typing_extensions import assert_never
 
 from neso_fame.coordinates import Coord, coord_cache
 
@@ -46,6 +46,30 @@ Nektar3dGeomElements = tuple[
     frozenset[SD.SegGeom],
     frozenset[SD.PointGeom],
 ]
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def _nek_cache(func: Callable[P, T]) -> Callable[P, T]:
+    """Wrap a function to cache results regardless of the order of Nektar++ points or edges."""
+    cache_data: dict[tuple, T] = {}
+
+    def process_arg(x: object) -> object:
+        if isinstance(x, Iterable) and isinstance(next(iter(x)), (SD.PointGeom, SD.SegGeom)):
+            return frozenset(x)
+        return x
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        idx = tuple(map(process_arg, args + tuple(kwargs.items())))
+        if idx not in cache_data:
+            obj = func(*args, **kwargs)
+            cache_data[idx] = obj
+            return obj
+        return cache_data[idx]
+
+    return wrapper
 
 
 @dataclass(frozen=True)
@@ -261,7 +285,7 @@ def nektar_point(position: Coord, spatial_dim: int, layer_id: int) -> SD.PointGe
     )
 
 
-@cache
+@_nek_cache
 def _nektar_curve(
     points: tuple[SD.PointGeom, ...], layer_id: int
 ) -> tuple[SD.Curve, tuple[SD.PointGeom, SD.PointGeom]]:
@@ -296,7 +320,7 @@ def nektar_curve(
     return _nektar_curve(points, layer_id)
 
 
-@cache
+@_nek_cache
 def _nektar_edge(
     termini: tuple[SD.PointGeom, SD.PointGeom], nek_curve: SD.Curve
 ) -> SD.SegGeom:
@@ -337,7 +361,7 @@ def nektar_edge(
     )
 
 
-@cache
+@_nek_cache
 def _nektar_triangle(
     edges: tuple[SD.SegGeom, SD.SegGeom, SD.SegGeom],
     nek_curve: Optional[SD.Curve],
@@ -350,7 +374,7 @@ def _nektar_triangle(
         return SD.TriGeom(_face_count, list(edges))
 
 
-@cache
+@_nek_cache
 def _nektar_quad(
     edges: tuple[SD.SegGeom, SD.SegGeom, SD.SegGeom, SD.SegGeom],
     nek_curve: Optional[SD.Curve],
